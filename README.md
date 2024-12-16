@@ -1,2 +1,3 @@
 # personalist
+
 Personalist Encyclopedia
