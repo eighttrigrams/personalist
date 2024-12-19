@@ -22,6 +22,9 @@
          (binding [conn ~conn]
            ~@body)))))
 
+(defmacro are= [& body]
+  `(are [expected actual] (= expected actual) ~@body))
+
 (use-fixtures :once (juxt xtdb2-in-memory add_other_conn_types))
 
 (deftest persons
@@ -29,18 +32,18 @@
     (with-conn
       (ds/add-person conn :dan "d@et.n")
       (testing "- can't add a person with the same name"
-        (are [expected actual] (= expected actual) ;; <- TODO factor that away
+        (are=
           false (ds/add-person conn :dan "d2@et.n")
           1 (count (ds/list-persons conn))))
       (testing "- can't add a person with the same email"
-        (are [expected actual] (= expected actual) 
+        (are= 
           false (ds/add-person conn :dan2 "d@et.n")
           1 (count (ds/list-persons conn))))))
   (testing "retrieve persons"
     (with-conn
       (ds/add-person conn :dan "d@et.n")
       (ds/add-person conn :dan2 "d2@et.n")
-      (are [expected actual] (= expected actual)
+      (are=
         (set [{:name  :dan
                :email "d@et.n"}
               {:name  :dan2
@@ -62,7 +65,7 @@
     (ds/add-identity conn {:name :dan2} :id21 "text21")
     (ds/add-identity conn {:name :dan2} :id22 "text22")
     (testing "add and retrieve identities"
-      (are [expected actual] (= expected actual)
+      (are=
         (set [{:identity :id11 :text "text11"}
               {:identity :id12 :text "text12"}])
         (set (ds/list-identities conn {:xt/id :dan}))
