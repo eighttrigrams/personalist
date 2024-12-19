@@ -10,16 +10,15 @@
     {:type :xtdb2-in-memory 
      :conn (xtn/start-node)}))
 
-(defn get-closable [conn] (:conn conn))
+(defn close-conn 
+  [{:keys [conn]}]
+  (.close conn))
 
 (defonce node nil #_(init-conn {:type :xtdb2-in-memory}))
 
-#_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
-(defn close-node [] (.close (get-closable node)))
-
 (defn- health-check []
   (= {:latest-completed-tx nil, :latest-submitted-tx nil}
-     (with-open [node (get-closable (init-conn {:type :xtdb2-in-memory}))]
+     (with-open [node (init-conn {:type :xtdb2-in-memory})]
        (xt/status node))))
 
 (defn- convert-person [{name :xt/id email :person/email :as person}]
