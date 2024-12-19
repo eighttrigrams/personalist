@@ -17,9 +17,16 @@
      (with-open [node (start-in-memory-node)]
        (xt/status node))))
 
-(defn add-person [node name email]
-  (xt/execute-tx node [[:put-docs :persons {:xt/id        name        , 
-                                            :person/email email}]]))
+(defn get-person-by-name [node name]
+  (xt/q node '(from :persons [{:xt/id ?name} xt/id]) {:name name}))
+
+(defn add-person 
+  "@returns true if person added, false otherwise"
+  [node name email]
+  (if (seq (get-person-by-name node name))
+    false
+    (xt/execute-tx node [[:put-docs :persons {:xt/id        name        , 
+                                              :person/email email}]])))
 
 (defn list-persons [node]
   (xt/q node '(from :persons [xt/id person/email])))

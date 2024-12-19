@@ -9,4 +9,12 @@
          :person/email "d@et.n"}
         (first (with-open [node (ds/start-in-memory-node)]
                  (ds/add-person node :dan "d@et.n")
-                 (ds/list-persons node)))))))
+                 (ds/list-persons node))))))
+  
+  (testing "can't add a person with the same name"
+    (is 
+     (= [false 1]
+        (with-open [node (ds/start-in-memory-node)]
+          (ds/add-person node :dan "d@et.n")
+          [(ds/add-person node :dan "d2@et.n")
+           (count (ds/list-persons node))])))))
