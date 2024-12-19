@@ -20,13 +20,13 @@
          :person/email "d2@et.n"}
         (ds/get-person-by-email node "d2@et.n"))))
   
-  (testing "can't add a person with the same name or email"
-    (with-open [node (ds/start-in-memory-node)]
-      (ds/add-person node :dan "d@et.n")
-      (are [expected actual] (= expected actual) 
-        [false 1]
-        [(ds/add-person node :dan "d2@et.n")
-         (count (ds/list-persons node))]
-        [false 1]
-        [(ds/add-person node :dan2 "d@et.n")
-         (count (ds/list-persons node))]))))
+ (testing "can't add a person with the same name or email"
+   (with-open [node (ds/start-in-memory-node)]
+     (ds/add-person node :dan "d@et.n")
+     (are [expected actual] (= expected actual) 
+       [false 1]
+       [(ds/add-person node :dan "d2@et.n")
+        (count (ds/list-persons node))]
+       [false 1]
+       [(ds/add-person node :dan2 "d@et.n")
+        (count (ds/list-persons node))]))))
