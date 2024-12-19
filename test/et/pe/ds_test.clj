@@ -1,5 +1,5 @@
 (ns et.pe.ds-test
-  (:require [clojure.test :refer [deftest testing are test-vars use-fixtures]]
+  (:require [clojure.test :refer [deftest testing is are test-vars use-fixtures]]
             [et.pe.ds :as ds]))
 
 (def ^:dynamic *conn-type* nil)
@@ -23,9 +23,8 @@
 (defmacro are= [& body]
   `(are [expected actual] (= expected actual) ~@body))
 
-#_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
-(defmacro sets-are= [& _body] ;; TODO implement
-  nil)
+(defmacro sets-are= [& body]
+  `(are [expected actual] (= (set expected) (set actual)) ~@body))
 
 (use-fixtures :once (juxt xtdb2-in-memory add_other_conn_types))
 
@@ -45,12 +44,13 @@
     (with-conn
       (ds/add-person conn :dan "d@et.n")
       (ds/add-person conn :dan2 "d2@et.n")
-      (are=
-        (set [{:name  :dan
+      (sets-are=
+       (set [{:name  :dan
                :email "d@et.n"}
               {:name  :dan2
                :email "d2@et.n"}])
-        (set (ds/list-persons conn))
+        (set (ds/list-persons conn)))
+      (are=
         {:name  :dan
          :email "d@et.n"}
         (ds/get-person-by-name conn :dan)
@@ -67,7 +67,7 @@
     (ds/add-identity conn {:name :dan2} :id21 "text21")
     (ds/add-identity conn {:name :dan2} :id22 "text22")
     (testing "add and retrieve identities"
-      (are=
+      (sets-are=
         (set [{:identity :id11 :text "text11"}
               {:identity :id12 :text "text12"}])
         (set (ds/list-identities conn {:xt/id :dan}))
