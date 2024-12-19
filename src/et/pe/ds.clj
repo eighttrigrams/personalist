@@ -24,7 +24,7 @@
         '(from :persons 
                [(or {:xt/id ?name}
                     {:person/email ?email}) xt/id]) 
-        {:name  name
+        #_{:name  name
          :email email}))
 
 (defn add-person 
@@ -38,6 +38,27 @@
 (defn list-persons [node]
   (xt/q node '(from :persons [xt/id person/email])))
 
+(defn list-identities [node {person-id :xt/id :as _mind}]
+  (xt/q node 
+        '(-> (from :identities [identity/mind-id identity/text])
+             (where (= identity/mind-id $person-id))
+             (return identity/text))
+        {:args {:person-id person-id}}))
+
+(defn add-identity
+  "@param mind - person the identity belongs to"
+  [node {person-id :xt/id :as _mind} id text]
+  (xt/execute-tx node [[:put-docs :identities {:xt/id            id 
+                                               :identity/mind-id person-id
+                                               :identity/text    text}]]))
+
 (comment
   (health-check)
+
+  (with-open [node (start-in-memory-node)]
+    (add-person node :dan "dan@g.c")
+    (add-person node :dan2 "dan2@g.c")
+    (add-identity node {:xt/id :dan} :id1 "text")
+    (add-identity node {:xt/id :dan2} :id2 "text2")
+    (list-identities node {:xt/id :dan}))
   :.)
