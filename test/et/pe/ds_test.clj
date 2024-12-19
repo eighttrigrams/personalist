@@ -10,8 +10,10 @@
   (binding [*conn-type* :xtdb2-in-memory]
     (f)))
 
-(defn add_other_conn_types [f]
-  (binding [*conn-type* :xtdb2-in-memory]
+(defn other-db-adapter [f]
+  (binding [*conn-type* 
+            ;; TODO put in other adapter
+            :xtdb2-in-memory]
     (f)))
 
 (defmacro testing-with-conn [string & body]
@@ -25,7 +27,7 @@
 (defmacro sets-are= [& body]
   `(are [expected actual] (= (set expected) (set actual)) ~@body))
 
-(use-fixtures :once (juxt xtdb2-in-memory add_other_conn_types))
+(use-fixtures :once (juxt xtdb2-in-memory other-db-adapter))
 
 (deftest persons
   (testing-with-conn "add persons"
