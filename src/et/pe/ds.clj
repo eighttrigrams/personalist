@@ -7,7 +7,10 @@
   []
   (xtn/start-node))
 
-(defonce node (xtn/start-node))
+(defonce node (start-in-memory-node))
+
+#_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
+(defn close-node [] (.close node))
 
 (defn- health-check []
   (= {:latest-completed-tx nil, :latest-submitted-tx nil}
@@ -23,11 +26,4 @@
 
 (comment
   (health-check)
-;;   (def n (xtn/start-node))
-;;   (xt/execute-tx n [[:put-docs :foo {:xt/id "my-id", :c :d}]])
-;;   (xt/q n '(from :foo [c]))
-  (.close node)
-  
-  (add-person node :dan "a@b.c")
-  (xt/q node '(from :persons [xt/id person/email]))
   :.)
