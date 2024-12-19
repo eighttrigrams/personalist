@@ -21,11 +21,25 @@
   "@returns a person if either the given name or the email match" 
   [node name email]
   (xt/q node 
-        '(from :persons 
-               [(or {:xt/id ?name}
-                    {:person/email ?email}) xt/id]) 
-        #_{:name  name
-         :email email}))
+        '(-> (from :persons [xt/id person/email])
+             (where (or (= xt/id $name)
+                        (= person/email $email))))
+        {:args {:name name
+                :email email}}))
+
+(defn get-person-by-name 
+  [node name]
+  (first (xt/q node 
+               '(-> (from :persons [xt/id person/email])
+                    (where (= xt/id $name)))
+               {:args {:name name}})))
+
+(defn get-person-by-email 
+  [node email]
+  (first (xt/q node 
+               '(-> (from :persons [xt/id person/email])
+                    (where (= person/email $email)))
+               {:args {:email email}})))
 
 (defn add-person 
   "@returns true if person added, false otherwise"
