@@ -3,18 +3,19 @@
             [et.pe.ds :as ds]))
 
 (deftest persons
-  (testing "add persons - can't add a person with the same name or email"
-    (with-open [node (ds/start-in-memory-node)]
+  (testing "add persons"
+    (with-open [node (ds/get-connection {:type :xtdb2-in-memory})]
       (ds/add-person node :dan "d@et.n")
-      (are [expected actual] (= expected actual) 
-        [false 1]
-        [(ds/add-person node :dan "d2@et.n")
-         (count (ds/list-persons node))]
-        [false 1]
-        [(ds/add-person node :dan2 "d@et.n")
-         (count (ds/list-persons node))])))
+      (testing "- can't add a person with the same name"
+        (are [expected actual] (= expected actual) ;; <- TODO factor that away
+          false (ds/add-person node :dan "d2@et.n")
+          1 (count (ds/list-persons node))))
+      (testing "- can't add a person with the same email"
+        (are [expected actual] (= expected actual) 
+          false (ds/add-person node :dan2 "d@et.n")
+          1 (count (ds/list-persons node))))))
   
-  (with-open [node (ds/start-in-memory-node)] ;; TODO can't I make that automatically provided by a fixture?
+  (with-open [node (ds/get-connection {:type :xtdb2-in-memory})]
     (ds/add-person node :dan "d@et.n")
     (ds/add-person node :dan2 "d2@et.n")
     (testing "retrieve persons"
@@ -32,7 +33,7 @@
         (ds/get-person-by-email node "d2@et.n")))))
 
 (deftest identities
-  (with-open [node (ds/start-in-memory-node)]
+  (with-open [node (ds/get-connection {:type :xtdb2-in-memory})]
     (ds/add-person node :dan "d@et.n")
     (ds/add-person node :dan2 "d2@et.n")
     (ds/add-identity node {:name :dan} :id11 "text11")

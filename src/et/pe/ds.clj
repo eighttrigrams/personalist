@@ -2,23 +2,26 @@
   (:require [xtdb.api :as xt]
             [xtdb.node :as xtn]))
 
-(defn start-in-memory-node 
-  "needs ports 3000 and 5432" 
-  []
-  (xtn/start-node))
+(defn get-connection 
+  "@param opts 
+     -> :type :xtdb2-in-memory - creates an in memory xtdb2 node; needs ports 3000 and 5432" 
+  [{:keys [type] :as _opts}]
+  (when (= :xtdb2-in-memory type)
+    (xtn/start-node)))
 
-(defonce node (start-in-memory-node))
+(defonce node (get-connection {:type :xtdb2-in-memory}))
 
 #_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
 (defn close-node [] (.close node))
 
 (defn- health-check []
   (= {:latest-completed-tx nil, :latest-submitted-tx nil}
-     (with-open [node (start-in-memory-node)]
+     (with-open [node (get-connection {:type :xtdb2-in-memory})]
        (xt/status node))))
 
-(defn- convert-person [{name :xt/id email :person/email}]
-  {:name name :email email})
+(defn- convert-person [{name :xt/id email :person/email :as person}]
+  (when-not (nil? person)
+    {:name name :email email}))
 
 (defn get-person-by-name-or-email 
   "@returns a person if either the given name or the email match" 
