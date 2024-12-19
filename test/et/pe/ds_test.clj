@@ -25,6 +25,10 @@
 (defmacro are= [& body]
   `(are [expected actual] (= expected actual) ~@body))
 
+#_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
+(defmacro sets-are= [& _body] ;; TODO implement
+  nil)
+
 (use-fixtures :once (juxt xtdb2-in-memory add_other_conn_types))
 
 (deftest persons
