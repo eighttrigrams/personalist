@@ -17,19 +17,20 @@
      (with-open [node (start-in-memory-node)]
        (xt/status node))))
 
-(defn get-person-by-name [node name]
-  (xt/q node '(from :persons [{:xt/id ?name} xt/id]) {:name name}))
-
-(defn get-person-by-email [node email]
-  (xt/q node '(from :persons [{:person/email ?email} xt/id]) {:email email}))
+(defn get-person-by-name-or-email 
+  "@returns a person if either the given name or the email match" 
+  [node name email]
+  (xt/q node 
+        '(from :persons 
+               [(or {:xt/id ?name}
+                    {:person/email ?email}) xt/id]) 
+        {:name  name
+         :email email}))
 
 (defn add-person 
   "@returns true if person added, false otherwise"
   [node name email]
-  (if (or
-       ;; TODO do that in a single query
-       (seq (get-person-by-name node name))
-       (seq (get-person-by-email node email)))
+  (if (seq (get-person-by-name-or-email node name email))
     false
     (xt/execute-tx node [[:put-docs :persons {:xt/id        name        , 
                                               :person/email email}]])))
