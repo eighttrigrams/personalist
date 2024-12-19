@@ -15,12 +15,10 @@
     (f)))
 
 (defmacro with-conn [& body]
-  (let [conn (gensym)
-        closeable (gensym)]
-    `(let [~conn (ds/init-conn {:type *conn-type*})]
-       (with-open [~closeable (ds/get-closable ~conn)]
-         (binding [conn ~conn]
-           ~@body)))))
+  `(let [conn# (ds/init-conn {:type *conn-type*})]
+     (with-open [closeable# (ds/get-closable conn#)]
+       (binding [conn conn#]
+         ~@body))))
 
 (defmacro are= [& body]
   `(are [expected actual] (= expected actual) ~@body))
