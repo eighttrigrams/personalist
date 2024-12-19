@@ -46,17 +46,17 @@
       (ds/add-person conn :dan2 "d2@et.n")
       (sets-are=
        (set [{:name  :dan
-               :email "d@et.n"}
-              {:name  :dan2
-               :email "d2@et.n"}])
-        (set (ds/list-persons conn)))
+              :email "d@et.n"}
+             {:name  :dan2
+              :email "d2@et.n"}])
+       (set (ds/list-persons conn)))
       (are=
-        {:name  :dan
-         :email "d@et.n"}
-        (ds/get-person-by-name conn :dan)
-        {:name  :dan2
-         :email "d2@et.n"}
-        (ds/get-person-by-email conn "d2@et.n")))))
+       {:name  :dan
+        :email "d@et.n"}
+       (ds/get-person-by-name conn :dan)
+       {:name  :dan2
+        :email "d2@et.n"}
+       (ds/get-person-by-email conn "d2@et.n")))))
 
 (deftest identities
   (with-conn
