@@ -14,10 +14,10 @@
   (binding [*conn-type* :xtdb2-in-memory]
     (f)))
 
-(defmacro with-conn [& body]
-  `(binding [conn (ds/init-conn {:type *conn-type*})]
-    ~@body
-    (ds/close-conn conn)))
+(defmacro testing-with-conn [string & body]
+  `(testing ~string (binding [conn (ds/init-conn {:type *conn-type*})]
+              ~@body
+              (ds/close-conn conn))))
 
 (defmacro are= [& body]
   `(are [expected actual] (= expected actual) ~@body))
@@ -28,50 +28,47 @@
 (use-fixtures :once (juxt xtdb2-in-memory add_other_conn_types))
 
 (deftest persons
-  (testing "add persons"
-    (with-conn
-      (ds/add-person conn :dan "d@et.n")
-      (testing "- can't add a person with the same name"
-        (are=
-          false (ds/add-person conn :dan "d2@et.n")
-          1 (count (ds/list-persons conn))))
-      (testing "- can't add a person with the same email"
-        (are= 
-          false (ds/add-person conn :dan2 "d@et.n")
-          1 (count (ds/list-persons conn))))))
-  (testing "retrieve persons"
-    (with-conn
-      (ds/add-person conn :dan "d@et.n")
-      (ds/add-person conn :dan2 "d2@et.n")
-      (sets-are=
-       [{:name  :dan
-         :email "d@et.n"}
-        {:name  :dan2
-         :email "d2@et.n"}]
-       (ds/list-persons conn))
-      (are=
-       {:name  :dan
-        :email "d@et.n"}
-       (ds/get-person-by-name conn :dan)
-       {:name  :dan2
-        :email "d2@et.n"}
-       (ds/get-person-by-email conn "d2@et.n")))))
+  (testing-with-conn "add persons"
+   (ds/add-person conn :dan "d@et.n")
+   (testing "- can't add a person with the same name"
+     (are=
+      false (ds/add-person conn :dan "d2@et.n")
+      1 (count (ds/list-persons conn))))
+   (testing "- can't add a person with the same email"
+     (are= 
+      false (ds/add-person conn :dan2 "d@et.n")
+      1 (count (ds/list-persons conn)))))
+  (testing-with-conn "retrieve persons"
+   (ds/add-person conn :dan "d@et.n")
+   (ds/add-person conn :dan2 "d2@et.n")
+   (sets-are=
+    [{:name  :dan
+      :email "d@et.n"}
+     {:name  :dan2
+      :email "d2@et.n"}]
+    (ds/list-persons conn))
+   (are=
+    {:name  :dan
+     :email "d@et.n"}
+    (ds/get-person-by-name conn :dan)
+    {:name  :dan2
+     :email "d2@et.n"}
+    (ds/get-person-by-email conn "d2@et.n"))))
 
 (deftest identities
-  (with-conn
+  (testing-with-conn "add and retrieve identities"
     (ds/add-person conn :dan "d@et.n")
     (ds/add-person conn :dan2 "d2@et.n")
     (ds/add-identity conn {:name :dan} :id11 "text11")
     (ds/add-identity conn {:name :dan} :id12 "text12")
     (ds/add-identity conn {:name :dan2} :id21 "text21")
     (ds/add-identity conn {:name :dan2} :id22 "text22")
-    (testing "add and retrieve identities"
-      (sets-are=
-       [{:identity :id11 :text "text11"}
-        {:identity :id12 :text "text12"}]
-       (ds/list-identities conn {:xt/id :dan})
-       [{:identity :id21 :text "text21"}
-        {:identity :id22 :text "text22"}]
-       (ds/list-identities conn {:xt/id :dan2})))))
+    (sets-are=
+     [{:identity :id11 :text "text11"}
+      {:identity :id12 :text "text12"}]
+     (ds/list-identities conn {:xt/id :dan})
+     [{:identity :id21 :text "text21"}
+      {:identity :id22 :text "text22"}]
+     (ds/list-identities conn {:xt/id :dan2}))))
 
 (test-vars [#'persons #'identities])
