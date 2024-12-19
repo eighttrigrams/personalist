@@ -45,11 +45,11 @@
       (ds/add-person conn :dan "d@et.n")
       (ds/add-person conn :dan2 "d2@et.n")
       (sets-are=
-       (set [{:name  :dan
-              :email "d@et.n"}
-             {:name  :dan2
-              :email "d2@et.n"}])
-       (set (ds/list-persons conn)))
+       [{:name  :dan
+         :email "d@et.n"}
+        {:name  :dan2
+         :email "d2@et.n"}]
+       (ds/list-persons conn))
       (are=
        {:name  :dan
         :email "d@et.n"}
@@ -68,11 +68,11 @@
     (ds/add-identity conn {:name :dan2} :id22 "text22")
     (testing "add and retrieve identities"
       (sets-are=
-        (set [{:identity :id11 :text "text11"}
-              {:identity :id12 :text "text12"}])
-        (set (ds/list-identities conn {:xt/id :dan}))
-        (set [{:identity :id21 :text "text21"}
-              {:identity :id22 :text "text22"}])
-        (set (ds/list-identities conn {:xt/id :dan2}))))))
+       [{:identity :id11 :text "text11"}
+        {:identity :id12 :text "text12"}]
+       (ds/list-identities conn {:xt/id :dan})
+       [{:identity :id21 :text "text21"}
+        {:identity :id22 :text "text22"}]
+       (ds/list-identities conn {:xt/id :dan2})))))
 
 (test-vars [#'persons #'identities])
