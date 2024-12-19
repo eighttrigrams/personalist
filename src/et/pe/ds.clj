@@ -78,7 +78,7 @@
 (comment
   (health-check)
 
-  (with-open [node (start-in-memory-node)]
+  (with-open [node (get-connection {:type :xtdb2-in-memory})]
     (add-person node :dan "dan@g.c")
     (add-person node :dan2 "dan2@g.c")
     (add-identity node {:xt/id :dan} :id1 "text")
