@@ -6,6 +6,11 @@
         com.xtdb/xtdb-jdbc                {:mvn/version "2.0.0-beta4"}
         com.xtdb/xtdb-core                {:mvn/version "2.0.0-beta2"}
         com.xtdb/xtdb-api                 {:mvn/version "2.0.0-beta2"}
-        com.walmartlabs/lacinia           {:mvn/version "1.2-alpha-4"}}
+        com.walmartlabs/lacinia           {:mvn/version "1.2-alpha-4"}
+        ring/ring-core                    {:mvn/version "1.13.0"}
+        ring/ring-json                    {:mvn/version "0.5.1"}
+        ring/ring-jetty-adapter           {:mvn/version "1.13.0"}
+        org.clojure/data.json             {:mvn/version "2.5.1"}
+        compojure/compojure               {:mvn/version "1.5.1"}}
  :aliases {:xtdb {:jvm-opts ["--add-opens=java.base/java.nio=ALL-UNNAMED"
                              "-Dio.netty.tryReflectionSetAccessible=true"]}}}

@@ -42,7 +42,7 @@
 
 (defn q
   [schema query-string]
-  (simplify (lacinia/execute schema query-string nil nil)))
+  (lacinia/execute schema query-string nil nil))
 
 (comment
   (def ds-conn (ds/init-conn {:type :xtdb2-in-memory}))
