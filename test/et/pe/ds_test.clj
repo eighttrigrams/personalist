@@ -1,6 +1,7 @@
 (ns et.pe.ds-test
   (:require [clojure.test :refer [deftest testing is are test-vars use-fixtures]]
-            [et.pe.ds :as ds]))
+            [et.pe.ds :as ds]
+            et.pe.ds.xtdb2))
 
 (def ^:dynamic *conn-type* nil)
 

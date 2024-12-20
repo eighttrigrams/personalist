@@ -1,6 +1,5 @@
 (ns et.pe.ds 
-  (:require [et.pe.ds.dispatch :as dispatch]
-            et.pe.ds.xtdb2))
+  (:require [et.pe.ds.dispatch :as dispatch]))
 
 (defn init-conn 
   "@param opts 
