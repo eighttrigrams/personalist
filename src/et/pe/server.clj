@@ -32,4 +32,7 @@
   (run-jetty))
 
 (comment
-  (future (run-jetty)))
+  (future (run-jetty))
+  (require '[buddy.sign.jwt :as jwt])
+  (def signed (jwt/sign {:user :dan} "abc"))
+  (jwt/unsign signed "abc"))
