@@ -4,21 +4,23 @@
             [com.walmartlabs.lacinia.schema :as lacinia.schema]
             [com.walmartlabs.lacinia :as lacinia]
             [clojure.edn :as edn]
-            [clojure.walk :as walk])
+            [clojure.walk :as walk]
+            [et.pe.ds :as ds]
+            et.pe.ds.xtdb2)
   (:import (clojure.lang IPersistentMap)))
 
 (defn resolver-map
-  []
+  [ds-conn]
   {:Query/identitiesByPersonId 
    (fn [_context {:keys [personName]} _value]
-     '({:identity :dan :text "yo"}))})
+     (ds/list-identities ds-conn (ds/get-person-by-name ds-conn (keyword personName))))})
 
 (defn load-schema
-  []
+  [ds-conn]
   (-> (io/resource "basic-schema.edn")
       slurp
       edn/read-string
-      (util/inject-resolvers (resolver-map))
+      (util/inject-resolvers (resolver-map ds-conn))
       lacinia.schema/compile))
 
 (defn simplify
@@ -43,5 +45,10 @@
   (simplify (lacinia/execute schema query-string nil nil)))
 
 (comment
-  (def schema (load-schema))
-  (simplify (q schema "{ identitiesByPersonId(personName: \"dan\") { identity text }}")))
+  (def ds-conn (ds/init-conn {:type :xtdb2-in-memory}))
+  (ds/add-person ds-conn :dan "d@et.n")
+  (def person (ds/get-person-by-name ds-conn :dan))
+  (ds/add-identity ds-conn person :id1 "Hallo, Welt!")
+  (def schema (load-schema ds-conn))
+  (q schema "{ identitiesByPersonId(personName: \"dan\") { identity text }}")
+  (ds/close-conn ds-conn))

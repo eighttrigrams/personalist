@@ -51,14 +51,14 @@
   (if (seq (dispatch/get-person-by-name-or-email conn name email))
     false
     (xt/execute-tx (:conn conn) [[:put-docs :persons {:xt/id        name        , 
-                                                         :person/email email}]])))
+                                                      :person/email email}]])))
 
 (defmethod dispatch/list-persons :xtdb2-in-memory
   [conn]
   (map convert-person (xt/q (:conn conn) '(from :persons [xt/id person/email]))))
 
 (defmethod dispatch/list-identities :xtdb2-in-memory
-  [conn {person-id :xt/id :as _mind}]
+  [conn {person-id :name :as _mind}]
   (map
    (fn [{id :xt/id text :identity/text}] {:identity id :text text})
    (xt/q (:conn conn) 

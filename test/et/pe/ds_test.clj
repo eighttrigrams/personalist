@@ -62,16 +62,22 @@
   (testing-with-conn "add and retrieve identities"
     (ds/add-person conn :dan "d@et.n")
     (ds/add-person conn :dan2 "d2@et.n")
-    (ds/add-identity conn {:name :dan} :id11 "text11")
-    (ds/add-identity conn {:name :dan} :id12 "text12")
-    (ds/add-identity conn {:name :dan2} :id21 "text21")
-    (ds/add-identity conn {:name :dan2} :id22 "text22")
-    (sets-are=
-     [{:identity :id11 :text "text11"}
-      {:identity :id12 :text "text12"}]
-     (ds/list-identities conn {:xt/id :dan})
-     [{:identity :id21 :text "text21"}
-      {:identity :id22 :text "text22"}]
-     (ds/list-identities conn {:xt/id :dan2}))))
+    (let [dan (ds/get-person-by-name conn :dan)
+          dan2 (ds/get-person-by-name conn :dan2)]
+      (ds/add-identity conn dan :id11 "text11")
+      (ds/add-identity conn dan :id12 "text12")
+      (ds/add-identity conn dan2 :id21 "text21")
+      (ds/add-identity conn dan2 :id22 "text22")
+      (sets-are=
+       [{:identity :id11
+         :text     "text11"}
+        {:identity :id12
+         :text     "text12"}]
+       (ds/list-identities conn dan)
+       [{:identity :id21
+         :text     "text21"}
+        {:identity :id22
+         :text     "text22"}]
+       (ds/list-identities conn dan2)))))
 
 (test-vars [#'persons #'identities])
