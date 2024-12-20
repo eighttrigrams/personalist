@@ -34,12 +34,3 @@
   "@param mind - person the identity belongs to"
   [conn mind id text]
   (dispatch/add-identity conn mind id text))
-
-(comment 
-  (with-open [conn (init-conn {:type :xtdb2-in-memory})]
-    (add-person conn :dan "dan@g.c")
-    (add-person conn :dan2 "dan2@g.c")
-    (add-identity conn {:xt/id :dan} :id1 "text")
-    (add-identity conn {:xt/id :dan2} :id2 "text2")
-    (list-identities conn {:xt/id :dan}))
-  :.)
