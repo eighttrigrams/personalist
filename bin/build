@@ -1,4 +1,2 @@
 #!/usr/bin/bash
-echo hi !!!!!
-clojure --version
-#clojure -X:uberjar :jar server.jar
+clojure -X:uberjar :jar server.jar
