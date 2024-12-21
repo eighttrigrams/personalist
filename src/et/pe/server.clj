@@ -32,7 +32,7 @@
 (defn -main
   [& _args]
   (prn "hi")
-  (run-jetty 8080))
+  (run-jetty (System/getenv "PORT")))
 
 (comment
   (future (run-jetty 3017))
