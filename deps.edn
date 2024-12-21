@@ -26,4 +26,7 @@
                              "-Dio.netty.tryReflectionSetAccessible=true"] 
                   :exec-fn et.pe.server/-main}
            :uberjar {:replace-deps {com.github.seancorfield/depstar {:mvn/version "2.0.216"}}
-                     :exec-fn      hf.depstar/uberjar}}}
+                     :exec-fn      hf.depstar/uberjar
+                     :exec-args {:jar        "server.jar"
+                                 :main-class "et.pe.server"
+                                 :sync-pom   true}}}}
