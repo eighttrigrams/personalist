@@ -13,6 +13,10 @@
         ring/ring-jetty-adapter           {:mvn/version "1.13.0"}
         org.clojure/data.json             {:mvn/version "2.5.1"}
         compojure/compojure               {:mvn/version "1.5.1"}
-        buddy/buddy                       {:mvn/version "2.0.0"}}
+        buddy/buddy                       {:mvn/version "2.0.0"}
+        metosin/malli                     {:mvn/version "0.17.0"}
+        fmnoise/flow                      {:mvn/version "4.2.2"}
+        aero/aero                         {:mvn/version "1.1.6"}
+        integrant/integrant               {:mvn/version "0.13.1"}}
  :aliases {:xtdb {:jvm-opts ["--add-opens=java.base/java.nio=ALL-UNNAMED"
                              "-Dio.netty.tryReflectionSetAccessible=true"]}}}
