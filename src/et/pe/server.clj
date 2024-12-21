@@ -2,6 +2,7 @@
   (:require [ring.adapter.jetty :as jetty]
             [et.pe.ds :as ds]
             [et.pe.resolver :as resolver]
+            [next.jdbc :as jdbc]
             ;; [cheshire.core :as json]
             [clojure.data.json :as data.json]
             et.pe.ds.xtdb2
@@ -30,7 +31,15 @@
 (defn- run-jetty [port] (jetty/run-jetty #'app-routes {:port port}))
 
 (defn- postgres-health-check []
-  (prn "db " (System/getenv "JDBC_DATABASE_URL")))
+  (prn "db " (System/getenv "JDBC_DATABASE_URL"))
+  (let [my-datasource (jdbc/get-datasource (System/getenv "JDBC_DATABASE_URL"))]
+    (with-open [connection (jdbc/get-connection my-datasource)]
+      (prn "connected" connection)
+      (jdbc/execute! connection ["CREATE TABLE cars (
+  brand VARCHAR(255),
+  model VARCHAR(255),
+  year INT
+) IF NOT EXISTS"]))))
 
 (defn -main
   [& _args]
