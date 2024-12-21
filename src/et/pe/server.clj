@@ -32,7 +32,7 @@
 (defn -main
   [& _args]
   (prn "hi")
-  (run-jetty 80))
+  (run-jetty 8080))
 
 (comment
   (future (run-jetty 3017))
