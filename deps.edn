@@ -17,6 +17,13 @@
         metosin/malli                     {:mvn/version "0.17.0"}
         fmnoise/flow                      {:mvn/version "4.2.2"}
         aero/aero                         {:mvn/version "1.1.6"}
-        integrant/integrant               {:mvn/version "0.13.1"}}
+        integrant/integrant               {:mvn/version "0.13.1"}
+        uberdeps/uberdeps                 {:mvn/version "1.1.4"}}
  :aliases {:xtdb {:jvm-opts ["--add-opens=java.base/java.nio=ALL-UNNAMED"
-                             "-Dio.netty.tryReflectionSetAccessible=true"]}}}
+                             "-Dio.netty.tryReflectionSetAccessible=true"] 
+                  :exec-fn et.pe.server/-main}
+           :uberjar {:replace-deps {com.github.seancorfield/depstar {:mvn/version "2.0.216"}}
+                     :exec-fn      hf.depstar/uberjar
+                     :exec-args    {:jar        "pingcrm.jar"
+                                    :main-class "pingcrm.system"
+                                    :sync-pom   true}}}}

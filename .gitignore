@@ -3,3 +3,4 @@
 .lsp
 .clj-kondo
 .nrepl-port
+server.jar
