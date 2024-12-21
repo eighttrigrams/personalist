@@ -35,11 +35,11 @@
   (let [my-datasource (jdbc/get-datasource (System/getenv "JDBC_DATABASE_URL"))]
     (with-open [connection (jdbc/get-connection my-datasource)]
       (prn "connected" connection)
-      (jdbc/execute! connection ["CREATE TABLE cars (
+      (jdbc/execute! connection ["CREATE TABLE IF NOT EXISTS cars (
   brand VARCHAR(255),
   model VARCHAR(255),
   year INT
-) IF NOT EXISTS"]))))
+)"]))))
 
 (defn -main
   [& _args]
