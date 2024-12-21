@@ -1,1 +1,1 @@
-clj -X:xtdb
+web: clj -X:xtdb
