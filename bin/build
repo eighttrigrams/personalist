@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-clj -X:uberjar :jar server.jar
+clojure -X:uberjar :jar server.jar
