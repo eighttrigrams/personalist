@@ -32,10 +32,10 @@
 (defn -main
   [& _args]
   (prn "hi")
-  (run-jetty 3017))
+  (run-jetty 80))
 
 (comment
-  (future (-main))
+  (future (run-jetty 3017))
   (require '[buddy.sign.jwt :as jwt])
   (def signed (jwt/sign {:user :dan} "abc"))
   (jwt/unsign signed "abc"))
