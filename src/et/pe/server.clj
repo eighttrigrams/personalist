@@ -29,6 +29,9 @@
 
 (defn- run-jetty [port] (jetty/run-jetty #'app-routes {:port port}))
 
+(defn- postgres-health-check []
+  (prn "db " (System/getenv "JDBC_DATABASE_URL")))
+
 (defn -main
   [& _args]
   (prn "hi" (Integer/parseInt (System/getenv "PORT")))
