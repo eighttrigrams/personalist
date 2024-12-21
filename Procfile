@@ -1,1 +1,1 @@
-web: clj -X:xtdb
+web: java -jar server.jar
