@@ -31,8 +31,8 @@
 
 (defn -main
   [& _args]
-  (prn "hi")
-  (run-jetty (System/getenv "PORT")))
+  (prn "hi" (Integer/parseInt (System/getenv "PORT")))
+  (run-jetty (Integer/parseInt (System/getenv "PORT"))))
 
 (comment
   (future (run-jetty 3017))
