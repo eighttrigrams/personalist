@@ -26,14 +26,14 @@
         (wrap-json-response)
         (wrap-json-body {:keywords true}))))
 
-(defn- run-jetty [] (jetty/run-jetty #'app-routes {:port 3017}))
+(defn- run-jetty [port] (jetty/run-jetty #'app-routes {:port port}))
 
 (defn -main
   [& _args]
-  (run-jetty))
+  (run-jetty 80))
 
 (comment
-  (future (run-jetty))
+  (future (run-jetty 3017))
   (require '[buddy.sign.jwt :as jwt])
   (def signed (jwt/sign {:user :dan} "abc"))
   (jwt/unsign signed "abc"))
