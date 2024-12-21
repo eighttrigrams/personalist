@@ -2,8 +2,9 @@
   (:require [ring.adapter.jetty :as jetty]
             [et.pe.ds :as ds]
             [et.pe.resolver :as resolver]
-            ;; [clojure.data.json :as json]
-            [cheshire.core :as json]
+            ;; [cheshire.core :as json]
+            [clojure.data.json :as data.json]
+            et.pe.ds.xtdb2
             [compojure.core :refer [defroutes POST]]
             [ring.middleware.json :refer [wrap-json-response wrap-json-body]]))
 
@@ -18,7 +19,7 @@
                  _ (prn "query!" query) 
                  result (resolver/q schema query)]
              (ds/close-conn ds-conn)
-             (json/generate-string result))}))
+             (data.json/write-str result))}))
 
 (defroutes app-routes
   (POST "/graphql" []
@@ -30,10 +31,11 @@
 
 (defn -main
   [& _args]
-  (run-jetty 80))
+  (prn "hi")
+  (run-jetty 3017))
 
 (comment
-  (future (run-jetty 3017))
+  (future (-main))
   (require '[buddy.sign.jwt :as jwt])
   (def signed (jwt/sign {:user :dan} "abc"))
   (jwt/unsign signed "abc"))

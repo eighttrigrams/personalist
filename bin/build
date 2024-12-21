@@ -1,2 +1,2 @@
 #!/usr/bin/bash
-clojure -X:uberjar :jar server.jar
+clojure -M -m uberdeps.uberjar --target server.jar
