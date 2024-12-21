@@ -1,2 +1,1 @@
 #!/usr/bin/bash
-# clojure -M -m uberdeps.uberjar --target server.jar
