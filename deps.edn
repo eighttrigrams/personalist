@@ -1,6 +1,5 @@
 {:mvn/repos {"sonatype-snapshots" {:url "https://s01.oss.sonatype.org/content/repositories/snapshots"}}
  :deps {org.clojure/clojure               {:mvn/version "1.12.0"}
-        org.clojure/data.json             {:mvn/version "2.5.1"}
         com.taoensso/telemere             {:mvn/version "1.0.0-SNAPSHOT"}
         com.taoensso/telemere-slf4j       {:mvn/version "1.0.0-RC1"}
        ;;  com.xtdb/xtdb-jdbc                {:mvn/version "2.0.0-SNAPSHOT"}
