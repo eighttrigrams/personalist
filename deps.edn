@@ -4,5 +4,5 @@
         com.taoensso/telemere-slf4j       {:mvn/version "1.0.0-RC1"}
        ;;  com.xtdb/xtdb-jdbc                {:mvn/version "2.0.0-SNAPSHOT"}
         com.xtdb/xtdb-core                {:mvn/version "2.0.0-SNAPSHOT"}
-        com.xtdb/xtdb-api                 {:mvn/version "2.0.0-SNAPSHOT"}
+       ;;  com.xtdb/xtdb-api                 {:mvn/version "2.0.0-SNAPSHOT"}
         uberdeps/uberdeps                 {:mvn/version "1.4.0"}}}
