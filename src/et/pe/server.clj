@@ -2,7 +2,8 @@
   (:require [ring.adapter.jetty :as jetty]
             [et.pe.ds :as ds]
             [et.pe.resolver :as resolver]
-            [clojure.data.json :as json]
+            ;; [clojure.data.json :as json]
+            [cheshire.core :as json]
             [compojure.core :refer [defroutes POST]]
             [ring.middleware.json :refer [wrap-json-response wrap-json-body]]))
 
@@ -17,7 +18,7 @@
                  _ (prn "query!" query) 
                  result (resolver/q schema query)]
              (ds/close-conn ds-conn)
-             (json/write-str result))}))
+             (json/generate-string result))}))
 
 (defroutes app-routes
   (POST "/graphql" []

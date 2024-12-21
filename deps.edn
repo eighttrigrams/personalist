@@ -1,5 +1,6 @@
 {:paths ["src" "resources"]
- :deps {com.taoensso/telemere             {:mvn/version "1.0.0-SNAPSHOT"}
+ :deps {
+        com.taoensso/telemere             {:mvn/version "1.0.0-SNAPSHOT"}
         com.taoensso/telemere-slf4j       {:mvn/version "1.0.0-RC1"}
         com.github.seancorfield/next.jdbc {:mvn/version "1.3.955"}
         com.github.seancorfield/honeysql  {:mvn/version "2.6.1147"}
@@ -11,19 +12,21 @@
         ring/ring-core                    {:mvn/version "1.13.0"}
         ring/ring-json                    {:mvn/version "0.5.1"}
         ring/ring-jetty-adapter           {:mvn/version "1.13.0"}
-        org.clojure/data.json             {:mvn/version "2.5.1"}
+        cheshire/cheshire                 {:mvn/version "5.13.0"}
+       ;;  org.clojure/data.json             {:mvn/version "2.5.1"}
         compojure/compojure               {:mvn/version "1.5.1"}
         buddy/buddy                       {:mvn/version "2.0.0"}
         metosin/malli                     {:mvn/version "0.17.0"}
         fmnoise/flow                      {:mvn/version "4.2.2"}
         aero/aero                         {:mvn/version "1.1.6"}
         integrant/integrant               {:mvn/version "0.13.1"}
-        uberdeps/uberdeps                 {:mvn/version "1.1.4"}}
+       ;;  uberdeps/uberdeps                 {:mvn/version "1.1.4"}
+        }
  :aliases {:xtdb {:jvm-opts ["--add-opens=java.base/java.nio=ALL-UNNAMED"
                              "-Dio.netty.tryReflectionSetAccessible=true"] 
                   :exec-fn et.pe.server/-main}
            :uberjar {:replace-deps {com.github.seancorfield/depstar {:mvn/version "2.0.216"}}
                      :exec-fn      hf.depstar/uberjar
-                     :exec-args    {:jar        "pingcrm.jar"
-                                    :main-class "pingcrm.system"
+                     :exec-args    {:jar        "server.jar"
+                                    :main-class "server.system"
                                     :sync-pom   true}}}}
