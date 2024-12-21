@@ -35,6 +35,7 @@
 (defn -main
   [& _args]
   (prn "hi" (Integer/parseInt (System/getenv "PORT")))
+  (postgres-health-check)
   (run-jetty (Integer/parseInt (System/getenv "PORT"))))
 
 (comment
