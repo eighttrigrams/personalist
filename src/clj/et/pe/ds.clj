@@ -45,3 +45,7 @@
   "@param at - java.time.Instant for time-travel query"
   [conn mind id at]
   (dispatch/get-identity-at conn mind id at))
+
+(defn get-identity-history
+  [conn mind id]
+  (dispatch/get-identity-history conn mind id))

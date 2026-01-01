@@ -89,14 +89,29 @@
                     :identity/text    text}]]))
 
 (defmethod dispatch/get-identity-at :xtdb2-in-memory
-  [conn {persona-id :name :as _mind} id at]
+  [conn {persona-id :name :as _mind} id time-point]
   (let [result (first (xt/q (:conn conn)
-                            ['(fn [persona-id id at]
+                            ['(fn [persona-id id time-point]
                                 (-> (from :identities {:bind [identity/mind-id identity/text xt/id]
-                                                       :for-valid-time (at at)})
+                                                       :for-valid-time (at time-point)})
                                     (where (= identity/mind-id persona-id)
                                            (= xt/id id))
                                     (return identity/text xt/id)))
-                             persona-id id at]))]
+                             persona-id id time-point]))]
     (when result
       {:identity (:xt/id result) :text (:identity/text result)})))
+
+(defmethod dispatch/get-identity-history :xtdb2-in-memory
+  [conn {persona-id :name :as _mind} id]
+  (let [results (xt/q (:conn conn)
+                      ['(fn [persona-id id]
+                          (-> (from :identities {:bind [identity/mind-id identity/text xt/id xt/valid-from]
+                                                 :for-valid-time :all-time})
+                              (where (= identity/mind-id persona-id)
+                                     (= xt/id id))
+                              (order-by xt/valid-from)
+                              (return identity/text xt/id xt/valid-from)))
+                       persona-id id])]
+    (mapv (fn [{:keys [xt/id identity/text xt/valid-from]}]
+            {:identity id :text text :valid-from valid-from})
+          results)))

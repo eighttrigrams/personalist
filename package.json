@@ -1,0 +1,29 @@
+{
+  "name": "personalist",
+  "version": "1.0.0",
+  "description": "Personalist Encyclopedia",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eighttrigrams/personalist.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/eighttrigrams/personalist/issues"
+  },
+  "homepage": "https://github.com/eighttrigrams/personalist#readme",
+  "dependencies": {
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "shadow-cljs": "^3.3.4"
+  }
+}

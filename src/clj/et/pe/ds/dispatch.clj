@@ -43,3 +43,7 @@
 (defmulti get-identity-at
   (fn [{:keys [type]} _mind _id _at]
     type))
+
+(defmulti get-identity-history
+  (fn [{:keys [type]} _mind _id]
+    type))

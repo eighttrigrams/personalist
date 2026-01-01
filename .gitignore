@@ -5,3 +5,6 @@
 .nrepl-port
 target
 server.jar
+node_modules
+.shadow-cljs
+resources/public/js
