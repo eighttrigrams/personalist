@@ -1,1 +1,0 @@
-web: clojure -X:xtdb
