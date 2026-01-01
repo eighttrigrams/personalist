@@ -25,26 +25,28 @@
 (defmethod dispatch/get-persona-by-name-or-email :xtdb2-in-memory
   [conn name email]
   (map convert-persona (xt/q (:conn conn)
-                     '(-> (from :personas [xt/id persona/email])
-                          (where (or (= xt/id $name)
-                                     (= persona/email $email))))
-                     {:args {:name  name
-                             :email email}})))
+                             ['(fn [name email]
+                                 (-> (from :personas [xt/id persona/email])
+                                     (where (or (= xt/id name)
+                                                (= persona/email email)))))
+                              name email])))
 
 (defmethod dispatch/get-persona-by-name :xtdb2-in-memory
   [conn name]
   (convert-persona (first (xt/q (:conn conn)
-                        '(-> (from :personas [xt/id persona/email])
-                             (where (= xt/id $name)))
-                        {:args {:name name}}))))
+                                ['(fn [name]
+                                    (-> (from :personas [xt/id persona/email])
+                                        (where (= xt/id name))))
+                                 name]))))
 
 (defmethod dispatch/get-persona-by-email :xtdb2-in-memory
   [conn email]
   (convert-persona
    (first (xt/q (:conn conn)
-                '(-> (from :personas [xt/id persona/email])
-                     (where (= persona/email $email)))
-                {:args {:email email}}))))
+                ['(fn [email]
+                    (-> (from :personas [xt/id persona/email])
+                        (where (= persona/email email))))
+                 email]))))
 
 (defmethod dispatch/add-persona :xtdb2-in-memory
   [conn name email]
@@ -62,10 +64,11 @@
   (map
    (fn [{id :xt/id text :identity/text}] {:identity id :text text})
    (xt/q (:conn conn)
-         '(-> (from :identities [identity/mind-id identity/text xt/id])
-              (where (= identity/mind-id $persona-id))
-              (return identity/text xt/id))
-         {:args {:persona-id persona-id}})))
+         ['(fn [persona-id]
+             (-> (from :identities [identity/mind-id identity/text xt/id])
+                 (where (= identity/mind-id persona-id))
+                 (return identity/text xt/id)))
+          persona-id])))
 
 (defmethod dispatch/add-identity :xtdb2-in-memory
   [conn {persona-id :name :as _mind} id text]
