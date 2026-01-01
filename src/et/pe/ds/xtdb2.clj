@@ -71,8 +71,32 @@
           persona-id])))
 
 (defmethod dispatch/add-identity :xtdb2-in-memory
-  [conn {persona-id :name :as _mind} id text]
+  [conn {persona-id :name :as _mind} id text & [{:keys [valid-from]}]]
   (xt/execute-tx (:conn conn)
-                 [[:put-docs :identities {:xt/id            id
-                                          :identity/mind-id persona-id
-                                          :identity/text    text}]]))
+                 [[:put-docs (cond-> {:into :identities}
+                               valid-from (assoc :valid-from valid-from))
+                   {:xt/id            id
+                    :identity/mind-id persona-id
+                    :identity/text    text}]]))
+
+(defmethod dispatch/update-identity :xtdb2-in-memory
+  [conn {persona-id :name :as _mind} id text & [{:keys [valid-from]}]]
+  (xt/execute-tx (:conn conn)
+                 [[:put-docs (cond-> {:into :identities}
+                               valid-from (assoc :valid-from valid-from))
+                   {:xt/id            id
+                    :identity/mind-id persona-id
+                    :identity/text    text}]]))
+
+(defmethod dispatch/get-identity-at :xtdb2-in-memory
+  [conn {persona-id :name :as _mind} id at]
+  (let [result (first (xt/q (:conn conn)
+                            ['(fn [persona-id id at]
+                                (-> (from :identities {:bind [identity/mind-id identity/text xt/id]
+                                                       :for-valid-time (at at)})
+                                    (where (= identity/mind-id persona-id)
+                                           (= xt/id id))
+                                    (return identity/text xt/id)))
+                             persona-id id at]))]
+    (when result
+      {:identity (:xt/id result) :text (:identity/text result)})))

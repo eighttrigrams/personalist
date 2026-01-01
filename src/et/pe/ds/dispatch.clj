@@ -33,5 +33,13 @@
     type))
 
 (defmulti add-identity
-  (fn [{:keys [type]} _mind _id _text] 
+  (fn [{:keys [type]} _mind _id _text & [_opts]]
+    type))
+
+(defmulti update-identity
+  (fn [{:keys [type]} _mind _id _text & [_opts]]
+    type))
+
+(defmulti get-identity-at
+  (fn [{:keys [type]} _mind _id _at]
     type))

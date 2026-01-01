@@ -31,6 +31,17 @@
   (dispatch/list-identities conn mind))
 
 (defn add-identity
-  "@param mind - persona the identity belongs to"
-  [conn mind id text]
-  (dispatch/add-identity conn mind id text))
+  "@param mind - persona the identity belongs to
+   @param opts - optional map with :valid-from for explicit valid-time"
+  [conn mind id text & [opts]]
+  (dispatch/add-identity conn mind id text opts))
+
+(defn update-identity
+  "@param opts - optional map with :valid-from for explicit valid-time"
+  [conn mind id text & [opts]]
+  (dispatch/update-identity conn mind id text opts))
+
+(defn get-identity-at
+  "@param at - java.time.Instant for time-travel query"
+  [conn mind id at]
+  (dispatch/get-identity-at conn mind id at))

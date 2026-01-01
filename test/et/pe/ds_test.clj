@@ -1,7 +1,8 @@
 (ns et.pe.ds-test
   (:require [clojure.test :refer [deftest testing is are use-fixtures]]
             [et.pe.ds :as ds]
-            et.pe.ds.xtdb2))
+            et.pe.ds.xtdb2)
+  (:import [java.time Instant]))
 
 (def ^:dynamic *conn-type* nil)
 
@@ -79,4 +80,21 @@
         {:identity :id22
          :text     "text22"}]
        (ds/list-identities conn dan2)))))
+
+(deftest identity-time-travel
+  (testing-with-conn "identities change over time but history is preserved"
+    (ds/add-persona conn :dan "d@et.n")
+    (let [dan (ds/get-persona-by-name conn :dan)
+          t1 (Instant/parse "2020-01-01T00:00:00Z")
+          t2 (Instant/parse "2020-06-01T00:00:00Z")
+          query-time (Instant/parse "2020-03-01T00:00:00Z")]
+      (ds/add-identity conn dan :evolving-id "original text" {:valid-from t1})
+      (ds/update-identity conn dan :evolving-id "updated text" {:valid-from t2})
+      (testing "- current query returns updated text"
+        (is (= "updated text"
+               (:text (first (filter #(= :evolving-id (:identity %))
+                                     (ds/list-identities conn dan)))))))
+      (testing "- time-travel query returns original text"
+        (is (= {:identity :evolving-id :text "original text"}
+               (ds/get-identity-at conn dan :evolving-id query-time)))))))
 
