@@ -27,7 +27,8 @@
                             :relation-search-query ""
                             :relation-search-results []
                             :nav-search-query ""
-                            :nav-search-results []}))
+                            :nav-search-results []
+                            :show-beta-modal false}))
 
 (def api-base "http://localhost:3017")
 
@@ -202,9 +203,22 @@
                    :background "#333"
                    :color "white"}}
      [:div {:style {:display "flex" :align-items "center" :gap "2rem"}}
-      [:h1 {:style {:margin 0 :cursor "pointer"}
-            :on-click #(swap! app-state assoc :current-tab :main)}
-       "Personalist"]
+      [:div {:style {:display "flex" :align-items "center" :gap "0.5rem"}}
+       [:h1 {:style {:margin 0 :cursor "pointer"}
+             :on-click #(swap! app-state assoc :current-tab :main)}
+        "Personalist"]
+       [:span {:on-click #(swap! app-state assoc :show-beta-modal true)
+               :style {:background "linear-gradient(135deg, #ff6b6b, #feca57, #48dbfb)"
+                       :color "#fff"
+                       :font-weight "bold"
+                       :font-size "0.7rem"
+                       :padding "0.2rem 0.5rem"
+                       :border-radius "4px"
+                       :cursor "pointer"
+                       :text-transform "uppercase"
+                       :box-shadow "0 2px 8px rgba(255,107,107,0.4)"
+                       :animation "pulse 2s infinite"}}
+        "Beta"]]
       [:div {:style {:display "flex" :gap "0.5rem"}}
        (when is-admin?
          [:button {:on-click #(swap! app-state assoc :current-tab :settings)
@@ -563,6 +577,52 @@
                            :border-radius "4px"}}
           "Create"]]]])))
 
+(defn beta-modal []
+  (let [{:keys [show-beta-modal]} @app-state]
+    (when show-beta-modal
+      [:div {:style {:position "fixed"
+                     :top 0
+                     :left 0
+                     :right 0
+                     :bottom 0
+                     :background "rgba(0,0,0,0.5)"
+                     :display "flex"
+                     :align-items "center"
+                     :justify-content "center"
+                     :z-index 1000}
+             :on-click #(swap! app-state assoc :show-beta-modal false)}
+       [:div {:style {:background "white"
+                      :padding "2rem"
+                      :border-radius "8px"
+                      :min-width "400px"
+                      :max-width "500px"
+                      :text-align "center"}
+              :on-click #(.stopPropagation %)}
+        [:div {:style {:font-size "3rem" :margin-bottom "1rem"}} "\uD83D\uDE80"]
+        [:h2 {:style {:margin-top 0 :margin-bottom "1rem"}} "Personalist Beta"]
+        [:p {:style {:color "#666" :margin-bottom "1.5rem"}}
+         "Welcome to the beta version of Personalist! We're building an integrated universe of personal encyclopedias."]
+        [:a {:href "https://eighttrigrams.substack.com/p/personalist"
+             :target "_blank"
+             :style {:display "inline-block"
+                     :padding "0.75rem 1.5rem"
+                     :background "linear-gradient(135deg, #ff6b6b, #feca57)"
+                     :color "white"
+                     :text-decoration "none"
+                     :border-radius "4px"
+                     :font-weight "bold"
+                     :margin-bottom "1rem"}}
+         "Read the Whitepaper"]
+        [:br]
+        [:button {:on-click #(swap! app-state assoc :show-beta-modal false)
+                  :style {:margin-top "1rem"
+                          :padding "0.5rem 1rem"
+                          :cursor "pointer"
+                          :background "#eee"
+                          :border "none"
+                          :border-radius "4px"}}
+         "Close"]]])))
+
 (defn time-slider []
   (let [{:keys [identity-history slider-value selected-identity]} @app-state]
     (when (and selected-identity (seq identity-history))
@@ -769,6 +829,7 @@
      [search-modal]
      [add-relation-modal]
      [add-identity-modal]
+     [beta-modal]
      (case current-tab
        :settings [settings-tab]
        [main-tab])]))
