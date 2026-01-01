@@ -16,61 +16,61 @@ curl -s -X POST -H "Content-Type: application/json" \
 echo "Creating identities for alice..."
 
 curl -s -X POST -H "Content-Type: application/json" \
-  -d '{"id":"bio","text":"I am a software engineer.","valid_from":"2025-12-25T10:00:00Z"}' \
+  -d '{"id":"x7k9m2","name":"Biography","text":"I am a software engineer.","valid_from":"2025-12-25T10:00:00Z"}' \
   "$API_BASE/api/personas/alice/identities" > /dev/null
 
 curl -s -X PUT -H "Content-Type: application/json" \
-  -d '{"text":"I am a software engineer working on distributed systems.","valid_from":"2025-12-26T14:00:00Z"}' \
-  "$API_BASE/api/personas/alice/identities/bio" > /dev/null
+  -d '{"name":"Biography","text":"I am a software engineer working on distributed systems.","valid_from":"2025-12-26T14:00:00Z"}' \
+  "$API_BASE/api/personas/alice/identities/x7k9m2" > /dev/null
 
 curl -s -X PUT -H "Content-Type: application/json" \
-  -d '{"text":"I am a senior software engineer specializing in distributed systems and databases.","valid_from":"2025-12-28T09:00:00Z"}' \
-  "$API_BASE/api/personas/alice/identities/bio" > /dev/null
+  -d '{"name":"Professional Biography","text":"I am a senior software engineer specializing in distributed systems and databases.","valid_from":"2025-12-28T09:00:00Z"}' \
+  "$API_BASE/api/personas/alice/identities/x7k9m2" > /dev/null
 
 curl -s -X POST -H "Content-Type: application/json" \
-  -d '{"id":"goals","text":"Learn Rust this year.","valid_from":"2025-12-25T11:00:00Z"}' \
+  -d '{"id":"p3n8v5","name":"Career Goals","text":"Learn Rust this year.","valid_from":"2025-12-25T11:00:00Z"}' \
   "$API_BASE/api/personas/alice/identities" > /dev/null
 
 curl -s -X PUT -H "Content-Type: application/json" \
-  -d '{"text":"Learn Rust and contribute to open source.","valid_from":"2025-12-27T16:00:00Z"}' \
-  "$API_BASE/api/personas/alice/identities/goals" > /dev/null
+  -d '{"name":"Career Goals","text":"Learn Rust and contribute to open source.","valid_from":"2025-12-27T16:00:00Z"}' \
+  "$API_BASE/api/personas/alice/identities/p3n8v5" > /dev/null
 
 curl -s -X PUT -H "Content-Type: application/json" \
-  -d '{"text":"Master Rust, contribute to open source, and give a conference talk.","valid_from":"2025-12-29T10:00:00Z"}' \
-  "$API_BASE/api/personas/alice/identities/goals" > /dev/null
+  -d '{"name":"Professional Aspirations","text":"Master Rust, contribute to open source, and give a conference talk.","valid_from":"2025-12-29T10:00:00Z"}' \
+  "$API_BASE/api/personas/alice/identities/p3n8v5" > /dev/null
 
 echo "Creating identities for bob..."
 
 curl -s -X POST -H "Content-Type: application/json" \
-  -d '{"id":"bio","text":"Designer and artist.","valid_from":"2025-12-24T08:00:00Z"}' \
+  -d '{"id":"q4w2r8","name":"About Me","text":"Designer and artist.","valid_from":"2025-12-24T08:00:00Z"}' \
   "$API_BASE/api/personas/bob/identities" > /dev/null
 
 curl -s -X PUT -H "Content-Type: application/json" \
-  -d '{"text":"UI/UX designer with a passion for accessibility.","valid_from":"2025-12-26T12:00:00Z"}' \
-  "$API_BASE/api/personas/bob/identities/bio" > /dev/null
+  -d '{"name":"About Me","text":"UI/UX designer with a passion for accessibility.","valid_from":"2025-12-26T12:00:00Z"}' \
+  "$API_BASE/api/personas/bob/identities/q4w2r8" > /dev/null
 
 curl -s -X PUT -H "Content-Type: application/json" \
-  -d '{"text":"Senior UI/UX designer focusing on accessible and inclusive design systems.","valid_from":"2025-12-28T15:00:00Z"}' \
-  "$API_BASE/api/personas/bob/identities/bio" > /dev/null
+  -d '{"name":"Professional Profile","text":"Senior UI/UX designer focusing on accessible and inclusive design systems.","valid_from":"2025-12-28T15:00:00Z"}' \
+  "$API_BASE/api/personas/bob/identities/q4w2r8" > /dev/null
 
 curl -s -X POST -H "Content-Type: application/json" \
-  -d '{"id":"motto","text":"Keep it simple.","valid_from":"2025-12-25T09:00:00Z"}' \
+  -d '{"id":"h6j1t9","name":"Personal Motto","text":"Keep it simple.","valid_from":"2025-12-25T09:00:00Z"}' \
   "$API_BASE/api/personas/bob/identities" > /dev/null
 
 curl -s -X PUT -H "Content-Type: application/json" \
-  -d '{"text":"Simple is beautiful, but never boring.","valid_from":"2025-12-27T11:00:00Z"}' \
-  "$API_BASE/api/personas/bob/identities/motto" > /dev/null
+  -d '{"name":"Design Philosophy","text":"Simple is beautiful, but never boring.","valid_from":"2025-12-27T11:00:00Z"}' \
+  "$API_BASE/api/personas/bob/identities/h6j1t9" > /dev/null
 
 curl -s -X PUT -H "Content-Type: application/json" \
-  -d '{"text":"Simplicity is the ultimate sophistication.","valid_from":"2025-12-29T08:00:00Z"}' \
-  "$API_BASE/api/personas/bob/identities/motto" > /dev/null
+  -d '{"name":"Core Belief","text":"Simplicity is the ultimate sophistication.","valid_from":"2025-12-29T08:00:00Z"}' \
+  "$API_BASE/api/personas/bob/identities/h6j1t9" > /dev/null
 
 echo "Database seeded successfully!"
 echo ""
 echo "Created:"
 echo "  - alice (alice@example.com)"
-echo "    - bio: 3 versions (Dec 25-28)"
-echo "    - goals: 3 versions (Dec 25-29)"
+echo "    - x7k9m2 (Biography): 3 versions (Dec 25-28)"
+echo "    - p3n8v5 (Career Goals): 3 versions (Dec 25-29)"
 echo "  - bob (bob@example.com)"
-echo "    - bio: 3 versions (Dec 24-28)"
-echo "    - motto: 3 versions (Dec 25-29)"
+echo "    - q4w2r8 (About Me): 3 versions (Dec 24-28)"
+echo "    - h6j1t9 (Personal Motto): 3 versions (Dec 25-29)"

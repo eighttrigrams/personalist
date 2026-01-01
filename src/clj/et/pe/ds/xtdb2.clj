@@ -71,30 +71,32 @@
 (defmethod dispatch/list-identities :xtdb2-in-memory
   [conn {persona-id :name :as _mind}]
   (map
-   (fn [{id :xt/id text :identity/text}] {:identity (extract-identity-id id) :text text})
+   (fn [{id :xt/id nm :identity/name text :identity/text}] {:identity (extract-identity-id id) :name nm :text text})
    (xt/q (:conn conn)
          ['(fn [persona-id]
-             (-> (from :identities [identity/mind-id identity/text xt/id])
+             (-> (from :identities [identity/mind-id identity/name identity/text xt/id])
                  (where (= identity/mind-id persona-id))
-                 (return identity/text xt/id)))
+                 (return identity/name identity/text xt/id)))
           persona-id])))
 
 (defmethod dispatch/add-identity :xtdb2-in-memory
-  [conn {persona-id :name :as _mind} id text & [{:keys [valid-from]}]]
+  [conn {persona-id :name :as _mind} id nm text & [{:keys [valid-from]}]]
   (xt/execute-tx (:conn conn)
                  [[:put-docs (cond-> {:into :identities}
                                valid-from (assoc :valid-from valid-from))
                    {:xt/id            (make-identity-id persona-id id)
                     :identity/mind-id persona-id
+                    :identity/name    nm
                     :identity/text    text}]]))
 
 (defmethod dispatch/update-identity :xtdb2-in-memory
-  [conn {persona-id :name :as _mind} id text & [{:keys [valid-from]}]]
+  [conn {persona-id :name :as _mind} id nm text & [{:keys [valid-from]}]]
   (xt/execute-tx (:conn conn)
                  [[:put-docs (cond-> {:into :identities}
                                valid-from (assoc :valid-from valid-from))
                    {:xt/id            (make-identity-id persona-id id)
                     :identity/mind-id persona-id
+                    :identity/name    nm
                     :identity/text    text}]]))
 
 (defmethod dispatch/get-identity-at :xtdb2-in-memory
@@ -102,27 +104,27 @@
   (let [composite-id (make-identity-id persona-id id)
         result (first (xt/q (:conn conn)
                             ['(fn [composite-id time-point]
-                                (-> (from :identities {:bind [identity/mind-id identity/text xt/id]
+                                (-> (from :identities {:bind [identity/mind-id identity/name identity/text xt/id]
                                                        :for-valid-time (at time-point)})
                                     (where (= xt/id composite-id))
-                                    (return identity/text xt/id)))
+                                    (return identity/name identity/text xt/id)))
                              composite-id time-point]))]
     (when result
-      {:identity id :text (:identity/text result)})))
+      {:identity id :name (:identity/name result) :text (:identity/text result)})))
 
 (defmethod dispatch/get-identity-history :xtdb2-in-memory
   [conn {persona-id :name :as _mind} id]
   (let [composite-id (make-identity-id persona-id id)
         results (xt/q (:conn conn)
                       ['(fn [composite-id]
-                          (-> (from :identities {:bind [identity/mind-id identity/text xt/id xt/valid-from]
+                          (-> (from :identities {:bind [identity/mind-id identity/name identity/text xt/id xt/valid-from]
                                                  :for-valid-time :all-time})
                               (where (= xt/id composite-id))
                               (order-by xt/valid-from)
-                              (return identity/text xt/id xt/valid-from)))
+                              (return identity/name identity/text xt/id xt/valid-from)))
                        composite-id])]
-    (mapv (fn [{:keys [identity/text xt/valid-from]}]
-            {:identity id :text text :valid-from valid-from})
+    (mapv (fn [{:keys [identity/name identity/text xt/valid-from]}]
+            {:identity id :name name :text text :valid-from valid-from})
           results)))
 
 (defn- make-relation-id [persona-id source-id target-id]
@@ -164,14 +166,13 @@
   [conn {persona-id :name :as _mind} query]
   (let [results (xt/q (:conn conn)
                       ['(fn [persona-id]
-                          (-> (from :identities [identity/mind-id identity/text xt/id])
+                          (-> (from :identities [identity/mind-id identity/name identity/text xt/id])
                               (where (= identity/mind-id persona-id))
-                              (return identity/text xt/id)))
+                              (return identity/name identity/text xt/id)))
                        persona-id])
         query-lower (str/lower-case (or query ""))]
     (->> results
-         (filter (fn [{:keys [xt/id identity/text]}]
-                   (or (str/includes? (str/lower-case (name id)) query-lower)
-                       (str/includes? (str/lower-case (or text "")) query-lower))))
-         (mapv (fn [{id :xt/id text :identity/text}]
-                 {:identity (extract-identity-id id) :text text})))))
+         (filter (fn [{:keys [identity/name]}]
+                   (str/includes? (str/lower-case (or name "")) query-lower)))
+         (mapv (fn [{id :xt/id nm :identity/name text :identity/text}]
+                 {:identity (extract-identity-id id) :name nm :text text})))))

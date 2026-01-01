@@ -65,19 +65,23 @@
     (ds/add-persona conn :dan2 "d2@et.n")
     (let [dan (ds/get-persona-by-name conn :dan)
           dan2 (ds/get-persona-by-name conn :dan2)]
-      (ds/add-identity conn dan :id11 "text11")
-      (ds/add-identity conn dan :id12 "text12")
-      (ds/add-identity conn dan2 :id21 "text21")
-      (ds/add-identity conn dan2 :id22 "text22")
+      (ds/add-identity conn dan :id11 "name11" "text11")
+      (ds/add-identity conn dan :id12 "name12" "text12")
+      (ds/add-identity conn dan2 :id21 "name21" "text21")
+      (ds/add-identity conn dan2 :id22 "name22" "text22")
       (sets-are=
        [{:identity :id11
+         :name     "name11"
          :text     "text11"}
         {:identity :id12
+         :name     "name12"
          :text     "text12"}]
        (ds/list-identities conn dan)
        [{:identity :id21
+         :name     "name21"
          :text     "text21"}
         {:identity :id22
+         :name     "name22"
          :text     "text22"}]
        (ds/list-identities conn dan2)))))
 
@@ -88,13 +92,13 @@
           t1 (Instant/parse "2020-01-01T00:00:00Z")
           t2 (Instant/parse "2020-06-01T00:00:00Z")
           query-time (Instant/parse "2020-03-01T00:00:00Z")]
-      (ds/add-identity conn dan :evolving-id "original text" {:valid-from t1})
-      (ds/update-identity conn dan :evolving-id "updated text" {:valid-from t2})
+      (ds/add-identity conn dan :evolving-id "original name" "original text" {:valid-from t1})
+      (ds/update-identity conn dan :evolving-id "updated name" "updated text" {:valid-from t2})
       (testing "- current query returns updated text"
         (is (= "updated text"
                (:text (first (filter #(= :evolving-id (:identity %))
                                      (ds/list-identities conn dan)))))))
-      (testing "- time-travel query returns original text"
-        (is (= {:identity :evolving-id :text "original text"}
+      (testing "- time-travel query returns original text and name"
+        (is (= {:identity :evolving-id :name "original name" :text "original text"}
                (ds/get-identity-at conn dan :evolving-id query-time)))))))
 

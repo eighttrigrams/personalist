@@ -3,6 +3,7 @@
   {:description "An Identity (an Entity or Process pattern, recognisable throughout time)."
    :fields
    {:identity {:type (non-null String)}
+    :name     {:type (non-null String)}
     :text     {:type (non-null String)}}}
 
   :Query

@@ -52,24 +52,24 @@
 
 (defn add-identity-handler [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
-        {:keys [id text valid_from]} (:body req)
+        {:keys [id name text valid_from]} (:body req)
         persona (ds/get-persona-by-name (ensure-conn) persona-name)
         opts (when valid_from {:valid-from (Instant/parse valid_from)})]
     (if persona
       (do
-        (ds/add-identity (ensure-conn) persona (str->keyword id) text opts)
+        (ds/add-identity (ensure-conn) persona (str->keyword id) name text opts)
         {:status 201 :body {:success true}})
       {:status 404 :body {:error "Persona not found"}})))
 
 (defn update-identity-handler [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         identity-id (str->keyword (get-in req [:params :id]))
-        {:keys [text valid_from]} (:body req)
+        {:keys [name text valid_from]} (:body req)
         persona (ds/get-persona-by-name (ensure-conn) persona-name)
         opts (when valid_from {:valid-from (Instant/parse valid_from)})]
     (if persona
       (do
-        (ds/update-identity (ensure-conn) persona identity-id text opts)
+        (ds/update-identity (ensure-conn) persona identity-id name text opts)
         {:status 200 :body {:success true}})
       {:status 404 :body {:error "Persona not found"}})))
 

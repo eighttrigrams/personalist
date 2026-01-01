@@ -12,11 +12,13 @@
                             :identities []
                             :selected-identity nil
                             :identity-history []
+                            :editing-name ""
                             :editing-text ""
                             :slider-value 0
                             :new-persona-name ""
                             :new-persona-email ""
                             :new-identity-id ""
+                            :new-identity-name ""
                             :new-identity-text ""
                             :relations []
                             :show-add-relation-modal false
@@ -59,28 +61,30 @@
 (declare select-identity)
 
 (defn add-identity []
-  (let [{:keys [current-user new-identity-id new-identity-text]} @app-state]
-    (when (and current-user (seq new-identity-id) (seq new-identity-text))
+  (let [{:keys [current-user new-identity-id new-identity-name new-identity-text]} @app-state]
+    (when (and current-user (seq new-identity-id) (seq new-identity-name) (seq new-identity-text))
       (let [id-to-select new-identity-id
+            name-to-select new-identity-name
             text-to-select new-identity-text]
         (POST (str api-base "/api/personas/" (:name current-user) "/identities")
-          {:params {:id new-identity-id :text new-identity-text}
+          {:params {:id new-identity-id :name new-identity-name :text new-identity-text}
            :format :json
            :handler (fn [_]
                       (swap! app-state assoc
                              :new-identity-id ""
+                             :new-identity-name ""
                              :new-identity-text ""
                              :show-add-identity-modal false)
                       (fetch-identities (:name current-user))
-                      (select-identity {:identity id-to-select :text text-to-select}))
+                      (select-identity {:identity id-to-select :name name-to-select :text text-to-select}))
            :error-handler #(js/console.error "Error adding identity" %)})))))
 
 (declare fetch-identity-history)
 
-(defn update-identity [identity-id text]
+(defn update-identity [identity-id name text]
   (let [{:keys [current-user]} @app-state]
     (PUT (str api-base "/api/personas/" (:name current-user) "/identities/" identity-id)
-      {:params {:text text}
+      {:params {:name name :text text}
        :format :json
        :handler (fn [_]
                   (fetch-identities (:name current-user))
@@ -103,7 +107,7 @@
     (GET (str api-base "/api/personas/" (:name current-user) "/identities/" identity-id "/at")
       {:params {:time time-str}
        :handler (fn [res]
-                  (swap! app-state assoc :editing-text (:text res)))
+                  (swap! app-state assoc :editing-name (:name res) :editing-text (:text res)))
        :response-format :json
        :keywords? true
        :error-handler #(js/console.error "Error fetching identity at time" %)})))
@@ -160,6 +164,7 @@
 (defn select-identity [identity]
   (swap! app-state assoc
          :selected-identity identity
+         :editing-name (:name identity)
          :editing-text (:text identity)
          :relations [])
   (fetch-identity-history (:identity identity))
@@ -383,7 +388,7 @@
               :on-click #(.stopPropagation %)}
         [:h2 {:style {:margin-top 0}} "Search Identities"]
         [:input {:type "text"
-                 :placeholder "Search by ID or text..."
+                 :placeholder "Search by name..."
                  :value nav-search-query
                  :auto-focus true
                  :on-change (fn [e]
@@ -414,8 +419,7 @@
                            :transition "background 0.2s"}
                    :on-mouse-over #(set! (.-background (.-style (.-target %))) "#e0e0e0")
                    :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
-              [:strong (:identity result)] [:br]
-              [:span {:style {:color "#666" :font-size "0.9rem"}} (subs (or (:text result) "") 0 (min 50 (count (or (:text result) ""))))]])]
+              [:span (:name result)]])]
           (when (seq nav-search-query)
             [:p {:style {:color "#666" :font-style "italic"}} "No results found"]))
         [:button {:on-click #(swap! app-state assoc :show-search-modal false :nav-search-query "" :nav-search-results [])
@@ -448,9 +452,9 @@
               :on-click #(.stopPropagation %)}
         [:h2 {:style {:margin-top 0}} "Add Relation"]
         [:p {:style {:color "#666" :margin-bottom "1rem"}}
-         (str "Link an identity to: " (:identity selected-identity))]
+         (str "Link an identity to: " (:name selected-identity))]
         [:input {:type "text"
-                 :placeholder "Search identities..."
+                 :placeholder "Search by name..."
                  :value relation-search-query
                  :auto-focus true
                  :on-change (fn [e]
@@ -478,8 +482,7 @@
                              :transition "background 0.2s"}
                      :on-mouse-over #(set! (.-background (.-style (.-target %))) "#e0e0e0")
                      :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
-                [:strong (:identity result)] [:br]
-                [:span {:style {:color "#666" :font-size "0.9rem"}} (subs (or (:text result) "") 0 (min 50 (count (or (:text result) ""))))]]))])
+                [:span (:name result)]]))])
         [:button {:on-click #(swap! app-state assoc :show-add-relation-modal false :relation-search-query "" :relation-search-results [])
                   :style {:margin-top "1rem"
                           :padding "0.5rem 1rem"
@@ -487,7 +490,7 @@
          "Cancel"]]])))
 
 (defn add-identity-modal []
-  (let [{:keys [show-add-identity-modal new-identity-id new-identity-text]} @app-state]
+  (let [{:keys [show-add-identity-modal new-identity-id new-identity-name new-identity-text]} @app-state]
     (when show-add-identity-modal
       [:div {:style {:position "fixed"
                      :top 0
@@ -520,6 +523,17 @@
                           :border "1px solid #ccc"
                           :border-radius "4px"}}]]
         [:div {:style {:margin-bottom "1rem"}}
+         [:label {:style {:display "block" :margin-bottom "0.5rem" :font-weight "bold"}} "Name"]
+         [:input {:type "text"
+                  :placeholder "Display name for this identity..."
+                  :value new-identity-name
+                  :on-change #(swap! app-state assoc :new-identity-name (-> % .-target .-value))
+                  :style {:width "100%"
+                          :padding "0.75rem"
+                          :font-size "1rem"
+                          :border "1px solid #ccc"
+                          :border-radius "4px"}}]]
+        [:div {:style {:margin-bottom "1rem"}}
          [:label {:style {:display "block" :margin-bottom "0.5rem" :font-weight "bold"}} "Text"]
          [:textarea {:placeholder "Describe this identity..."
                      :value new-identity-text
@@ -532,15 +546,15 @@
                              :border-radius "4px"
                              :resize "vertical"}}]]
         [:div {:style {:display "flex" :gap "1rem" :justify-content "flex-end"}}
-         [:button {:on-click #(swap! app-state assoc :show-add-identity-modal false :new-identity-id "" :new-identity-text "")
+         [:button {:on-click #(swap! app-state assoc :show-add-identity-modal false :new-identity-id "" :new-identity-name "" :new-identity-text "")
                    :style {:padding "0.5rem 1rem"
                            :cursor "pointer"}}
           "Cancel"]
          [:button {:on-click add-identity
-                   :disabled (or (empty? new-identity-id) (empty? new-identity-text))
+                   :disabled (or (empty? new-identity-id) (empty? new-identity-name) (empty? new-identity-text))
                    :style {:padding "0.5rem 1rem"
                            :cursor "pointer"
-                           :background (if (or (empty? new-identity-id) (empty? new-identity-text)) "#ccc" "#4CAF50")
+                           :background (if (or (empty? new-identity-id) (empty? new-identity-name) (empty? new-identity-text)) "#ccc" "#4CAF50")
                            :color "white"
                            :border "none"
                            :border-radius "4px"}}
@@ -590,10 +604,7 @@
                                  (when source-identity
                                    (select-identity source-identity)))
                      :style {:cursor "pointer"}}
-              [:strong (:source rel)]
-              (when source-identity
-                [:span {:style {:color "#666" :margin-left "0.5rem"}}
-                 (str "- " (subs (or (:text source-identity) "") 0 (min 30 (count (or (:text source-identity) "")))))])]
+              [:span (or (:name source-identity) (:source rel))]]
              (when can-edit?
                [:button {:on-click #(delete-relation (:id rel))
                          :style {:padding "0.25rem 0.5rem"
@@ -607,7 +618,7 @@
        [:p {:style {:color "#666" :font-style "italic" :margin 0}} "No linked identities yet"])]))
 
 (defn identity-editor []
-  (let [{:keys [selected-identity editing-text auth-user]} @app-state
+  (let [{:keys [selected-identity editing-name editing-text auth-user]} @app-state
         can-edit? (some? auth-user)]
     (when selected-identity
       [:div {:style {:padding "2rem"
@@ -618,6 +629,17 @@
        [time-slider]
        (if can-edit?
          [:<>
+          [:input {:type "text"
+                   :value editing-name
+                   :on-change #(swap! app-state assoc :editing-name (-> % .-target .-value))
+                   :placeholder "Name"
+                   :style {:width "100%"
+                           :padding "0.75rem"
+                           :font-size "1.2rem"
+                           :font-weight "bold"
+                           :border "1px solid #ccc"
+                           :border-radius "4px"
+                           :margin-bottom "0.5rem"}}]
           [:textarea {:value editing-text
                       :on-change #(swap! app-state assoc :editing-text (-> % .-target .-value))
                       :style {:width "100%"
@@ -628,7 +650,7 @@
                               :border-radius "4px"
                               :resize "vertical"}}]
           [:div {:style {:display "flex" :gap "0.5rem" :margin-top "1rem"}}
-           [:button {:on-click #(update-identity (:identity selected-identity) editing-text)
+           [:button {:on-click #(update-identity (:identity selected-identity) editing-name editing-text)
                      :style {:padding "0.5rem 1rem"
                              :cursor "pointer"
                              :background "#4CAF50"
@@ -644,15 +666,25 @@
                              :border "none"
                              :border-radius "4px"}}
             "\u221E"]]]
-         [:div {:style {:width "100%"
-                        :min-height "200px"
-                        :padding "0.75rem"
-                        :font-size "1rem"
-                        :border "1px solid #ccc"
-                        :border-radius "4px"
-                        :background "#fafafa"
-                        :white-space "pre-wrap"}}
-          editing-text])
+         [:<>
+          [:div {:style {:width "100%"
+                         :padding "0.75rem"
+                         :font-size "1.2rem"
+                         :font-weight "bold"
+                         :border "1px solid #ccc"
+                         :border-radius "4px"
+                         :background "#fafafa"
+                         :margin-bottom "0.5rem"}}
+           editing-name]
+          [:div {:style {:width "100%"
+                         :min-height "200px"
+                         :padding "0.75rem"
+                         :font-size "1rem"
+                         :border "1px solid #ccc"
+                         :border-radius "4px"
+                         :background "#fafafa"
+                         :white-space "pre-wrap"}}
+           editing-text]])
        [relations-list]])))
 
 (defn main-tab []
