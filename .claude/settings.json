@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(PORT=3017 clojure:*)",
+      "Bash(clj -M:test:*)",
+      "Bash(PORT=3017 timeout 20 clojure:*)",
+      "WebFetch(domain:docs.xtdb.com)",
+      "Bash(npm init:*)",
+      "Bash(npm install:*)",
+      "Bash(npx shadow-cljs watch app)",
+      "Bash(clj -Stree:*)",
+      "Bash(clj -M:test:xtdb:*)",
+      "Bash(./seed-db.sh:*)",
+      "Bash(./tear-down.sh)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

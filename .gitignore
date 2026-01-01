@@ -8,3 +8,4 @@ server.jar
 node_modules
 .shadow-cljs
 resources/public/js
+.claude/settings.local.json

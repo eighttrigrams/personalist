@@ -114,14 +114,17 @@
 
 (declare fetch-relations)
 
-(defn fetch-relations [identity-id]
-  (let [{:keys [current-user]} @app-state]
-    (GET (str api-base "/api/personas/" (:name current-user) "/identities/" identity-id "/relations")
-      {:handler (fn [res]
-                  (swap! app-state assoc :relations res))
-       :response-format :json
-       :keywords? true
-       :error-handler #(js/console.error "Error fetching relations" %)})))
+(defn fetch-relations
+  ([identity-id] (fetch-relations identity-id nil))
+  ([identity-id time-str]
+   (let [{:keys [current-user]} @app-state
+         url (str api-base "/api/personas/" (:name current-user) "/identities/" identity-id "/relations")]
+     (GET (if time-str (str url "?time=" (js/encodeURIComponent time-str)) url)
+       {:handler (fn [res]
+                   (swap! app-state assoc :relations res))
+        :response-format :json
+        :keywords? true
+        :error-handler #(js/console.error "Error fetching relations" %)}))))
 
 (defn add-relation [source-id]
   (let [{:keys [current-user selected-identity]} @app-state]
@@ -577,7 +580,8 @@
                   :on-mouse-up (fn [_]
                                  (let [entry (get identity-history (:slider-value @app-state))]
                                    (when entry
-                                     (fetch-identity-at (:identity selected-identity) (:valid-from entry)))))
+                                     (fetch-identity-at (:identity selected-identity) (:valid-from entry))
+                                     (fetch-relations (:identity selected-identity) (:valid-from entry)))))
                   :style {:width "100%"}}]
          (when current-entry
            [:div {:style {:font-size "0.8rem" :color "#666" :margin-top "0.5rem"}}
@@ -587,7 +591,7 @@
   (let [{:keys [relations identities auth-user]} @app-state
         can-edit? (some? auth-user)]
     [:div {:style {:margin-top "1.5rem" :padding-top "1rem" :border-top "1px solid #eee"}}
-     [:h4 {:style {:margin 0 :margin-bottom "1rem"}} "Linked Identities"]
+     [:h4 {:style {:margin 0 :margin-bottom "1rem"}} "Related Identities"]
      (if (seq relations)
        [:ul {:style {:list-style "none" :padding 0 :margin 0}}
         (for [rel relations]
@@ -624,8 +628,20 @@
       [:div {:style {:padding "2rem"
                      :max-width "800px"
                      :margin "0 auto"}}
-       [:div {:style {:margin-bottom "1rem"}}
-        [:span {:style {:color "#666" :font-size "0.9rem"}} (:identity selected-identity)]]
+       [:div {:style {:display "flex"
+                      :justify-content "space-between"
+                      :align-items "center"
+                      :margin-bottom "1rem"}}
+        [:span {:style {:color "#666" :font-size "0.9rem"}} (str "Identity: " (:identity selected-identity))]
+        (when can-edit?
+          [:button {:on-click #(update-identity (:identity selected-identity) editing-name editing-text)
+                    :style {:padding "0.5rem 1rem"
+                            :cursor "pointer"
+                            :background "#4CAF50"
+                            :color "white"
+                            :border "none"
+                            :border-radius "4px"}}
+           "Save"])]
        [time-slider]
        (if can-edit?
          [:<>
@@ -650,14 +666,6 @@
                               :border-radius "4px"
                               :resize "vertical"}}]
           [:div {:style {:display "flex" :gap "0.5rem" :margin-top "1rem"}}
-           [:button {:on-click #(update-identity (:identity selected-identity) editing-name editing-text)
-                     :style {:padding "0.5rem 1rem"
-                             :cursor "pointer"
-                             :background "#4CAF50"
-                             :color "white"
-                             :border "none"
-                             :border-radius "4px"}}
-            "Save"]
            [:button {:on-click #(swap! app-state assoc :show-add-relation-modal true)
                      :style {:padding "0.5rem 1rem"
                              :cursor "pointer"

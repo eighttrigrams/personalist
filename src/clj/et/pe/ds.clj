@@ -51,12 +51,12 @@
   (dispatch/get-identity-history conn mind id))
 
 (defn add-relation
-  [conn mind source-id target-id]
-  (dispatch/add-relation conn mind source-id target-id))
+  [conn mind source-id target-id & [opts]]
+  (dispatch/add-relation conn mind source-id target-id opts))
 
 (defn list-relations
-  [conn mind target-id]
-  (dispatch/list-relations conn mind target-id))
+  [conn mind target-id & [opts]]
+  (dispatch/list-relations conn mind target-id opts))
 
 (defn delete-relation
   [conn mind relation-id]

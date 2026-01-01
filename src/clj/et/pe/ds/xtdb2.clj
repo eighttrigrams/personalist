@@ -131,26 +131,35 @@
   (keyword (str (name persona-id) "/rel-" (name source-id) "->" (name target-id))))
 
 (defmethod dispatch/add-relation :xtdb2-in-memory
-  [conn {persona-id :name :as _mind} source-id target-id]
+  [conn {persona-id :name :as _mind} source-id target-id & [{:keys [valid-from]}]]
   (let [relation-id (make-relation-id persona-id source-id target-id)
         source-composite (make-identity-id persona-id source-id)
         target-composite (make-identity-id persona-id target-id)]
     (xt/execute-tx (:conn conn)
-                   [[:put-docs :relations
+                   [[:put-docs (cond-> {:into :relations}
+                                 valid-from (assoc :valid-from valid-from))
                      {:xt/id             relation-id
                       :relation/source   source-composite
                       :relation/target   target-composite
                       :relation/mind-id  persona-id}]])))
 
 (defmethod dispatch/list-relations :xtdb2-in-memory
-  [conn {persona-id :name :as _mind} target-id]
+  [conn {persona-id :name :as _mind} target-id & [{:keys [at]}]]
   (let [target-composite (make-identity-id persona-id target-id)
-        results (xt/q (:conn conn)
-                      ['(fn [target-composite]
-                          (-> (from :relations [xt/id relation/source relation/target relation/mind-id])
-                              (where (= relation/target target-composite))
-                              (return xt/id relation/source relation/target)))
-                       target-composite])]
+        results (if at
+                  (xt/q (:conn conn)
+                        ['(fn [target-composite time-point]
+                            (-> (from :relations {:bind [xt/id relation/source relation/target relation/mind-id]
+                                                  :for-valid-time (at time-point)})
+                                (where (= relation/target target-composite))
+                                (return xt/id relation/source relation/target)))
+                         target-composite at])
+                  (xt/q (:conn conn)
+                        ['(fn [target-composite]
+                            (-> (from :relations [xt/id relation/source relation/target relation/mind-id])
+                                (where (= relation/target target-composite))
+                                (return xt/id relation/source relation/target)))
+                         target-composite]))]
     (mapv (fn [{:keys [xt/id relation/source]}]
             {:id (name id)
              :source (extract-identity-id source)})

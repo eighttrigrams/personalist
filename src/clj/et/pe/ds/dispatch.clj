@@ -49,11 +49,11 @@
     type))
 
 (defmulti add-relation
-  (fn [{:keys [type]} _mind _source-id _target-id]
+  (fn [{:keys [type]} _mind _source-id _target-id & [_opts]]
     type))
 
 (defmulti list-relations
-  (fn [{:keys [type]} _mind _target-id]
+  (fn [{:keys [type]} _mind _target-id & [_opts]]
     type))
 
 (defmulti delete-relation

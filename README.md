@@ -4,7 +4,21 @@ Personalist Encyclopedia
 
 Read about it here: [*Personalist - An integrated universe of personal encyclopedias [Whitepaper]*](https://eighttrigrams.substack.com/p/personalist)
 
-## Running
+## Quickstart and demo
+
+Run
+
+```bash
+$ ./seed-db.sh
+```
+
+## Development
+
+### Prerequisites
+
+- Claude Code (optional)
+
+### Running
 
 Start with `$ PORT=3017 clojure -X:xtdb`.
 
@@ -20,7 +34,7 @@ To customize the nREPL port:
 $ PORT=3017 NREPL_PORT=7999 clojure -X:xtdb
 ```
 
-## nREPL
+### nREPL
 
 Connect to the running nREPL:
 
@@ -28,13 +42,13 @@ Connect to the running nREPL:
 $ basedir-eval -p 7888 "(+ 1 2)"
 ```
 
-## Tests
+### Tests
 
 ```bash
 $ clj -M:test
 ```
 
-## GraphQL
+### GraphQL
 
 ```bash
 $ curl -X POST http://localhost:3017/graphql \

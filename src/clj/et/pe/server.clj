@@ -98,20 +98,25 @@
 (defn list-relations-handler [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         identity-id (str->keyword (get-in req [:params :id]))
+        time-str (or (get-in req [:params :time])
+                     (get-in req [:params "time"])
+                     (get-in req [:query-params "time"]))
+        at (when time-str (Instant/parse time-str))
         persona (ds/get-persona-by-name (ensure-conn) persona-name)]
     (if persona
-      (let [relations (ds/list-relations (ensure-conn) persona identity-id)]
+      (let [relations (ds/list-relations (ensure-conn) persona identity-id (when at {:at at}))]
         {:status 200 :body (serialize-response relations)})
       {:status 404 :body {:error "Persona not found"}})))
 
 (defn add-relation-handler [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         identity-id (str->keyword (get-in req [:params :id]))
-        {:keys [source_id]} (:body req)
+        {:keys [source_id valid_from]} (:body req)
+        opts (when valid_from {:valid-from (Instant/parse valid_from)})
         persona (ds/get-persona-by-name (ensure-conn) persona-name)]
     (if persona
       (do
-        (ds/add-relation (ensure-conn) persona (str->keyword source_id) identity-id)
+        (ds/add-relation (ensure-conn) persona (str->keyword source_id) identity-id opts)
         {:status 201 :body {:success true}})
       {:status 404 :body {:error "Persona not found"}})))
 
