@@ -11,9 +11,9 @@
 
 (defn resolver-map
   [ds-conn]
-  {:Query/identitiesByPersonId 
-   (fn [_context {:keys [personName]} _value]
-     (ds/list-identities ds-conn (ds/get-person-by-name ds-conn (keyword personName))))})
+  {:Query/identitiesByPersonaId
+   (fn [_context {:keys [personaName]} _value]
+     (ds/list-identities ds-conn (ds/get-persona-by-name ds-conn (keyword personaName))))})
 
 (defn load-schema
   [ds-conn]
@@ -46,9 +46,9 @@
 
 (comment
   (def ds-conn (ds/init-conn {:type :xtdb2-in-memory}))
-  (ds/add-person ds-conn :dan "d@et.n")
-  (def person (ds/get-person-by-name ds-conn :dan))
-  (ds/add-identity ds-conn person :id1 "Hallo, Welt!")
+  (ds/add-persona ds-conn :dan "d@et.n")
+  (def persona (ds/get-persona-by-name ds-conn :dan))
+  (ds/add-identity ds-conn persona :id1 "Hallo, Welt!")
   (def schema (load-schema ds-conn))
-  (q schema "{ identitiesByPersonId(personName: \"dan\") { identity text }}")
+  (q schema "{ identitiesByPersonaId(personaName: \"dan\") { identity text }}")
   (ds/close-conn ds-conn))

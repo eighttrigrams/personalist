@@ -11,9 +11,9 @@
 
 (defn handler [request]
   (let [ds-conn (ds/init-conn {:type :xtdb2-in-memory})
-        _ (ds/add-person ds-conn :dan "d@et.n")
-        person (ds/get-person-by-name ds-conn :dan)
-        _ (ds/add-identity ds-conn person :id1 "Hallo, Welt!")
+        _ (ds/add-persona ds-conn :dan "d@et.n")
+        persona (ds/get-persona-by-name ds-conn :dan)
+        _ (ds/add-identity ds-conn persona :id1 "Hallo, Welt!")
         schema (resolver/load-schema ds-conn)]
     {:status 200
      :body (let [query (get-in request [:body "query"])

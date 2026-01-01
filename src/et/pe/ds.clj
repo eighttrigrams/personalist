@@ -11,26 +11,26 @@
   [conn] 
   (dispatch/close-conn conn))
 
-(defn get-person-by-name 
+(defn get-persona-by-name
   [conn name]
-  (dispatch/get-person-by-name conn name))
+  (dispatch/get-persona-by-name conn name))
 
-(defn get-person-by-email 
+(defn get-persona-by-email
   [conn email]
-  (dispatch/get-person-by-email conn email))
+  (dispatch/get-persona-by-email conn email))
 
-(defn add-person 
-  "@returns true if person added, false otherwise"
+(defn add-persona
+  "@returns true if persona added, false otherwise"
   [conn name email]
-  (dispatch/add-person conn name email))
+  (dispatch/add-persona conn name email))
 
-(defn list-persons [conn]
-  (dispatch/list-persons conn))
+(defn list-personas [conn]
+  (dispatch/list-personas conn))
 
 (defn list-identities [conn mind]
   (dispatch/list-identities conn mind))
 
 (defn add-identity
-  "@param mind - person the identity belongs to"
+  "@param mind - persona the identity belongs to"
   [conn mind id text]
   (dispatch/add-identity conn mind id text))

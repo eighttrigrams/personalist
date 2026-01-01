@@ -18,58 +18,58 @@
      (with-open [node (dispatch/init-conn {:type :xtdb2-in-memory})]
        (xt/status node))))
 
-(defn- convert-person [{name :xt/id email :person/email :as person}]
-  (when-not (nil? person)
+(defn- convert-persona [{name :xt/id email :persona/email :as persona}]
+  (when-not (nil? persona)
     {:name name :email email}))
 
-(defmethod dispatch/get-person-by-name-or-email :xtdb2-in-memory
+(defmethod dispatch/get-persona-by-name-or-email :xtdb2-in-memory
   [conn name email]
-  (map convert-person (xt/q (:conn conn) 
-                     '(-> (from :persons [xt/id person/email])
+  (map convert-persona (xt/q (:conn conn)
+                     '(-> (from :personas [xt/id persona/email])
                           (where (or (= xt/id $name)
-                                     (= person/email $email))))
+                                     (= persona/email $email))))
                      {:args {:name  name
                              :email email}})))
 
-(defmethod dispatch/get-person-by-name :xtdb2-in-memory
+(defmethod dispatch/get-persona-by-name :xtdb2-in-memory
   [conn name]
-  (convert-person (first (xt/q (:conn conn) 
-                        '(-> (from :persons [xt/id person/email])
+  (convert-persona (first (xt/q (:conn conn)
+                        '(-> (from :personas [xt/id persona/email])
                              (where (= xt/id $name)))
                         {:args {:name name}}))))
 
-(defmethod dispatch/get-person-by-email :xtdb2-in-memory
+(defmethod dispatch/get-persona-by-email :xtdb2-in-memory
   [conn email]
-  (convert-person
-   (first (xt/q (:conn conn) 
-                '(-> (from :persons [xt/id person/email])
-                     (where (= person/email $email)))
+  (convert-persona
+   (first (xt/q (:conn conn)
+                '(-> (from :personas [xt/id persona/email])
+                     (where (= persona/email $email)))
                 {:args {:email email}}))))
 
-(defmethod dispatch/add-person :xtdb2-in-memory
+(defmethod dispatch/add-persona :xtdb2-in-memory
   [conn name email]
-  (if (seq (dispatch/get-person-by-name-or-email conn name email))
+  (if (seq (dispatch/get-persona-by-name-or-email conn name email))
     false
-    (xt/execute-tx (:conn conn) [[:put-docs :persons {:xt/id        name        , 
-                                                      :person/email email}]])))
+    (xt/execute-tx (:conn conn) [[:put-docs :personas {:xt/id         name
+                                                       :persona/email email}]])))
 
-(defmethod dispatch/list-persons :xtdb2-in-memory
+(defmethod dispatch/list-personas :xtdb2-in-memory
   [conn]
-  (map convert-person (xt/q (:conn conn) '(from :persons [xt/id person/email]))))
+  (map convert-persona (xt/q (:conn conn) '(from :personas [xt/id persona/email]))))
 
 (defmethod dispatch/list-identities :xtdb2-in-memory
-  [conn {person-id :name :as _mind}]
+  [conn {persona-id :name :as _mind}]
   (map
    (fn [{id :xt/id text :identity/text}] {:identity id :text text})
-   (xt/q (:conn conn) 
+   (xt/q (:conn conn)
          '(-> (from :identities [identity/mind-id identity/text xt/id])
-              (where (= identity/mind-id $person-id))
+              (where (= identity/mind-id $persona-id))
               (return identity/text xt/id))
-         {:args {:person-id person-id}})))
+         {:args {:persona-id persona-id}})))
 
 (defmethod dispatch/add-identity :xtdb2-in-memory
-  [conn {person-id :name :as _mind} id text]
+  [conn {persona-id :name :as _mind} id text]
   (xt/execute-tx (:conn conn)
-                 [[:put-docs :identities {:xt/id            id 
-                                          :identity/mind-id person-id
+                 [[:put-docs :identities {:xt/id            id
+                                          :identity/mind-id persona-id
                                           :identity/text    text}]]))

@@ -30,40 +30,40 @@
 
 (use-fixtures :once (juxt xtdb2-in-memory other-db-adapter))
 
-(deftest persons
-  (testing-with-conn "add persons"
-   (ds/add-person conn :dan "d@et.n")
-   (testing "- can't add a person with the same name"
+(deftest personas
+  (testing-with-conn "add personas"
+   (ds/add-persona conn :dan "d@et.n")
+   (testing "- can't add a persona with the same name"
      (are=
-      false (ds/add-person conn :dan "d2@et.n")
-      1 (count (ds/list-persons conn))))
-   (testing "- can't add a person with the same email"
-     (are= 
-      false (ds/add-person conn :dan2 "d@et.n")
-      1 (count (ds/list-persons conn)))))
-  (testing-with-conn "retrieve persons"
-   (ds/add-person conn :dan "d@et.n")
-   (ds/add-person conn :dan2 "d2@et.n")
+      false (ds/add-persona conn :dan "d2@et.n")
+      1 (count (ds/list-personas conn))))
+   (testing "- can't add a persona with the same email"
+     (are=
+      false (ds/add-persona conn :dan2 "d@et.n")
+      1 (count (ds/list-personas conn)))))
+  (testing-with-conn "retrieve personas"
+   (ds/add-persona conn :dan "d@et.n")
+   (ds/add-persona conn :dan2 "d2@et.n")
    (sets-are=
     [{:name  :dan
       :email "d@et.n"}
      {:name  :dan2
       :email "d2@et.n"}]
-    (ds/list-persons conn))
+    (ds/list-personas conn))
    (are=
     {:name  :dan
      :email "d@et.n"}
-    (ds/get-person-by-name conn :dan)
+    (ds/get-persona-by-name conn :dan)
     {:name  :dan2
      :email "d2@et.n"}
-    (ds/get-person-by-email conn "d2@et.n"))))
+    (ds/get-persona-by-email conn "d2@et.n"))))
 
 (deftest identities
   (testing-with-conn "add and retrieve identities"
-    (ds/add-person conn :dan "d@et.n")
-    (ds/add-person conn :dan2 "d2@et.n")
-    (let [dan (ds/get-person-by-name conn :dan)
-          dan2 (ds/get-person-by-name conn :dan2)]
+    (ds/add-persona conn :dan "d@et.n")
+    (ds/add-persona conn :dan2 "d2@et.n")
+    (let [dan (ds/get-persona-by-name conn :dan)
+          dan2 (ds/get-persona-by-name conn :dan2)]
       (ds/add-identity conn dan :id11 "text11")
       (ds/add-identity conn dan :id12 "text12")
       (ds/add-identity conn dan2 :id21 "text21")

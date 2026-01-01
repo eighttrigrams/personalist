@@ -8,24 +8,24 @@
   (fn [{:keys [type]}]
     type))
 
-(defmulti get-person-by-name-or-email 
+(defmulti get-persona-by-name-or-email
   (fn [{:keys [type]} _name _email]
     type))
 
-(defmulti get-person-by-name 
+(defmulti get-persona-by-name
   (fn [{:keys [type]} _name]
     type))
 
-(defmulti get-person-by-email 
+(defmulti get-persona-by-email
   (fn [{:keys [type]} _email]
     type))
 
-(defmulti add-person
-  (fn [{:keys [type]} _name _email] 
+(defmulti add-persona
+  (fn [{:keys [type]} _name _email]
     type))
 
-(defmulti list-persons
-  (fn [{:keys [type]}] 
+(defmulti list-personas
+  (fn [{:keys [type]}]
     type))
 
 (defmulti list-identities

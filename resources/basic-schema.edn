@@ -7,8 +7,8 @@
 
   :Query
   {:fields
-   {:identitiesByPersonId
+   {:identitiesByPersonaId
     {:type        (list :Identity)
-     :description "Access all Identities for a given person"
+     :description "Access all Identities for a given persona"
      :args
-     {:personName {:type String}}}}}}}
+     {:personaName {:type String}}}}}}}
