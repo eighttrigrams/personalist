@@ -1,0 +1,2 @@
+{:db {:type :xtdb2-in-memory}
+ :seed-on-start false}

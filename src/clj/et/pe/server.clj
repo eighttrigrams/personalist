@@ -2,7 +2,8 @@
   (:require [ring.adapter.jetty9 :as jetty]
             [et.pe.ds :as ds]
             [clojure.walk]
-            [clojure.java.io]
+            [clojure.java.io :as io]
+            [clojure.edn :as edn]
             et.pe.ds.xtdb2
             [compojure.core :refer [defroutes GET POST PUT DELETE context]]
             [compojure.route :as route]
@@ -13,10 +14,34 @@
   (:import [java.time Instant ZonedDateTime]))
 
 (defonce ds-conn (atom nil))
+(defonce config (atom nil))
+
+(defn- load-config []
+  (let [config-file (io/file "config.edn")]
+    (if (.exists config-file)
+      (do
+        (prn "Loading configuration from config.edn")
+        (edn/read-string (slurp config-file)))
+      (do
+        (prn "config.edn not found, using default in-memory database")
+        {:db {:type :xtdb2-in-memory}
+         :seed-on-start true}))))
+
+(defn- run-seed-script []
+  (let [seed-script (io/file "scripts/seed-db.sh")]
+    (when (.exists seed-script)
+      (prn "Running seed script...")
+      (let [process (.exec (Runtime/getRuntime) "bash scripts/seed-db.sh")
+            exit-code (.waitFor process)]
+        (if (zero? exit-code)
+          (prn "Seed script completed successfully")
+          (prn "Seed script failed with exit code:" exit-code))))))
 
 (defn ensure-conn []
   (when (nil? @ds-conn)
-    (reset! ds-conn (ds/init-conn {:type :xtdb2-in-memory})))
+    (when (nil? @config)
+      (reset! config (load-config)))
+    (reset! ds-conn (ds/init-conn (get @config :db {:type :xtdb2-in-memory}))))
   @ds-conn)
 
 (defn- str->keyword [s]
@@ -177,6 +202,7 @@
 
 (defn -main
   [& _args]
+  (reset! config (load-config))
   (ensure-conn)
   (let [nrepl-port (Integer/parseInt (or (System/getenv "NREPL_PORT") "7888"))]
     (nrepl/start-server :port nrepl-port)
@@ -185,6 +211,10 @@
   (let [port (Integer/parseInt (or (System/getenv "PORT") "3017"))]
     (prn "Starting server on port" port)
     (run-server port)
+    (when (:seed-on-start @config)
+      (future
+        (Thread/sleep 2000)
+        (run-seed-script)))
     @(promise)))
 
 (comment

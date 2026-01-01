@@ -10,3 +10,6 @@ node_modules
 resources/public/js
 .claude/settings.local.json
 .playwright-mcp
+config.edn
+.shadow-cljs.pid
+.server.port
