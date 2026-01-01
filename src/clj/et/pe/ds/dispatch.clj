@@ -47,3 +47,19 @@
 (defmulti get-identity-history
   (fn [{:keys [type]} _mind _id]
     type))
+
+(defmulti add-relation
+  (fn [{:keys [type]} _mind _source-id _target-id]
+    type))
+
+(defmulti list-relations
+  (fn [{:keys [type]} _mind _target-id]
+    type))
+
+(defmulti delete-relation
+  (fn [{:keys [type]} _mind _relation-id]
+    type))
+
+(defmulti search-identities
+  (fn [{:keys [type]} _mind _query]
+    type))

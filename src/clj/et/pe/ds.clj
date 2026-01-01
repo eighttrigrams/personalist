@@ -49,3 +49,19 @@
 (defn get-identity-history
   [conn mind id]
   (dispatch/get-identity-history conn mind id))
+
+(defn add-relation
+  [conn mind source-id target-id]
+  (dispatch/add-relation conn mind source-id target-id))
+
+(defn list-relations
+  [conn mind target-id]
+  (dispatch/list-relations conn mind target-id))
+
+(defn delete-relation
+  [conn mind relation-id]
+  (dispatch/delete-relation conn mind relation-id))
+
+(defn search-identities
+  [conn mind query]
+  (dispatch/search-identities conn mind query))

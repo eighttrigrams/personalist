@@ -1,6 +1,7 @@
 (ns et.pe.ds.xtdb2
   (:require [xtdb.api :as xt]
             [xtdb.node :as xtn]
+            [clojure.string :as str]
             [et.pe.ds.dispatch :as dispatch]))
 
 (defmethod dispatch/init-conn :xtdb2-in-memory
@@ -123,3 +124,54 @@
     (mapv (fn [{:keys [identity/text xt/valid-from]}]
             {:identity id :text text :valid-from valid-from})
           results)))
+
+(defn- make-relation-id [persona-id source-id target-id]
+  (keyword (str (name persona-id) "/rel-" (name source-id) "->" (name target-id))))
+
+(defmethod dispatch/add-relation :xtdb2-in-memory
+  [conn {persona-id :name :as _mind} source-id target-id]
+  (let [relation-id (make-relation-id persona-id source-id target-id)
+        source-composite (make-identity-id persona-id source-id)
+        target-composite (make-identity-id persona-id target-id)]
+    (xt/execute-tx (:conn conn)
+                   [[:put-docs :relations
+                     {:xt/id             relation-id
+                      :relation/source   source-composite
+                      :relation/target   target-composite
+                      :relation/mind-id  persona-id}]])))
+
+(defmethod dispatch/list-relations :xtdb2-in-memory
+  [conn {persona-id :name :as _mind} target-id]
+  (let [target-composite (make-identity-id persona-id target-id)
+        results (xt/q (:conn conn)
+                      ['(fn [target-composite]
+                          (-> (from :relations [xt/id relation/source relation/target relation/mind-id])
+                              (where (= relation/target target-composite))
+                              (return xt/id relation/source relation/target)))
+                       target-composite])]
+    (mapv (fn [{:keys [xt/id relation/source]}]
+            {:id (name id)
+             :source (extract-identity-id source)})
+          results)))
+
+(defmethod dispatch/delete-relation :xtdb2-in-memory
+  [conn {persona-id :name :as _mind} relation-id]
+  (let [full-id (keyword (str (name persona-id) "/" relation-id))]
+    (xt/execute-tx (:conn conn)
+                   [[:delete-docs :relations full-id]])))
+
+(defmethod dispatch/search-identities :xtdb2-in-memory
+  [conn {persona-id :name :as _mind} query]
+  (let [results (xt/q (:conn conn)
+                      ['(fn [persona-id]
+                          (-> (from :identities [identity/mind-id identity/text xt/id])
+                              (where (= identity/mind-id persona-id))
+                              (return identity/text xt/id)))
+                       persona-id])
+        query-lower (str/lower-case (or query ""))]
+    (->> results
+         (filter (fn [{:keys [xt/id identity/text]}]
+                   (or (str/includes? (str/lower-case (name id)) query-lower)
+                       (str/includes? (str/lower-case (or text "")) query-lower))))
+         (mapv (fn [{id :xt/id text :identity/text}]
+                 {:identity (extract-identity-id id) :text text})))))

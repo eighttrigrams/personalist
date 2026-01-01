@@ -4,7 +4,7 @@
             [clojure.walk]
             [clojure.java.io]
             et.pe.ds.xtdb2
-            [compojure.core :refer [defroutes GET POST PUT context]]
+            [compojure.core :refer [defroutes GET POST PUT DELETE context]]
             [compojure.route :as route]
             [ring.middleware.json :refer [wrap-json-response wrap-json-body]]
             [ring.middleware.params :refer [wrap-params]]
@@ -95,15 +95,61 @@
         {:status 200 :body (serialize-response history)})
       {:status 404 :body {:error "Persona not found"}})))
 
+(defn list-relations-handler [req]
+  (let [persona-name (str->keyword (get-in req [:params :name]))
+        identity-id (str->keyword (get-in req [:params :id]))
+        persona (ds/get-persona-by-name (ensure-conn) persona-name)]
+    (if persona
+      (let [relations (ds/list-relations (ensure-conn) persona identity-id)]
+        {:status 200 :body (serialize-response relations)})
+      {:status 404 :body {:error "Persona not found"}})))
+
+(defn add-relation-handler [req]
+  (let [persona-name (str->keyword (get-in req [:params :name]))
+        identity-id (str->keyword (get-in req [:params :id]))
+        {:keys [source_id]} (:body req)
+        persona (ds/get-persona-by-name (ensure-conn) persona-name)]
+    (if persona
+      (do
+        (ds/add-relation (ensure-conn) persona (str->keyword source_id) identity-id)
+        {:status 201 :body {:success true}})
+      {:status 404 :body {:error "Persona not found"}})))
+
+(defn delete-relation-handler [req]
+  (let [persona-name (str->keyword (get-in req [:params :name]))
+        relation-id (get-in req [:params :relation-id])
+        persona (ds/get-persona-by-name (ensure-conn) persona-name)]
+    (if persona
+      (do
+        (ds/delete-relation (ensure-conn) persona relation-id)
+        {:status 200 :body {:success true}})
+      {:status 404 :body {:error "Persona not found"}})))
+
+(defn search-identities-handler [req]
+  (let [persona-name (str->keyword (get-in req [:params :name]))
+        query (or (get-in req [:params :q])
+                  (get-in req [:params "q"])
+                  (get-in req [:query-params "q"])
+                  "")
+        persona (ds/get-persona-by-name (ensure-conn) persona-name)]
+    (if persona
+      (let [results (ds/search-identities (ensure-conn) persona query)]
+        {:status 200 :body (serialize-response results)})
+      {:status 404 :body {:error "Persona not found"}})))
+
 (defroutes api-routes
   (context "/api" []
     (GET "/personas" [] list-personas-handler)
     (POST "/personas" [] add-persona-handler)
     (GET "/personas/:name/identities" [name] list-identities-handler)
+    (GET "/personas/:name/identities/search" [name] search-identities-handler)
     (POST "/personas/:name/identities" [name] add-identity-handler)
     (PUT "/personas/:name/identities/:id" [name id] update-identity-handler)
     (GET "/personas/:name/identities/:id/at" [name id] get-identity-at-handler)
-    (GET "/personas/:name/identities/:id/history" [name id] get-identity-history-handler)))
+    (GET "/personas/:name/identities/:id/history" [name id] get-identity-history-handler)
+    (GET "/personas/:name/identities/:id/relations" [name id] list-relations-handler)
+    (POST "/personas/:name/identities/:id/relations" [name id] add-relation-handler)
+    (DELETE "/personas/:name/relations/:relation-id" [name relation-id] delete-relation-handler)))
 
 (defroutes app-routes
   api-routes

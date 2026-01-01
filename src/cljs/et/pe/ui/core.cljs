@@ -1,7 +1,7 @@
 (ns et.pe.ui.core
   (:require [reagent.core :as r]
             [reagent.dom.client :as rdc]
-            [ajax.core :refer [GET POST PUT]]))
+            [ajax.core :refer [GET POST PUT DELETE]]))
 
 (defonce app-state (r/atom {:personas []
                             :current-user nil
@@ -15,7 +15,14 @@
                             :new-persona-name ""
                             :new-persona-email ""
                             :new-identity-id ""
-                            :new-identity-text ""}))
+                            :new-identity-text ""
+                            :relations []
+                            :show-add-relation-modal false
+                            :show-search-modal false
+                            :relation-search-query ""
+                            :relation-search-results []
+                            :nav-search-query ""
+                            :nav-search-results []}))
 
 (def api-base "http://localhost:3017")
 
@@ -90,6 +97,46 @@
        :keywords? true
        :error-handler #(js/console.error "Error fetching identity at time" %)})))
 
+(declare fetch-relations)
+
+(defn fetch-relations [identity-id]
+  (let [{:keys [current-user]} @app-state]
+    (GET (str api-base "/api/personas/" (:name current-user) "/identities/" identity-id "/relations")
+      {:handler (fn [res]
+                  (swap! app-state assoc :relations res))
+       :response-format :json
+       :keywords? true
+       :error-handler #(js/console.error "Error fetching relations" %)})))
+
+(defn add-relation [source-id]
+  (let [{:keys [current-user selected-identity]} @app-state]
+    (POST (str api-base "/api/personas/" (:name current-user) "/identities/" (:identity selected-identity) "/relations")
+      {:params {:source_id source-id}
+       :format :json
+       :handler (fn [_]
+                  (swap! app-state assoc
+                         :show-add-relation-modal false
+                         :relation-search-query ""
+                         :relation-search-results [])
+                  (fetch-relations (:identity selected-identity)))
+       :error-handler #(js/console.error "Error adding relation" %)})))
+
+(defn delete-relation [relation-id]
+  (let [{:keys [current-user selected-identity]} @app-state]
+    (DELETE (str api-base "/api/personas/" (:name current-user) "/relations/" relation-id)
+      {:handler (fn [_]
+                  (fetch-relations (:identity selected-identity)))
+       :error-handler #(js/console.error "Error deleting relation" %)})))
+
+(defn search-identities [query callback]
+  (let [{:keys [current-user]} @app-state]
+    (GET (str api-base "/api/personas/" (:name current-user) "/identities/search")
+      {:params {:q query}
+       :handler callback
+       :response-format :json
+       :keywords? true
+       :error-handler #(js/console.error "Error searching identities" %)})))
+
 (defn select-persona [persona]
   (swap! app-state assoc
          :current-user persona
@@ -102,8 +149,10 @@
 (defn select-identity [identity]
   (swap! app-state assoc
          :selected-identity identity
-         :editing-text (:text identity))
-  (fetch-identity-history (:identity identity)))
+         :editing-text (:text identity)
+         :relations [])
+  (fetch-identity-history (:identity identity))
+  (fetch-relations (:identity identity)))
 
 (defn header []
   (let [{:keys [current-user current-tab]} @app-state]
@@ -131,7 +180,17 @@
                          :color "white"
                          :border "1px solid #555"
                          :border-radius "4px"}}
-        "Settings"]]]
+        "Settings"]
+       (when current-user
+         [:button {:on-click #(swap! app-state assoc :show-search-modal true)
+                   :style {:padding "0.5rem 1rem"
+                           :cursor "pointer"
+                           :background "#333"
+                           :color "white"
+                           :border "1px solid #555"
+                           :border-radius "4px"
+                           :font-size "1.1rem"}}
+          "\uD83D\uDD0D"])]]
      (if current-user
        [:div {:style {:display "flex" :align-items "center" :gap "1rem"}}
         [:span (str "Logged in as: " (:name current-user))]
@@ -191,6 +250,133 @@
                           :cursor "pointer"}}
          "Cancel"]]])))
 
+(defn search-modal []
+  (let [{:keys [show-search-modal nav-search-query nav-search-results identities]} @app-state]
+    (when show-search-modal
+      [:div {:style {:position "fixed"
+                     :top 0
+                     :left 0
+                     :right 0
+                     :bottom 0
+                     :background "rgba(0,0,0,0.5)"
+                     :display "flex"
+                     :align-items "center"
+                     :justify-content "center"
+                     :z-index 1000}
+             :on-click #(swap! app-state assoc :show-search-modal false :nav-search-query "" :nav-search-results [])}
+       [:div {:style {:background "white"
+                      :padding "2rem"
+                      :border-radius "8px"
+                      :min-width "400px"
+                      :max-width "500px"
+                      :max-height "80vh"
+                      :overflow-y "auto"}
+              :on-click #(.stopPropagation %)}
+        [:h2 {:style {:margin-top 0}} "Search Identities"]
+        [:input {:type "text"
+                 :placeholder "Search by ID or text..."
+                 :value nav-search-query
+                 :auto-focus true
+                 :on-change (fn [e]
+                              (let [q (-> e .-target .-value)]
+                                (swap! app-state assoc :nav-search-query q)
+                                (when (>= (count q) 1)
+                                  (search-identities q #(swap! app-state assoc :nav-search-results %)))))
+                 :style {:width "100%"
+                         :padding "0.75rem"
+                         :font-size "1rem"
+                         :border "1px solid #ccc"
+                         :border-radius "4px"
+                         :margin-bottom "1rem"}}]
+        (if (seq nav-search-results)
+          [:ul {:style {:list-style "none" :padding 0 :margin 0}}
+           (for [result nav-search-results]
+             ^{:key (:identity result)}
+             [:li {:on-click (fn []
+                               (let [identity-data (first (filter #(= (:identity %) (:identity result)) identities))]
+                                 (when identity-data
+                                   (select-identity identity-data))
+                                 (swap! app-state assoc :show-search-modal false :nav-search-query "" :nav-search-results [])))
+                   :style {:padding "0.75rem"
+                           :cursor "pointer"
+                           :background "#f5f5f5"
+                           :border-radius "4px"
+                           :margin-bottom "0.5rem"
+                           :transition "background 0.2s"}
+                   :on-mouse-over #(set! (.-background (.-style (.-target %))) "#e0e0e0")
+                   :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
+              [:strong (:identity result)] [:br]
+              [:span {:style {:color "#666" :font-size "0.9rem"}} (subs (or (:text result) "") 0 (min 50 (count (or (:text result) ""))))]])]
+          (when (seq nav-search-query)
+            [:p {:style {:color "#666" :font-style "italic"}} "No results found"]))
+        [:button {:on-click #(swap! app-state assoc :show-search-modal false :nav-search-query "" :nav-search-results [])
+                  :style {:margin-top "1rem"
+                          :padding "0.5rem 1rem"
+                          :cursor "pointer"}}
+         "Cancel"]]])))
+
+(defn add-relation-modal []
+  (let [{:keys [show-add-relation-modal relation-search-query relation-search-results selected-identity]} @app-state]
+    (when show-add-relation-modal
+      [:div {:style {:position "fixed"
+                     :top 0
+                     :left 0
+                     :right 0
+                     :bottom 0
+                     :background "rgba(0,0,0,0.5)"
+                     :display "flex"
+                     :align-items "center"
+                     :justify-content "center"
+                     :z-index 1000}
+             :on-click #(swap! app-state assoc :show-add-relation-modal false :relation-search-query "" :relation-search-results [])}
+       [:div {:style {:background "white"
+                      :padding "2rem"
+                      :border-radius "8px"
+                      :min-width "400px"
+                      :max-width "500px"
+                      :max-height "80vh"
+                      :overflow-y "auto"}
+              :on-click #(.stopPropagation %)}
+        [:h2 {:style {:margin-top 0}} "Add Relation"]
+        [:p {:style {:color "#666" :margin-bottom "1rem"}}
+         (str "Link an identity to: " (:identity selected-identity))]
+        [:input {:type "text"
+                 :placeholder "Search identities..."
+                 :value relation-search-query
+                 :auto-focus true
+                 :on-change (fn [e]
+                              (let [q (-> e .-target .-value)]
+                                (swap! app-state assoc :relation-search-query q)
+                                (when (>= (count q) 1)
+                                  (search-identities q #(swap! app-state assoc :relation-search-results %)))))
+                 :style {:width "100%"
+                         :padding "0.75rem"
+                         :font-size "1rem"
+                         :border "1px solid #ccc"
+                         :border-radius "4px"
+                         :margin-bottom "1rem"}}]
+        (when (seq relation-search-results)
+          [:ul {:style {:list-style "none" :padding 0 :margin 0}}
+           (for [result relation-search-results]
+             ^{:key (:identity result)}
+             (when (not= (:identity result) (:identity selected-identity))
+               [:li {:on-click #(add-relation (:identity result))
+                     :style {:padding "0.75rem"
+                             :cursor "pointer"
+                             :background "#f5f5f5"
+                             :border-radius "4px"
+                             :margin-bottom "0.5rem"
+                             :transition "background 0.2s"}
+                     :on-mouse-over #(set! (.-background (.-style (.-target %))) "#e0e0e0")
+                     :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
+                [:strong (:identity result)] [:br]
+                [:span {:style {:color "#666" :font-size "0.9rem"}} (subs (or (:text result) "") 0 (min 50 (count (or (:text result) ""))))]]))])
+        [:button {:on-click #(swap! app-state assoc :show-add-relation-modal false :relation-search-query "" :relation-search-results [])
+                  :style {:margin-top "1rem"
+                          :padding "0.5rem 1rem"
+                          :cursor "pointer"}}
+         "Cancel"]]])))
+
 (defn identity-list []
   (let [{:keys [current-user identities selected-identity new-identity-id new-identity-text]} @app-state]
     (when current-user
@@ -244,6 +430,51 @@
            [:div {:style {:font-size "0.8rem" :color "#666" :margin-top "0.5rem"}}
             "Valid from: " (:valid-from current-entry)])]))))
 
+(defn relations-list []
+  (let [{:keys [relations identities]} @app-state]
+    [:div {:style {:margin-top "1.5rem" :padding-top "1rem" :border-top "1px solid #eee"}}
+     [:div {:style {:display "flex" :align-items "center" :gap "1rem" :margin-bottom "1rem"}}
+      [:h4 {:style {:margin 0}} "Linked Identities"]
+      [:button {:on-click #(swap! app-state assoc :show-add-relation-modal true)
+                :style {:padding "0.25rem 0.75rem"
+                        :cursor "pointer"
+                        :background "#2196F3"
+                        :color "white"
+                        :border "none"
+                        :border-radius "4px"
+                        :font-size "1.2rem"}}
+       "\u221E"]]
+     (if (seq relations)
+       [:ul {:style {:list-style "none" :padding 0 :margin 0}}
+        (for [rel relations]
+          ^{:key (:id rel)}
+          (let [source-identity (first (filter #(= (:identity %) (:source rel)) identities))]
+            [:li {:style {:padding "0.5rem"
+                          :background "#f5f5f5"
+                          :border-radius "4px"
+                          :margin-bottom "0.5rem"
+                          :display "flex"
+                          :justify-content "space-between"
+                          :align-items "center"}}
+             [:span {:on-click (fn []
+                                 (when source-identity
+                                   (select-identity source-identity)))
+                     :style {:cursor "pointer"}}
+              [:strong (:source rel)]
+              (when source-identity
+                [:span {:style {:color "#666" :margin-left "0.5rem"}}
+                 (str "- " (subs (or (:text source-identity) "") 0 (min 30 (count (or (:text source-identity) "")))))])]
+             [:button {:on-click #(delete-relation (:id rel))
+                       :style {:padding "0.25rem 0.5rem"
+                               :cursor "pointer"
+                               :background "#ff5252"
+                               :color "white"
+                               :border "none"
+                               :border-radius "4px"
+                               :font-size "0.8rem"}}
+              "X"]]))]
+       [:p {:style {:color "#666" :font-style "italic" :margin 0}} "No linked identities yet"])]))
+
 (defn identity-editor []
   (let [{:keys [selected-identity editing-text]} @app-state]
     (when selected-identity
@@ -266,7 +497,8 @@
                          :color "white"
                          :border "none"
                          :border-radius "4px"}}
-        "Save Changes"]])))
+        "Save Changes"]
+       [relations-list]])))
 
 (defn main-tab []
   (let [{:keys [current-user]} @app-state]
@@ -326,6 +558,8 @@
     [:div {:style {:font-family "Arial, sans-serif"}}
      [header]
      [login-modal]
+     [search-modal]
+     [add-relation-modal]
      (case current-tab
        :settings [settings-tab]
        [main-tab])]))
