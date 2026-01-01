@@ -5,8 +5,10 @@
 
 (defonce app-state (r/atom {:personas []
                             :current-user nil
+                            :auth-user nil
                             :current-tab :main
                             :show-login-modal false
+                            :show-auth-modal false
                             :identities []
                             :selected-identity nil
                             :identity-history []
@@ -19,6 +21,7 @@
                             :relations []
                             :show-add-relation-modal false
                             :show-search-modal false
+                            :show-add-identity-modal false
                             :relation-search-query ""
                             :relation-search-results []
                             :nav-search-query ""
@@ -53,16 +56,24 @@
      :keywords? true
      :error-handler #(js/console.error "Error fetching identities" %)}))
 
+(declare select-identity)
+
 (defn add-identity []
   (let [{:keys [current-user new-identity-id new-identity-text]} @app-state]
     (when (and current-user (seq new-identity-id) (seq new-identity-text))
-      (POST (str api-base "/api/personas/" (:name current-user) "/identities")
-        {:params {:id new-identity-id :text new-identity-text}
-         :format :json
-         :handler (fn [_]
-                    (swap! app-state assoc :new-identity-id "" :new-identity-text "")
-                    (fetch-identities (:name current-user)))
-         :error-handler #(js/console.error "Error adding identity" %)}))))
+      (let [id-to-select new-identity-id
+            text-to-select new-identity-text]
+        (POST (str api-base "/api/personas/" (:name current-user) "/identities")
+          {:params {:id new-identity-id :text new-identity-text}
+           :format :json
+           :handler (fn [_]
+                      (swap! app-state assoc
+                             :new-identity-id ""
+                             :new-identity-text ""
+                             :show-add-identity-modal false)
+                      (fetch-identities (:name current-user))
+                      (select-identity {:identity id-to-select :text text-to-select}))
+           :error-handler #(js/console.error "Error adding identity" %)})))))
 
 (declare fetch-identity-history)
 
@@ -154,8 +165,28 @@
   (fetch-identity-history (:identity identity))
   (fetch-relations (:identity identity)))
 
+(defn login-user [persona]
+  (swap! app-state assoc
+         :auth-user persona
+         :current-user persona
+         :show-auth-modal false
+         :identities []
+         :selected-identity nil
+         :identity-history [])
+  (fetch-identities (:name persona)))
+
+(defn logout-user []
+  (swap! app-state assoc
+         :auth-user nil
+         :current-user nil
+         :identities []
+         :selected-identity nil
+         :identity-history []))
+
 (defn header []
-  (let [{:keys [current-user current-tab]} @app-state]
+  (let [{:keys [current-user auth-user current-tab]} @app-state
+        logged-in? (some? auth-user)
+        is-admin? (= (:name auth-user) "admin")]
     [:div {:style {:display "flex"
                    :justify-content "space-between"
                    :align-items "center"
@@ -163,25 +194,41 @@
                    :background "#333"
                    :color "white"}}
      [:div {:style {:display "flex" :align-items "center" :gap "2rem"}}
-      [:h1 {:style {:margin 0}} "Personalist"]
+      [:h1 {:style {:margin 0 :cursor "pointer"}
+            :on-click #(swap! app-state assoc :current-tab :main)}
+       "Personalist"]
       [:div {:style {:display "flex" :gap "0.5rem"}}
-       [:button {:on-click #(swap! app-state assoc :current-tab :main)
-                 :style {:padding "0.5rem 1rem"
-                         :cursor "pointer"
-                         :background (if (= current-tab :main) "#555" "#333")
-                         :color "white"
-                         :border "1px solid #555"
-                         :border-radius "4px"}}
-        "Main"]
-       [:button {:on-click #(swap! app-state assoc :current-tab :settings)
-                 :style {:padding "0.5rem 1rem"
-                         :cursor "pointer"
-                         :background (if (= current-tab :settings) "#555" "#333")
-                         :color "white"
-                         :border "1px solid #555"
-                         :border-radius "4px"}}
-        "Settings"]
-       (when current-user
+       (when is-admin?
+         [:button {:on-click #(swap! app-state assoc :current-tab :settings)
+                   :style {:padding "0.5rem 1rem"
+                           :cursor "pointer"
+                           :background (if (= current-tab :settings) "#555" "#333")
+                           :color "white"
+                           :border "1px solid #555"
+                           :border-radius "4px"}}
+          "Settings"])
+       (when (and logged-in? (not is-admin?))
+         [:<>
+          [:button {:on-click #(swap! app-state assoc :show-add-identity-modal true)
+                    :style {:padding "0.5rem 1rem"
+                            :cursor "pointer"
+                            :background "#333"
+                            :color "white"
+                            :border "1px solid #555"
+                            :border-radius "4px"
+                            :font-size "1.2rem"
+                            :font-weight "bold"}}
+           "+"]
+          [:button {:on-click #(swap! app-state assoc :show-search-modal true)
+                    :style {:padding "0.5rem 1rem"
+                            :cursor "pointer"
+                            :background "#333"
+                            :color "white"
+                            :border "1px solid #555"
+                            :border-radius "4px"
+                            :font-size "1.1rem"}}
+           "\uD83D\uDD0D"]])
+       (when (and (not logged-in?) current-user)
          [:button {:on-click #(swap! app-state assoc :show-search-modal true)
                    :style {:padding "0.5rem 1rem"
                            :cursor "pointer"
@@ -191,20 +238,37 @@
                            :border-radius "4px"
                            :font-size "1.1rem"}}
           "\uD83D\uDD0D"])]]
-     (if current-user
-       [:div {:style {:display "flex" :align-items "center" :gap "1rem"}}
-        [:span (str "Logged in as: " (:name current-user))]
-        [:button {:on-click #(swap! app-state assoc :current-user nil :identities [] :selected-identity nil)
-                  :style {:padding "0.5rem 1rem" :cursor "pointer"}}
-         "Logout"]]
-       [:button {:on-click #(swap! app-state assoc :show-login-modal true)
-                 :style {:padding "0.5rem 1rem"
-                         :cursor "pointer"
-                         :background "#4CAF50"
-                         :color "white"
-                         :border "none"
-                         :border-radius "4px"}}
-        "Sign In"])]))
+     [:div {:style {:display "flex" :align-items "center" :gap "1rem"}}
+      (when (and (not logged-in?) current-user)
+        [:<>
+         [:span (str "Persona: " (:name current-user))]
+         [:button {:on-click #(swap! app-state assoc :current-user nil :identities [] :selected-identity nil)
+                   :style {:padding "0.5rem 1rem" :cursor "pointer"}}
+          "Change"]])
+      (when logged-in?
+        [:<>
+         [:span (str "Logged in: " (:name auth-user))]
+         [:button {:on-click logout-user
+                   :style {:padding "0.5rem 1rem" :cursor "pointer"}}
+          "Logout"]])
+      (when (and (not logged-in?) (not current-user))
+        [:button {:on-click #(swap! app-state assoc :show-login-modal true)
+                  :style {:padding "0.5rem 1rem"
+                          :cursor "pointer"
+                          :background "#4CAF50"
+                          :color "white"
+                          :border "none"
+                          :border-radius "4px"}}
+         "Explore"])
+      (when (not logged-in?)
+        [:button {:on-click #(swap! app-state assoc :show-auth-modal true)
+                  :style {:padding "0.5rem 1rem"
+                          :cursor "pointer"
+                          :background "#2196F3"
+                          :color "white"
+                          :border "none"
+                          :border-radius "4px"}}
+         "Login"])]]))
 
 (defn login-modal []
   (let [{:keys [personas show-login-modal]} @app-state]
@@ -226,13 +290,58 @@
                       :min-width "300px"
                       :max-width "400px"}
               :on-click #(.stopPropagation %)}
-        [:h2 {:style {:margin-top 0}} "Sign In"]
-        [:p {:style {:color "#666"}} "Select a persona to continue:"]
+        [:h2 {:style {:margin-top 0}} "Select Persona"]
+        [:p {:style {:color "#666"}} "Choose a persona to view:"]
         (if (seq personas)
           [:ul {:style {:list-style "none" :padding 0 :margin 0}}
            (for [p personas]
              ^{:key (:name p)}
-             [:li {:on-click #(select-persona p)
+             (when (not= (:name p) "admin")
+               [:li {:on-click #(select-persona p)
+                     :style {:padding "0.75rem"
+                             :cursor "pointer"
+                             :background "#f5f5f5"
+                             :border-radius "4px"
+                             :margin-bottom "0.5rem"
+                             :transition "background 0.2s"}
+                     :on-mouse-over #(set! (.-background (.-style (.-target %))) "#e0e0e0")
+                     :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
+                [:strong (:name p)] [:br] [:span {:style {:color "#666" :font-size "0.9rem"}} (:email p)]]))]
+          [:p {:style {:color "#666" :font-style "italic"}}
+           "No personas yet. Add one in Settings."])
+        [:button {:on-click #(swap! app-state assoc :show-login-modal false)
+                  :style {:margin-top "1rem"
+                          :padding "0.5rem 1rem"
+                          :cursor "pointer"}}
+         "Cancel"]]])))
+
+(defn auth-modal []
+  (let [{:keys [personas show-auth-modal]} @app-state]
+    (when show-auth-modal
+      [:div {:style {:position "fixed"
+                     :top 0
+                     :left 0
+                     :right 0
+                     :bottom 0
+                     :background "rgba(0,0,0,0.5)"
+                     :display "flex"
+                     :align-items "center"
+                     :justify-content "center"
+                     :z-index 1000}
+             :on-click #(swap! app-state assoc :show-auth-modal false)}
+       [:div {:style {:background "white"
+                      :padding "2rem"
+                      :border-radius "8px"
+                      :min-width "300px"
+                      :max-width "400px"}
+              :on-click #(.stopPropagation %)}
+        [:h2 {:style {:margin-top 0}} "Login"]
+        [:p {:style {:color "#666"}} "Select your persona to login:"]
+        (if (seq personas)
+          [:ul {:style {:list-style "none" :padding 0 :margin 0}}
+           (for [p personas]
+             ^{:key (:name p)}
+             [:li {:on-click #(login-user p)
                    :style {:padding "0.75rem"
                            :cursor "pointer"
                            :background "#f5f5f5"
@@ -243,8 +352,8 @@
                    :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
               [:strong (:name p)] [:br] [:span {:style {:color "#666" :font-size "0.9rem"}} (:email p)]])]
           [:p {:style {:color "#666" :font-style "italic"}}
-           "No personas yet. Add one in Settings."])
-        [:button {:on-click #(swap! app-state assoc :show-login-modal false)
+           "No personas yet."])
+        [:button {:on-click #(swap! app-state assoc :show-auth-modal false)
                   :style {:margin-top "1rem"
                           :padding "0.5rem 1rem"
                           :cursor "pointer"}}
@@ -377,35 +486,65 @@
                           :cursor "pointer"}}
          "Cancel"]]])))
 
-(defn identity-list []
-  (let [{:keys [current-user identities selected-identity new-identity-id new-identity-text]} @app-state]
-    (when current-user
-      [:div {:style {:padding "1rem" :border-right "1px solid #ccc" :min-width "250px"}}
-       [:h3 "Identities"]
-       [:div {:style {:margin-bottom "1rem"}}
-        [:input {:type "text"
-                 :placeholder "Identity ID"
-                 :value new-identity-id
-                 :on-change #(swap! app-state assoc :new-identity-id (-> % .-target .-value))
-                 :style {:display "block" :margin-bottom "0.5rem" :padding "0.5rem" :width "100%"}}]
-        [:input {:type "text"
-                 :placeholder "Text"
-                 :value new-identity-text
-                 :on-change #(swap! app-state assoc :new-identity-text (-> % .-target .-value))
-                 :style {:display "block" :margin-bottom "0.5rem" :padding "0.5rem" :width "100%"}}]
-        [:button {:on-click add-identity
-                  :style {:padding "0.5rem 1rem" :cursor "pointer"}}
-         "Add Identity"]]
-       [:ul {:style {:list-style "none" :padding 0}}
-        (for [i identities]
-          ^{:key (:identity i)}
-          [:li {:on-click #(select-identity i)
-                :style {:padding "0.5rem"
-                        :cursor "pointer"
-                        :background (if (= (:identity i) (:identity selected-identity)) "#e0e0e0" "transparent")
-                        :border-radius "4px"
-                        :margin-bottom "0.25rem"}}
-           [:strong (:identity i)] ": " (:text i)])]])))
+(defn add-identity-modal []
+  (let [{:keys [show-add-identity-modal new-identity-id new-identity-text]} @app-state]
+    (when show-add-identity-modal
+      [:div {:style {:position "fixed"
+                     :top 0
+                     :left 0
+                     :right 0
+                     :bottom 0
+                     :background "rgba(0,0,0,0.5)"
+                     :display "flex"
+                     :align-items "center"
+                     :justify-content "center"
+                     :z-index 1000}
+             :on-click #(swap! app-state assoc :show-add-identity-modal false)}
+       [:div {:style {:background "white"
+                      :padding "2rem"
+                      :border-radius "8px"
+                      :min-width "400px"
+                      :max-width "500px"}
+              :on-click #(.stopPropagation %)}
+        [:h2 {:style {:margin-top 0}} "Add Identity"]
+        [:div {:style {:margin-bottom "1rem"}}
+         [:label {:style {:display "block" :margin-bottom "0.5rem" :font-weight "bold"}} "Identity ID"]
+         [:input {:type "text"
+                  :placeholder "e.g., bio, goals, values..."
+                  :value new-identity-id
+                  :auto-focus true
+                  :on-change #(swap! app-state assoc :new-identity-id (-> % .-target .-value))
+                  :style {:width "100%"
+                          :padding "0.75rem"
+                          :font-size "1rem"
+                          :border "1px solid #ccc"
+                          :border-radius "4px"}}]]
+        [:div {:style {:margin-bottom "1rem"}}
+         [:label {:style {:display "block" :margin-bottom "0.5rem" :font-weight "bold"}} "Text"]
+         [:textarea {:placeholder "Describe this identity..."
+                     :value new-identity-text
+                     :on-change #(swap! app-state assoc :new-identity-text (-> % .-target .-value))
+                     :style {:width "100%"
+                             :height "100px"
+                             :padding "0.75rem"
+                             :font-size "1rem"
+                             :border "1px solid #ccc"
+                             :border-radius "4px"
+                             :resize "vertical"}}]]
+        [:div {:style {:display "flex" :gap "1rem" :justify-content "flex-end"}}
+         [:button {:on-click #(swap! app-state assoc :show-add-identity-modal false :new-identity-id "" :new-identity-text "")
+                   :style {:padding "0.5rem 1rem"
+                           :cursor "pointer"}}
+          "Cancel"]
+         [:button {:on-click add-identity
+                   :disabled (or (empty? new-identity-id) (empty? new-identity-text))
+                   :style {:padding "0.5rem 1rem"
+                           :cursor "pointer"
+                           :background (if (or (empty? new-identity-id) (empty? new-identity-text)) "#ccc" "#4CAF50")
+                           :color "white"
+                           :border "none"
+                           :border-radius "4px"}}
+          "Create"]]]])))
 
 (defn time-slider []
   (let [{:keys [identity-history slider-value selected-identity]} @app-state]
@@ -431,19 +570,10 @@
             "Valid from: " (:valid-from current-entry)])]))))
 
 (defn relations-list []
-  (let [{:keys [relations identities]} @app-state]
+  (let [{:keys [relations identities auth-user]} @app-state
+        can-edit? (some? auth-user)]
     [:div {:style {:margin-top "1.5rem" :padding-top "1rem" :border-top "1px solid #eee"}}
-     [:div {:style {:display "flex" :align-items "center" :gap "1rem" :margin-bottom "1rem"}}
-      [:h4 {:style {:margin 0}} "Linked Identities"]
-      [:button {:on-click #(swap! app-state assoc :show-add-relation-modal true)
-                :style {:padding "0.25rem 0.75rem"
-                        :cursor "pointer"
-                        :background "#2196F3"
-                        :color "white"
-                        :border "none"
-                        :border-radius "4px"
-                        :font-size "1.2rem"}}
-       "\u221E"]]
+     [:h4 {:style {:margin 0 :margin-bottom "1rem"}} "Linked Identities"]
      (if (seq relations)
        [:ul {:style {:list-style "none" :padding 0 :margin 0}}
         (for [rel relations]
@@ -464,55 +594,78 @@
               (when source-identity
                 [:span {:style {:color "#666" :margin-left "0.5rem"}}
                  (str "- " (subs (or (:text source-identity) "") 0 (min 30 (count (or (:text source-identity) "")))))])]
-             [:button {:on-click #(delete-relation (:id rel))
-                       :style {:padding "0.25rem 0.5rem"
-                               :cursor "pointer"
-                               :background "#ff5252"
-                               :color "white"
-                               :border "none"
-                               :border-radius "4px"
-                               :font-size "0.8rem"}}
-              "X"]]))]
+             (when can-edit?
+               [:button {:on-click #(delete-relation (:id rel))
+                         :style {:padding "0.25rem 0.5rem"
+                                 :cursor "pointer"
+                                 :background "#ff5252"
+                                 :color "white"
+                                 :border "none"
+                                 :border-radius "4px"
+                                 :font-size "0.8rem"}}
+                "X"])]))]
        [:p {:style {:color "#666" :font-style "italic" :margin 0}} "No linked identities yet"])]))
 
 (defn identity-editor []
-  (let [{:keys [selected-identity editing-text]} @app-state]
+  (let [{:keys [selected-identity editing-text auth-user]} @app-state
+        can-edit? (some? auth-user)]
     (when selected-identity
-      [:div {:style {:padding "1rem" :flex 1}}
-       [:h3 "Edit Identity: " (:identity selected-identity)]
+      [:div {:style {:padding "2rem"
+                     :max-width "800px"
+                     :margin "0 auto"}}
+       [:div {:style {:margin-bottom "1rem"}}
+        [:span {:style {:color "#666" :font-size "0.9rem"}} (:identity selected-identity)]]
        [time-slider]
-       [:textarea {:value editing-text
-                   :on-change #(swap! app-state assoc :editing-text (-> % .-target .-value))
-                   :style {:width "100%"
-                           :height "200px"
-                           :padding "0.5rem"
-                           :font-size "1rem"
-                           :border "1px solid #ccc"
-                           :border-radius "4px"}}]
-       [:button {:on-click #(update-identity (:identity selected-identity) editing-text)
-                 :style {:margin-top "1rem"
-                         :padding "0.5rem 1rem"
-                         :cursor "pointer"
-                         :background "#4CAF50"
-                         :color "white"
-                         :border "none"
-                         :border-radius "4px"}}
-        "Save Changes"]
+       (if can-edit?
+         [:<>
+          [:textarea {:value editing-text
+                      :on-change #(swap! app-state assoc :editing-text (-> % .-target .-value))
+                      :style {:width "100%"
+                              :height "200px"
+                              :padding "0.75rem"
+                              :font-size "1rem"
+                              :border "1px solid #ccc"
+                              :border-radius "4px"
+                              :resize "vertical"}}]
+          [:div {:style {:display "flex" :gap "0.5rem" :margin-top "1rem"}}
+           [:button {:on-click #(update-identity (:identity selected-identity) editing-text)
+                     :style {:padding "0.5rem 1rem"
+                             :cursor "pointer"
+                             :background "#4CAF50"
+                             :color "white"
+                             :border "none"
+                             :border-radius "4px"}}
+            "Save"]
+           [:button {:on-click #(swap! app-state assoc :show-add-relation-modal true)
+                     :style {:padding "0.5rem 1rem"
+                             :cursor "pointer"
+                             :background "#2196F3"
+                             :color "white"
+                             :border "none"
+                             :border-radius "4px"}}
+            "\u221E"]]]
+         [:div {:style {:width "100%"
+                        :min-height "200px"
+                        :padding "0.75rem"
+                        :font-size "1rem"
+                        :border "1px solid #ccc"
+                        :border-radius "4px"
+                        :background "#fafafa"
+                        :white-space "pre-wrap"}}
+          editing-text])
        [relations-list]])))
 
 (defn main-tab []
-  (let [{:keys [current-user]} @app-state]
-    (if current-user
-      [:div {:style {:display "flex" :min-height "calc(100vh - 60px)"}}
-       [identity-list]
-       [identity-editor]]
+  (let [{:keys [current-user selected-identity]} @app-state]
+    (cond
+      (not current-user)
       [:div {:style {:display "flex"
                      :justify-content "center"
                      :align-items "center"
                      :min-height "calc(100vh - 60px)"
                      :color "#666"}}
        [:div {:style {:text-align "center"}}
-        [:p {:style {:font-size "1.2rem"}} "Please sign in to continue"]
+        [:p {:style {:font-size "1.2rem"}} "Select a persona to view their world model"]
         [:button {:on-click #(swap! app-state assoc :show-login-modal true)
                   :style {:padding "0.75rem 1.5rem"
                           :cursor "pointer"
@@ -521,7 +674,21 @@
                           :border "none"
                           :border-radius "4px"
                           :font-size "1rem"}}
-         "Sign In"]]])))
+         "Select Persona"]]]
+
+      (not selected-identity)
+      [:div {:style {:display "flex"
+                     :justify-content "center"
+                     :align-items "center"
+                     :min-height "calc(100vh - 60px)"
+                     :color "#666"}}
+       [:div {:style {:text-align "center"}}
+        [:p {:style {:font-size "1.2rem" :margin-bottom "1rem"}} "No identity selected"]
+        [:p {:style {:color "#999"}} "Use the search button to browse identities"]]]
+
+      :else
+      [:div {:style {:min-height "calc(100vh - 60px)"}}
+       [identity-editor]])))
 
 (defn settings-tab []
   (let [{:keys [personas new-persona-name new-persona-email]} @app-state]
@@ -558,8 +725,10 @@
     [:div {:style {:font-family "Arial, sans-serif"}}
      [header]
      [login-modal]
+     [auth-modal]
      [search-modal]
      [add-relation-modal]
+     [add-identity-modal]
      (case current-tab
        :settings [settings-tab]
        [main-tab])]))
