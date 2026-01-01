@@ -24,8 +24,10 @@
         (edn/read-string (slurp config-file)))
       (do
         (prn "config.edn not found, using default in-memory database")
-        {:db {:type :xtdb2-in-memory}
-         :seed-on-start true}))))
+        {:db {:type :xtdb2-in-memory}}))))
+
+(defn- in-memory-db? [cfg]
+  (= :xtdb2-in-memory (get-in cfg [:db :type])))
 
 (defn- run-seed-script []
   (let [seed-script (io/file "scripts/seed-db.sh")]
@@ -211,7 +213,8 @@
   (let [port (Integer/parseInt (or (System/getenv "PORT") "3017"))]
     (prn "Starting server on port" port)
     (run-server port)
-    (when (:seed-on-start @config)
+    (when (in-memory-db? @config)
+      (prn "In-memory database detected, will auto-seed...")
       (future
         (Thread/sleep 2000)
         (run-seed-script)))
