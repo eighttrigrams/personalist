@@ -17,18 +17,9 @@ else
   echo "No server found on port $PORT"
 fi
 
-if [ -f .shadow-cljs.pid ]; then
-  SHADOW_PID=$(cat .shadow-cljs.pid)
-  if kill -0 $SHADOW_PID 2>/dev/null; then
-    kill $SHADOW_PID
-    echo "Killed shadow-cljs process $SHADOW_PID"
-  else
-    echo "Shadow-cljs process $SHADOW_PID not running"
-  fi
-  rm -f .shadow-cljs.pid
-else
-  echo "No shadow-cljs PID file found"
-fi
+echo "Stopping shadow-cljs server..."
+npx shadow-cljs stop 2>/dev/null || true
+rm -f .shadow-cljs.pid
 
 rm -f .nrepl-port .server.port
 echo "Done."

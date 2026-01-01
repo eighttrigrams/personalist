@@ -13,3 +13,4 @@ resources/public/js
 config.edn
 .shadow-cljs.pid
 .server.port
+data/

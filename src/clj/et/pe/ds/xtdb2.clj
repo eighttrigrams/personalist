@@ -4,10 +4,29 @@
             [clojure.string :as str]
             [et.pe.ds.dispatch :as dispatch]))
 
+(swap! dispatch/db-hierarchy derive :xtdb2-on-disk :xtdb2-in-memory)
+
 (defmethod dispatch/init-conn :xtdb2-in-memory
   [_conn]
-  {:type :xtdb2-in-memory 
+  {:type :xtdb2-in-memory
    :conn (xtn/start-node)})
+
+(defn- ensure-admin-exists [conn]
+  (let [admin (first (xt/q conn
+                           '(fn []
+                              (-> (from :personas [xt/id persona/email])
+                                  (where (= xt/id :admin))))))]
+    (when-not admin
+      (xt/execute-tx conn [[:put-docs :personas {:xt/id :admin
+                                                  :persona/email "admin@localhost"}]]))))
+
+(defmethod dispatch/init-conn :xtdb2-on-disk
+  [{:keys [path] :or {path "data/xtdb"}}]
+  (let [node (xtn/start-node {:log [:local {:path (str path "/log")}]
+                              :storage [:local {:path (str path "/storage")}]})]
+    (ensure-admin-exists node)
+    {:type :xtdb2-on-disk
+     :conn node}))
 
 (defmethod dispatch/close-conn :xtdb2-in-memory
   [{:keys [conn]}]

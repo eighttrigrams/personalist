@@ -33,6 +33,7 @@ This starts
 - the server on port 3017
 - an REPL server on port 7888.
 - shadow-cljs (hot code reload etc.)
+- use an in-memory database, which is pre-seeded
 
 With `start.sh`, you can use (prefix the command with) `PORT=<3017>` and `NREPL_PORT=<7999>` for custom ports.
 
@@ -43,6 +44,17 @@ $ scripts/stop.sh
 ```
 
 to tear things down afterwards.
+
+### Use a persistent database
+
+Put `config.edn` in place. This will allow you to choose to use a persistent database, or the in memory variant,
+and let's you choose whether whatever db you choose should be pre-seeded with some data.
+
+### Use shadow-cljs with hot code reload
+
+```bash
+$ scripts/start.sh dev
+```
 
 ### nREPL
 
