@@ -56,11 +56,21 @@
                  email]))))
 
 (defn add-persona
-  [conn name email]
+  [conn name email password-hash]
   (if (seq (get-persona-by-name-or-email conn name email))
     false
-    (xt/execute-tx (:conn conn) [[:put-docs :personas {:xt/id         name
-                                                       :persona/email email}]])))
+    (xt/execute-tx (:conn conn) [[:put-docs :personas (cond-> {:xt/id         name
+                                                               :persona/email email}
+                                                        password-hash (assoc :persona/password-hash password-hash))]])))
+
+(defn get-persona-password-hash
+  [conn name]
+  (let [result (first (xt/q (:conn conn)
+                            ['(fn [name]
+                                (-> (from :personas [xt/id persona/password-hash])
+                                    (where (= xt/id name))))
+                             name]))]
+    (:persona/password-hash result)))
 
 (defn list-personas
   [conn]

@@ -11,7 +11,8 @@
             [ring.middleware.params :refer [wrap-params]]
             [ring.middleware.cors :refer [wrap-cors]]
             [et.pe.middleware.rate-limit :refer [wrap-rate-limit]]
-            [nrepl.server :as nrepl])
+            [nrepl.server :as nrepl]
+            [buddy.hashers :as hashers])
   (:import [java.time Instant ZonedDateTime])
   (:gen-class))
 
@@ -66,8 +67,9 @@
    :body (serialize-response (ds/list-personas (ensure-conn)))})
 
 (defn add-persona-handler [req]
-  (let [{:keys [name email]} (:body req)
-        result (ds/add-persona (ensure-conn) (str->keyword name) email)]
+  (let [{:keys [name email password]} (:body req)
+        password-hash (when (seq password) (hashers/derive password))
+        result (ds/add-persona (ensure-conn) (str->keyword name) email password-hash)]
     (if result
       {:status 201 :body {:success true}}
       {:status 400 :body {:success false :error "Persona already exists"}})))
@@ -171,27 +173,33 @@
         {:status 200 :body (serialize-response results)})
       {:status 404 :body {:error "Persona not found"}})))
 
-(defn- admin-password-required? []
+(defn- password-required? []
   (some? (System/getenv "ADMIN_PASSWORD")))
 
-(defn admin-login-handler [req]
-  (let [{:keys [password]} (:body req)
-        admin-password (System/getenv "ADMIN_PASSWORD")]
-    (if (not (admin-password-required?))
+(defn persona-login-handler [req]
+  (let [{:keys [name password]} (:body req)
+        persona-name (str->keyword name)]
+    (if (not (password-required?))
       {:status 200 :body {:success true :message "No password required"}}
-      (if (= password admin-password)
-        {:status 200 :body {:success true}}
-        {:status 401 :body {:success false :error "Invalid password"}}))))
+      (if (= persona-name :admin)
+        (let [admin-password (System/getenv "ADMIN_PASSWORD")]
+          (if (= password admin-password)
+            {:status 200 :body {:success true}}
+            {:status 401 :body {:success false :error "Invalid password"}}))
+        (let [stored-hash (ds/get-persona-password-hash (ensure-conn) persona-name)]
+          (if (and stored-hash (hashers/check password stored-hash))
+            {:status 200 :body {:success true}}
+            {:status 401 :body {:success false :error "Invalid password"}}))))))
 
-(defn admin-required-handler [_req]
-  {:status 200 :body {:required (admin-password-required?)}})
+(defn password-required-handler [_req]
+  {:status 200 :body {:required (password-required?)}})
 
 (defroutes api-routes
   (context "/api" []
     (GET "/personas" [] list-personas-handler)
     (POST "/personas" [] add-persona-handler)
-    (GET "/admin/required" [] admin-required-handler)
-    (POST "/admin/login" [] admin-login-handler)
+    (GET "/auth/required" [] password-required-handler)
+    (POST "/auth/login" [] persona-login-handler)
     (GET "/personas/:name/identities" [name] list-identities-handler)
     (GET "/personas/:name/identities/search" [name] search-identities-handler)
     (POST "/personas/:name/identities" [name] add-identity-handler)

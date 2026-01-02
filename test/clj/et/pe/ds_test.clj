@@ -33,18 +33,18 @@
 
 (deftest personas
   (testing-with-conn "add personas"
-   (ds/add-persona conn :dan "d@et.n")
+   (ds/add-persona conn :dan "d@et.n" nil)
    (testing "- can't add a persona with the same name"
      (are=
-      false (ds/add-persona conn :dan "d2@et.n")
+      false (ds/add-persona conn :dan "d2@et.n" nil)
       1 (count (ds/list-personas conn))))
    (testing "- can't add a persona with the same email"
      (are=
-      false (ds/add-persona conn :dan2 "d@et.n")
+      false (ds/add-persona conn :dan2 "d@et.n" nil)
       1 (count (ds/list-personas conn)))))
   (testing-with-conn "retrieve personas"
-   (ds/add-persona conn :dan "d@et.n")
-   (ds/add-persona conn :dan2 "d2@et.n")
+   (ds/add-persona conn :dan "d@et.n" nil)
+   (ds/add-persona conn :dan2 "d2@et.n" nil)
    (sets-are=
     [{:name  :dan
       :email "d@et.n"}
@@ -61,8 +61,8 @@
 
 (deftest identities
   (testing-with-conn "add and retrieve identities"
-    (ds/add-persona conn :dan "d@et.n")
-    (ds/add-persona conn :dan2 "d2@et.n")
+    (ds/add-persona conn :dan "d@et.n" nil)
+    (ds/add-persona conn :dan2 "d2@et.n" nil)
     (let [dan (ds/get-persona-by-name conn :dan)
           dan2 (ds/get-persona-by-name conn :dan2)]
       (ds/add-identity conn dan :id11 "name11" "text11")
@@ -87,7 +87,7 @@
 
 (deftest identity-time-travel
   (testing-with-conn "identities change over time but history is preserved"
-    (ds/add-persona conn :dan "d@et.n")
+    (ds/add-persona conn :dan "d@et.n" nil)
     (let [dan (ds/get-persona-by-name conn :dan)
           t1 (Instant/parse "2020-01-01T00:00:00Z")
           t2 (Instant/parse "2020-06-01T00:00:00Z")

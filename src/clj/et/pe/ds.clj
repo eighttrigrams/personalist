@@ -21,8 +21,12 @@
 
 (defn add-persona
   "@returns true if persona added, false otherwise"
-  [conn name email]
-  (xtdb2/add-persona conn name email))
+  [conn name email password-hash]
+  (xtdb2/add-persona conn name email password-hash))
+
+(defn get-persona-password-hash
+  [conn name]
+  (xtdb2/get-persona-password-hash conn name))
 
 (defn list-personas [conn]
   (xtdb2/list-personas conn))

@@ -29,10 +29,12 @@
                             :nav-search-query ""
                             :nav-search-results []
                             :show-beta-modal false
-                            :admin-password-required false
-                            :admin-password ""
-                            :admin-login-error nil
-                            :show-admin-password-modal false}))
+                            :password-required false
+                            :login-password ""
+                            :login-error nil
+                            :login-persona nil
+                            :show-password-modal false
+                            :new-persona-password ""}))
 
 (def api-base "")
 
@@ -44,22 +46,22 @@
      :keywords? true
      :error-handler #(js/console.error "Error fetching personas" %)}))
 
-(defn check-admin-required []
-  (GET (str api-base "/api/admin/required")
+(defn check-password-required []
+  (GET (str api-base "/api/auth/required")
     {:handler (fn [res]
-                (swap! app-state assoc :admin-password-required (:required res)))
+                (swap! app-state assoc :password-required (:required res)))
      :response-format :json
      :keywords? true
-     :error-handler #(js/console.error "Error checking admin required" %)}))
+     :error-handler #(js/console.error "Error checking password required" %)}))
 
 (defn add-persona []
-  (let [{:keys [new-persona-name new-persona-email]} @app-state]
+  (let [{:keys [new-persona-name new-persona-email new-persona-password]} @app-state]
     (when (and (seq new-persona-name) (seq new-persona-email))
       (POST (str api-base "/api/personas")
-        {:params {:name new-persona-name :email new-persona-email}
+        {:params {:name new-persona-name :email new-persona-email :password new-persona-password}
          :format :json
          :handler (fn [_]
-                    (swap! app-state assoc :new-persona-name "" :new-persona-email "")
+                    (swap! app-state assoc :new-persona-name "" :new-persona-email "" :new-persona-password "")
                     (fetch-personas))
          :error-handler #(js/console.error "Error adding persona" %)}))))
 
@@ -191,38 +193,39 @@
          :auth-user persona
          :current-user persona
          :show-auth-modal false
-         :show-admin-password-modal false
-         :admin-password ""
-         :admin-login-error nil
+         :show-password-modal false
+         :login-password ""
+         :login-error nil
+         :login-persona nil
          :identities []
          :selected-identity nil
          :identity-history [])
   (fetch-identities (:name persona)))
 
-(defn attempt-admin-login []
-  (let [password (:admin-password @app-state)
-        admin-persona (first (filter #(= (:name %) "admin") (:personas @app-state)))]
-    (POST (str api-base "/api/admin/login")
-      {:params {:password password}
+(defn attempt-login []
+  (let [password (:login-password @app-state)
+        persona (:login-persona @app-state)]
+    (POST (str api-base "/api/auth/login")
+      {:params {:name (:name persona) :password password}
        :format :json
        :response-format :json
        :keywords? true
        :handler (fn [res]
                   (if (:success res)
-                    (login-user admin-persona)
-                    (swap! app-state assoc :admin-login-error "Invalid password")))
+                    (login-user persona)
+                    (swap! app-state assoc :login-error "Invalid password")))
        :error-handler (fn [_]
-                        (swap! app-state assoc :admin-login-error "Invalid password"))})))
+                        (swap! app-state assoc :login-error "Invalid password"))})))
 
-(defn try-login-admin []
-  (if (:admin-password-required @app-state)
+(defn try-login [persona]
+  (if (:password-required @app-state)
     (swap! app-state assoc
-           :show-admin-password-modal true
+           :show-password-modal true
            :show-auth-modal false
-           :admin-password ""
-           :admin-login-error nil)
-    (let [admin-persona (first (filter #(= (:name %) "admin") (:personas @app-state)))]
-      (login-user admin-persona))))
+           :login-password ""
+           :login-error nil
+           :login-persona persona)
+    (login-user persona)))
 
 (defn logout-user []
   (swap! app-state assoc
@@ -403,9 +406,7 @@
           [:ul {:style {:list-style "none" :padding 0 :margin 0}}
            (for [p personas]
              ^{:key (:name p)}
-             [:li {:on-click #(if (= (:name p) "admin")
-                                (try-login-admin)
-                                (login-user p))
+             [:li {:on-click #(try-login p)
                    :style {:padding "0.75rem"
                            :cursor "pointer"
                            :background "#f5f5f5"
@@ -423,9 +424,9 @@
                           :cursor "pointer"}}
          "Cancel"]]])))
 
-(defn admin-password-modal []
-  (let [{:keys [show-admin-password-modal admin-password admin-login-error]} @app-state]
-    (when show-admin-password-modal
+(defn password-modal []
+  (let [{:keys [show-password-modal login-password login-error login-persona]} @app-state]
+    (when show-password-modal
       [:div {:style {:position "fixed"
                      :top 0
                      :left 0
@@ -436,30 +437,30 @@
                      :align-items "center"
                      :justify-content "center"
                      :z-index 1000}
-             :on-click #(swap! app-state assoc :show-admin-password-modal false)}
+             :on-click #(swap! app-state assoc :show-password-modal false)}
        [:div {:style {:background "white"
                       :padding "2rem"
                       :border-radius "8px"
                       :min-width "300px"
                       :max-width "400px"}
               :on-click #(.stopPropagation %)}
-        [:h2 {:style {:margin-top 0}} "Admin Login"]
-        [:p {:style {:color "#666"}} "Enter admin password:"]
+        [:h2 {:style {:margin-top 0}} (str "Login as " (:name login-persona))]
+        [:p {:style {:color "#666"}} "Enter your password:"]
         [:input {:type "password"
-                 :value admin-password
+                 :value login-password
                  :placeholder "Password"
-                 :on-change #(swap! app-state assoc :admin-password (.. % -target -value))
-                 :on-key-down #(when (= (.-key %) "Enter") (attempt-admin-login))
+                 :on-change #(swap! app-state assoc :login-password (.. % -target -value))
+                 :on-key-down #(when (= (.-key %) "Enter") (attempt-login))
                  :style {:width "100%"
                          :padding "0.75rem"
                          :margin-bottom "1rem"
                          :border "1px solid #ccc"
                          :border-radius "4px"
                          :box-sizing "border-box"}}]
-        (when admin-login-error
-          [:p {:style {:color "red" :margin "0 0 1rem 0"}} admin-login-error])
+        (when login-error
+          [:p {:style {:color "red" :margin "0 0 1rem 0"}} login-error])
         [:div {:style {:display "flex" :gap "0.5rem"}}
-         [:button {:on-click attempt-admin-login
+         [:button {:on-click attempt-login
                    :style {:padding "0.5rem 1rem"
                            :cursor "pointer"
                            :background "#4CAF50"
@@ -467,7 +468,7 @@
                            :border "none"
                            :border-radius "4px"}}
           "Login"]
-         [:button {:on-click #(swap! app-state assoc :show-admin-password-modal false)
+         [:button {:on-click #(swap! app-state assoc :show-password-modal false)
                    :style {:padding "0.5rem 1rem"
                            :cursor "pointer"}}
           "Cancel"]]]])))
@@ -882,7 +883,7 @@
        [identity-editor]])))
 
 (defn settings-tab []
-  (let [{:keys [personas new-persona-name new-persona-email]} @app-state]
+  (let [{:keys [personas new-persona-name new-persona-email new-persona-password]} @app-state]
     [:div {:style {:padding "2rem" :max-width "600px"}}
      [:h2 "Settings"]
      [:div {:style {:margin-bottom "2rem"}}
@@ -897,6 +898,11 @@
                 :placeholder "Email"
                 :value new-persona-email
                 :on-change #(swap! app-state assoc :new-persona-email (-> % .-target .-value))
+                :style {:padding "0.5rem"}}]
+       [:input {:type "password"
+                :placeholder "Password"
+                :value new-persona-password
+                :on-change #(swap! app-state assoc :new-persona-password (-> % .-target .-value))
                 :style {:padding "0.5rem"}}]
        [:button {:on-click add-persona
                  :style {:padding "0.5rem 1rem" :cursor "pointer" :margin-top "0.5rem"}}
@@ -917,7 +923,7 @@
      [header]
      [login-modal]
      [auth-modal]
-     [admin-password-modal]
+     [password-modal]
      [search-modal]
      [add-relation-modal]
      [add-identity-modal]
@@ -930,5 +936,5 @@
 
 (defn ^:export init []
   (fetch-personas)
-  (check-admin-required)
+  (check-password-required)
   (rdc/render root [app]))
