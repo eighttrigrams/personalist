@@ -16,10 +16,10 @@ $ scripts/start.sh
 
 Now visit a browser under http://localhost:3017.
 
-To stop, use
+To stop afterwards, use
 
 ```bash
-$ scripts/stop.sh (afterwards)
+$ scripts/stop.sh
 ```
 
 ## Use a persistent database
