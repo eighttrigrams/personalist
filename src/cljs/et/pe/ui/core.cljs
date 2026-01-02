@@ -420,7 +420,7 @@
                            :transition "background 0.2s"}
                    :on-mouse-over #(set! (.-background (.-style (.-target %))) "#e0e0e0")
                    :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
-              [:strong (:name p)] [:br] [:span {:style {:color "#666" :font-size "0.9rem"}} (:email p)]])]
+              [:strong (:name p)]])]
           [:p {:style {:color "#666" :font-style "italic"}}
            "No personas yet."])
         [:button {:on-click #(swap! app-state assoc :show-auth-modal false)
