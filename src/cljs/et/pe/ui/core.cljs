@@ -1,6 +1,7 @@
 (ns et.pe.ui.core
   (:require [reagent.core :as r]
             [reagent.dom.client :as rdc]
+            [clojure.string :as str]
             [ajax.core :refer [GET POST PUT DELETE]]))
 
 (defonce app-state (r/atom {:personas []
@@ -29,6 +30,7 @@
                             :show-beta-modal false
                             :password-required false
                             :login-password ""
+                            :login-email ""
                             :login-error nil
                             :login-persona nil
                             :show-password-modal false
@@ -220,6 +222,35 @@
        :error-handler (fn [_]
                         (swap! app-state assoc :login-error "Invalid password"))})))
 
+(defn attempt-email-login []
+  (let [email (:login-email @app-state)
+        password (:login-password @app-state)]
+    (POST (str api-base "/api/auth/login")
+      {:params {:email email :password password}
+       :format :json
+       :response-format :json
+       :keywords? true
+       :handler (fn [res]
+                  (if (:success res)
+                    (do
+                      (swap! app-state assoc
+                             :auth-token (:token res)
+                             :show-auth-modal false
+                             :login-email ""
+                             :login-password ""
+                             :login-error nil)
+                      (let [persona-name (-> res :token
+                                             (str/split #"\.")
+                                             second
+                                             js/atob
+                                             js/JSON.parse
+                                             (js->clj :keywordize-keys true)
+                                             :persona)]
+                        (login-user {:name persona-name})))
+                    (swap! app-state assoc :login-error "Invalid credentials")))
+       :error-handler (fn [_]
+                        (swap! app-state assoc :login-error "Invalid credentials"))})))
+
 (defn try-login [persona]
   (if (:password-required @app-state)
     (swap! app-state assoc
@@ -386,7 +417,7 @@
          "Cancel"]]])))
 
 (defn auth-modal []
-  (let [{:keys [personas show-auth-modal]} @app-state]
+  (let [{:keys [personas show-auth-modal password-required login-email login-password login-error]} @app-state]
     (when show-auth-modal
       [:div {:style {:position "fixed"
                      :top 0
@@ -398,7 +429,7 @@
                      :align-items "center"
                      :justify-content "center"
                      :z-index 1000}
-             :on-click #(swap! app-state assoc :show-auth-modal false)}
+             :on-click #(swap! app-state assoc :show-auth-modal false :login-email "" :login-password "" :login-error nil)}
        [:div {:style {:background "white"
                       :padding "2rem"
                       :border-radius "8px"
@@ -406,28 +437,69 @@
                       :max-width "400px"}
               :on-click #(.stopPropagation %)}
         [:h2 {:style {:margin-top 0}} "Login"]
-        [:p {:style {:color "#666"}} "Select your persona to login:"]
-        (if (seq personas)
-          [:ul {:style {:list-style "none" :padding 0 :margin 0}}
-           (for [p personas]
-             ^{:key (:name p)}
-             [:li {:on-click #(try-login p)
-                   :style {:padding "0.75rem"
-                           :cursor "pointer"
-                           :background "#f5f5f5"
-                           :border-radius "4px"
-                           :margin-bottom "0.5rem"
-                           :transition "background 0.2s"}
-                   :on-mouse-over #(set! (.-background (.-style (.-target %))) "#e0e0e0")
-                   :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
-              [:strong (:name p)]])]
-          [:p {:style {:color "#666" :font-style "italic"}}
-           "No personas yet."])
-        [:button {:on-click #(swap! app-state assoc :show-auth-modal false)
-                  :style {:margin-top "1rem"
-                          :padding "0.5rem 1rem"
-                          :cursor "pointer"}}
-         "Cancel"]]])))
+        (if password-required
+          [:<>
+           [:p {:style {:color "#666"}} "Enter your credentials:"]
+           [:input {:type "email"
+                    :value login-email
+                    :placeholder "Email"
+                    :on-change #(swap! app-state assoc :login-email (.. % -target -value))
+                    :on-key-down #(when (= (.-key %) "Enter") (attempt-email-login))
+                    :style {:width "100%"
+                            :padding "0.75rem"
+                            :margin-bottom "0.5rem"
+                            :border "1px solid #ccc"
+                            :border-radius "4px"
+                            :box-sizing "border-box"}}]
+           [:input {:type "password"
+                    :value login-password
+                    :placeholder "Password"
+                    :on-change #(swap! app-state assoc :login-password (.. % -target -value))
+                    :on-key-down #(when (= (.-key %) "Enter") (attempt-email-login))
+                    :style {:width "100%"
+                            :padding "0.75rem"
+                            :margin-bottom "1rem"
+                            :border "1px solid #ccc"
+                            :border-radius "4px"
+                            :box-sizing "border-box"}}]
+           (when login-error
+             [:p {:style {:color "red" :margin "0 0 1rem 0"}} login-error])
+           [:div {:style {:display "flex" :gap "0.5rem"}}
+            [:button {:on-click attempt-email-login
+                      :style {:padding "0.5rem 1rem"
+                              :cursor "pointer"
+                              :background "#4CAF50"
+                              :color "white"
+                              :border "none"
+                              :border-radius "4px"}}
+             "Login"]
+            [:button {:on-click #(swap! app-state assoc :show-auth-modal false :login-email "" :login-password "" :login-error nil)
+                      :style {:padding "0.5rem 1rem"
+                              :cursor "pointer"}}
+             "Cancel"]]]
+          [:<>
+           [:p {:style {:color "#666"}} "Select your persona to login:"]
+           (if (seq personas)
+             [:ul {:style {:list-style "none" :padding 0 :margin 0}}
+              (for [p personas]
+                ^{:key (:name p)}
+                [:li {:on-click #(try-login p)
+                      :style {:padding "0.75rem"
+                              :cursor "pointer"
+                              :background "#f5f5f5"
+                              :border-radius "4px"
+                              :margin-bottom "0.5rem"
+                              :transition "background 0.2s"}
+                      :on-mouse-over #(set! (.-background (.-style (.-target %))) "#e0e0e0")
+                      :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
+                 [:strong (:name p)]])]
+             [:p {:style {:color "#666" :font-style "italic"}}
+              "No personas yet."])
+           [:button {:on-click #(swap! app-state assoc :show-auth-modal false)
+                     :style {:margin-top "1rem"
+                             :padding "0.5rem 1rem"
+                             :cursor "pointer"}}
+            "Cancel"]])]])))
 
 (defn password-modal []
   (let [{:keys [show-password-modal login-password login-error login-persona]} @app-state]

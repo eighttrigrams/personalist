@@ -180,7 +180,10 @@
         {:status 200 :body (serialize-response results)})
       {:status 404 :body {:error "Persona not found"}})))
 
-(defn- password-required? []
+(defn- prod-mode?
+  "Returns true when running in production mode.
+   Currently determined by presence of ADMIN_PASSWORD env var."
+  []
   (some? (System/getenv "ADMIN_PASSWORD")))
 
 (defn- jwt-secret []
@@ -195,22 +198,29 @@
     (catch Exception _ nil)))
 
 (defn persona-login-handler [req]
-  (let [{:keys [name password]} (:body req)
-        persona-name (str->keyword name)]
-    (if (not (password-required?))
+  (let [{:keys [name email password]} (:body req)
+        persona (cond
+                  (seq name) (ds/get-persona-by-name (ensure-conn) (str->keyword name))
+                  (and (seq email) (= email "admin@localhost")) {:name :admin :email "admin@localhost"}
+                  (seq email) (ds/get-persona-by-email (ensure-conn) email)
+                  :else nil)
+        persona-name (str->keyword (:name persona))]
+    (if (not (prod-mode?))
       {:status 200 :body {:success true :message "No password required"}}
-      (if (= persona-name :admin)
-        (let [admin-password (System/getenv "ADMIN_PASSWORD")]
-          (if (= password admin-password)
-            {:status 200 :body {:success true :token (create-token persona-name)}}
-            {:status 401 :body {:success false :error "Invalid password"}}))
-        (let [stored-hash (ds/get-persona-password-hash (ensure-conn) persona-name)]
-          (if (and stored-hash (hashers/check password stored-hash))
-            {:status 200 :body {:success true :token (create-token persona-name)}}
-            {:status 401 :body {:success false :error "Invalid password"}}))))))
+      (if (nil? persona)
+        {:status 401 :body {:success false :error "Invalid credentials"}}
+        (if (= persona-name :admin)
+          (let [admin-password (System/getenv "ADMIN_PASSWORD")]
+            (if (= password admin-password)
+              {:status 200 :body {:success true :token (create-token persona-name)}}
+              {:status 401 :body {:success false :error "Invalid credentials"}}))
+          (let [stored-hash (ds/get-persona-password-hash (ensure-conn) persona-name)]
+            (if (and stored-hash (hashers/check password stored-hash))
+              {:status 200 :body {:success true :token (create-token persona-name)}}
+              {:status 401 :body {:success false :error "Invalid credentials"}})))))))
 
 (defn password-required-handler [_req]
-  {:status 200 :body {:required (password-required?)}})
+  {:status 200 :body {:required (prod-mode?)}})
 
 (defroutes api-routes
   (context "/api" []
@@ -251,7 +261,7 @@
 
 (defn wrap-auth [handler]
   (fn [req]
-    (if (and (password-required?)
+    (if (and (prod-mode?)
              (mutating-request? req)
              (str/starts-with? (or (:uri req) "") "/api")
              (not (public-endpoint? req)))
