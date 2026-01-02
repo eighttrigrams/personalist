@@ -58,11 +58,11 @@ curl -s -X POST -H "Content-Type: application/json" \
   "$API_BASE/api/personas/bob/identities" > /dev/null
 
 curl -s -X PUT -H "Content-Type: application/json" \
-  -d '{"name":"Design Philosophy","text":"Simple is beautiful, but never boring.","valid_from":"2025-12-27T11:00:00Z"}' \
+  -d '{"name":"Core Belief","text":"Simple is beautiful, but never boring.","valid_from":"2025-12-27T11:00:00Z"}' \
   "$API_BASE/api/personas/bob/identities/h6j1t9" > /dev/null
 
 curl -s -X PUT -H "Content-Type: application/json" \
-  -d '{"name":"Core Belief","text":"Simplicity is the ultimate sophistication.","valid_from":"2025-12-29T08:00:00Z"}' \
+  -d '{"name":"My Core Belief","text":"Simplicity is the ultimate sophistication.","valid_from":"2025-12-29T08:00:00Z"}' \
   "$API_BASE/api/personas/bob/identities/h6j1t9" > /dev/null
 
 echo "Creating relations..."

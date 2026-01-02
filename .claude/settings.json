@@ -12,9 +12,18 @@
       "Bash(clj -Stree:*)",
       "Bash(clj -M:test:xtdb:*)",
       "Bash(./seed-db.sh:*)",
-      "Bash(./tear-down.sh)"
+      "Bash(./tear-down.sh)",
+      "Edit(src/**)",
+      "Write(src/**)",
+      "Bash(fly logs:*)",
+      "Bash(fly deploy:*)",
+      "Bash(fly volumes list:*)",
+      "Bash(./scripts/*)"
     ],
-    "deny": [],
+    "deny": [
+      "Edit(scripts/**)",
+      "Write(scripts/**)"
+    ],
     "ask": []
   }
 }
