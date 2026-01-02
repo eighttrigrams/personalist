@@ -85,11 +85,13 @@
 
 (defn add-identity-handler [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
-        {:keys [name text valid_from]} (:body req)
+        {:keys [id name text valid_from]} (:body req)
         persona (ds/get-persona-by-name (ensure-conn) persona-name)
-        opts (when valid_from {:valid-from (Instant/parse valid_from)})]
+        opts (cond-> {}
+               valid_from (assoc :valid-from (Instant/parse valid_from))
+               id (assoc :id (keyword id)))]
     (if persona
-      (let [generated-id (ds/add-identity (ensure-conn) persona name text opts)]
+      (let [generated-id (ds/add-identity (ensure-conn) persona name text (when (seq opts) opts))]
         {:status 201 :body {:success true :id (clojure.core/name generated-id)}})
       {:status 404 :body {:error "Persona not found"}})))
 
@@ -168,9 +170,13 @@
                   (get-in req [:params "q"])
                   (get-in req [:query-params "q"])
                   "")
+        valid-at-str (or (get-in req [:params :valid_at])
+                         (get-in req [:params "valid_at"])
+                         (get-in req [:query-params "valid_at"]))
+        at (when valid-at-str (Instant/parse valid-at-str))
         persona (ds/get-persona-by-name (ensure-conn) persona-name)]
     (if persona
-      (let [results (ds/search-identities (ensure-conn) persona query)]
+      (let [results (ds/search-identities (ensure-conn) persona query (when at {:at at}))]
         {:status 200 :body (serialize-response results)})
       {:status 404 :body {:error "Persona not found"}})))
 

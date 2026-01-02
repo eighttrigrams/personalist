@@ -27,6 +27,7 @@
                             :relation-search-results []
                             :nav-search-query ""
                             :nav-search-results []
+                            :search-valid-at nil
                             :show-beta-modal false
                             :password-required false
                             :login-password ""
@@ -171,14 +172,18 @@
                   (fetch-relations (:identity selected-identity)))
        :error-handler #(js/console.error "Error deleting relation" %)})))
 
-(defn search-identities [query callback]
-  (let [{:keys [current-user]} @app-state]
-    (GET (str api-base "/api/personas/" (:name current-user) "/identities/search")
-      {:params {:q query}
-       :handler callback
-       :response-format :json
-       :keywords? true
-       :error-handler #(js/console.error "Error searching identities" %)})))
+(defn search-identities
+  ([query callback] (search-identities query nil callback))
+  ([query valid-at callback]
+   (let [{:keys [current-user]} @app-state
+         params (cond-> {:q query}
+                  valid-at (assoc :valid_at valid-at))]
+     (GET (str api-base "/api/personas/" (:name current-user) "/identities/search")
+       {:params params
+        :handler callback
+        :response-format :json
+        :keywords? true
+        :error-handler #(js/console.error "Error searching identities" %)}))))
 
 (defn select-persona [persona]
   (swap! app-state assoc
@@ -486,8 +491,18 @@
                            :cursor "pointer"}}
           "Cancel"]]]])))
 
+(defn- date-to-instant [date-str]
+  (when (seq date-str)
+    (str date-str "T23:59:59Z")))
+
+(defn- do-search [query valid-at]
+  (when (>= (count query) 1)
+    (search-identities query
+                       (date-to-instant valid-at)
+                       #(swap! app-state assoc :nav-search-results %))))
+
 (defn search-modal []
-  (let [{:keys [show-search-modal nav-search-query nav-search-results identities]} @app-state]
+  (let [{:keys [show-search-modal nav-search-query nav-search-results search-valid-at identities]} @app-state]
     (when show-search-modal
       [:div {:style {:position "fixed"
                      :top 0
@@ -499,7 +514,7 @@
                      :align-items "center"
                      :justify-content "center"
                      :z-index 1000}
-             :on-click #(swap! app-state assoc :show-search-modal false :nav-search-query "" :nav-search-results [])}
+             :on-click #(swap! app-state assoc :show-search-modal false :nav-search-query "" :nav-search-results [] :search-valid-at nil)}
        [:div {:style {:background "white"
                       :padding "2rem"
                       :border-radius "8px"
@@ -509,21 +524,34 @@
                       :overflow-y "auto"}
               :on-click #(.stopPropagation %)}
         [:h2 {:style {:margin-top 0}} "Search Identities"]
-        [:input {:type "text"
-                 :placeholder "Search by name..."
-                 :value nav-search-query
-                 :auto-focus true
-                 :on-change (fn [e]
-                              (let [q (-> e .-target .-value)]
-                                (swap! app-state assoc :nav-search-query q)
-                                (when (>= (count q) 1)
-                                  (search-identities q #(swap! app-state assoc :nav-search-results %)))))
-                 :style {:width "100%"
-                         :padding "0.75rem"
-                         :font-size "1rem"
-                         :border "1px solid #ccc"
-                         :border-radius "4px"
-                         :margin-bottom "1rem"}}]
+        [:div {:style {:display "flex" :gap "0.5rem" :margin-bottom "1rem"}}
+         [:input {:type "text"
+                  :placeholder "Search by name..."
+                  :value nav-search-query
+                  :auto-focus true
+                  :on-change (fn [e]
+                               (let [q (-> e .-target .-value)]
+                                 (swap! app-state assoc :nav-search-query q)
+                                 (do-search q search-valid-at)))
+                  :style {:flex 1
+                          :padding "0.75rem"
+                          :font-size "1rem"
+                          :border "1px solid #ccc"
+                          :border-radius "4px"}}]
+         [:input {:type "date"
+                  :value (or search-valid-at "")
+                  :on-change (fn [e]
+                               (let [d (-> e .-target .-value)]
+                                 (swap! app-state assoc :search-valid-at (when (seq d) d))
+                                 (do-search nav-search-query d)))
+                  :style {:padding "0.75rem"
+                          :font-size "1rem"
+                          :border "1px solid #ccc"
+                          :border-radius "4px"
+                          :width "150px"}}]]
+        (when search-valid-at
+          [:div {:style {:margin-bottom "1rem" :padding "0.5rem" :background "#e3f2fd" :border-radius "4px" :font-size "0.9rem"}}
+           [:span "Searching identities as of: " search-valid-at]])
         (if (seq nav-search-results)
           [:ul {:style {:list-style "none" :padding 0 :margin 0}}
            (for [result nav-search-results]
@@ -532,7 +560,7 @@
                                (let [identity-data (first (filter #(= (:identity %) (:identity result)) identities))]
                                  (when identity-data
                                    (select-identity identity-data))
-                                 (swap! app-state assoc :show-search-modal false :nav-search-query "" :nav-search-results [])))
+                                 (swap! app-state assoc :show-search-modal false :nav-search-query "" :nav-search-results [] :search-valid-at nil)))
                    :style {:padding "0.75rem"
                            :cursor "pointer"
                            :background "#f5f5f5"
@@ -544,7 +572,7 @@
               [:span (:name result)]])]
           (when (seq nav-search-query)
             [:p {:style {:color "#666" :font-style "italic"}} "No results found"]))
-        [:button {:on-click #(swap! app-state assoc :show-search-modal false :nav-search-query "" :nav-search-results [])
+        [:button {:on-click #(swap! app-state assoc :show-search-modal false :nav-search-query "" :nav-search-results [] :search-valid-at nil)
                   :style {:margin-top "1rem"
                           :padding "0.5rem 1rem"
                           :cursor "pointer"}}

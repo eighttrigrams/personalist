@@ -97,8 +97,8 @@
           persona-id])))
 
 (defn add-identity
-  [conn {persona-id :name :as _mind} nm text & [{:keys [valid-from]}]]
-  (let [id (keyword (str (UUID/randomUUID)))]
+  [conn {persona-id :name :as _mind} nm text & [{:keys [valid-from id]}]]
+  (let [id (or id (keyword (str (UUID/randomUUID))))]
     (xt/execute-tx (:conn conn)
                    [[:put-docs (cond-> {:into :identities}
                                  valid-from (assoc :valid-from valid-from))
@@ -191,13 +191,21 @@
                    [[:delete-docs :relations full-id]])))
 
 (defn search-identities
-  [conn {persona-id :name :as _mind} query]
-  (let [results (xt/q (:conn conn)
-                      ['(fn [persona-id]
-                          (-> (from :identities [identity/mind-id identity/name identity/text xt/id])
-                              (where (= identity/mind-id persona-id))
-                              (return identity/name identity/text xt/id)))
-                       persona-id])
+  [conn {persona-id :name :as _mind} query & [{:keys [at]}]]
+  (let [results (if at
+                  (xt/q (:conn conn)
+                        ['(fn [persona-id time-point]
+                            (-> (from :identities {:bind [identity/mind-id identity/name identity/text xt/id]
+                                                   :for-valid-time (at time-point)})
+                                (where (= identity/mind-id persona-id))
+                                (return identity/name identity/text xt/id)))
+                         persona-id at])
+                  (xt/q (:conn conn)
+                        ['(fn [persona-id]
+                            (-> (from :identities [identity/mind-id identity/name identity/text xt/id])
+                                (where (= identity/mind-id persona-id))
+                                (return identity/name identity/text xt/id)))
+                         persona-id]))
         query-lower (str/lower-case (or query ""))]
     (->> results
          (filter (fn [{:keys [identity/name]}]

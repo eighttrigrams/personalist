@@ -68,5 +68,5 @@
   (xtdb2/delete-relation conn mind relation-id))
 
 (defn search-identities
-  [conn mind query]
-  (xtdb2/search-identities conn mind query))
+  [conn mind query & [opts]]
+  (xtdb2/search-identities conn mind query opts))
