@@ -1,0 +1,1 @@
+Look up the deploy command in the @README.md and deploy.
