@@ -24,8 +24,7 @@ $ make stop
 
 ## Use a persistent database
 
-Put `config.edn` in place. This will allow you to choose to use a persistent database, or the in memory variant,
-and let's you choose whether whatever db you choose should be pre-seeded with some data.
+Modify `config.edn` accordingly (see `config.edn.template`).
 
 ## Development
 
