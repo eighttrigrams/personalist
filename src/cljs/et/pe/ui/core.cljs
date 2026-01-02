@@ -15,8 +15,6 @@
                             :editing-name ""
                             :editing-text ""
                             :slider-value 0
-                            :new-persona-name ""
-                            :new-persona-email ""
                             :new-identity-name ""
                             :new-identity-text ""
                             :relations []
@@ -34,7 +32,6 @@
                             :login-error nil
                             :login-persona nil
                             :show-password-modal false
-                            :new-persona-password ""
                             :auth-token nil}))
 
 (def api-base "")
@@ -59,17 +56,6 @@
      :response-format :json
      :keywords? true
      :error-handler #(js/console.error "Error checking password required" %)}))
-
-(defn add-persona []
-  (let [{:keys [new-persona-name new-persona-email new-persona-password]} @app-state]
-    (when (and (seq new-persona-name) (seq new-persona-email))
-      (POST (str api-base "/api/personas")
-        {:params {:name new-persona-name :email new-persona-email :password new-persona-password}
-         :format :json
-         :handler (fn [_]
-                    (swap! app-state assoc :new-persona-name "" :new-persona-email "" :new-persona-password "")
-                    (fetch-personas))
-         :error-handler #(js/console.error "Error adding persona" %)}))))
 
 (defn fetch-identities [persona-name]
   (GET (str api-base "/api/personas/" persona-name "/identities")
@@ -922,31 +908,48 @@
       [:div {:style {:min-height "calc(100vh - 60px)"}}
        [identity-editor]])))
 
+(defn- persona-form []
+  (let [name-ref (atom nil)
+        email-ref (atom nil)
+        password-ref (atom nil)]
+    (fn []
+      [:div {:style {:display "flex" :flex-direction "column" :gap "0.5rem" :max-width "300px"}}
+       [:input {:type "text"
+                :placeholder "Name"
+                :ref #(reset! name-ref %)
+                :style {:padding "0.5rem"}}]
+       [:input {:type "email"
+                :placeholder "Email"
+                :ref #(reset! email-ref %)
+                :style {:padding "0.5rem"}}]
+       [:input {:type "password"
+                :placeholder "Password"
+                :ref #(reset! password-ref %)
+                :style {:padding "0.5rem"}}]
+       [:button {:on-click (fn []
+                             (let [name-val (when @name-ref (.-value @name-ref))
+                                   email-val (when @email-ref (.-value @email-ref))
+                                   password-val (when @password-ref (.-value @password-ref))]
+                               (when (and (seq name-val) (seq email-val))
+                                 (POST (str api-base "/api/personas")
+                                   {:params {:name name-val :email email-val :password password-val}
+                                    :format :json
+                                    :handler (fn [_]
+                                               (when @name-ref (set! (.-value @name-ref) ""))
+                                               (when @email-ref (set! (.-value @email-ref) ""))
+                                               (when @password-ref (set! (.-value @password-ref) ""))
+                                               (fetch-personas))
+                                    :error-handler #(js/console.error "Error adding persona" %)}))))
+                 :style {:padding "0.5rem 1rem" :cursor "pointer" :margin-top "0.5rem"}}
+        "Add Persona"]])))
+
 (defn settings-tab []
-  (let [{:keys [personas new-persona-name new-persona-email new-persona-password]} @app-state]
+  (let [personas (:personas @app-state)]
     [:div {:style {:padding "2rem" :max-width "600px"}}
      [:h2 "Settings"]
      [:div {:style {:margin-bottom "2rem"}}
       [:h3 "Add New Persona"]
-      [:div {:style {:display "flex" :flex-direction "column" :gap "0.5rem" :max-width "300px"}}
-       [:input {:type "text"
-                :placeholder "Name"
-                :value new-persona-name
-                :on-change #(swap! app-state assoc :new-persona-name (-> % .-target .-value))
-                :style {:padding "0.5rem"}}]
-       [:input {:type "email"
-                :placeholder "Email"
-                :value new-persona-email
-                :on-change #(swap! app-state assoc :new-persona-email (-> % .-target .-value))
-                :style {:padding "0.5rem"}}]
-       [:input {:type "password"
-                :placeholder "Password"
-                :value new-persona-password
-                :on-change #(swap! app-state assoc :new-persona-password (-> % .-target .-value))
-                :style {:padding "0.5rem"}}]
-       [:button {:on-click add-persona
-                 :style {:padding "0.5rem 1rem" :cursor "pointer" :margin-top "0.5rem"}}
-        "Add Persona"]]]
+      [persona-form]]
      [:div
       [:h3 "Existing Personas"]
       (if (seq personas)

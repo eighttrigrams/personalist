@@ -16,7 +16,9 @@
 (defn init-conn
   [{:keys [type path] :or {path "data/xtdb"}}]
   (if (= type :xtdb2-in-memory)
-    {:conn (xtn/start-node)}
+    (let [node (xtn/start-node)]
+      (ensure-admin-exists node)
+      {:conn node})
     (let [node (xtn/start-node {:log [:local {:path (str path "/log")}]
                                 :storage [:local {:path (str path "/storage")}]})]
       (ensure-admin-exists node)
