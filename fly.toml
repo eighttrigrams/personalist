@@ -1,22 +1,23 @@
-app = "personalist"
-primary_region = "fra"
+# fly.toml app configuration file generated for personalist on 2026-01-02T00:59:32Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
 
-[env]
-  PORT = "8080"
-  HOST = "0.0.0.0"
+app = 'personalist'
+primary_region = 'cdg'
+
+[build]
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
-
-[mounts]
-  source = "personalist_data"
-  destination = "/app/data"
+  processes = ['app']
 
 [[vm]]
-  memory = "1gb"
-  cpu_kind = "shared"
+  memory = '1gb'
+  cpu_kind = 'shared'
   cpus = 1
+  memory_mb = 1024
