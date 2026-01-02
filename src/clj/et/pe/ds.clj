@@ -1,67 +1,67 @@
-(ns et.pe.ds 
-  (:require [et.pe.ds.dispatch :as dispatch]))
+(ns et.pe.ds
+  (:require [et.pe.ds.xtdb2 :as xtdb2]))
 
-(defn init-conn 
-  "@param opts 
-     -> :type :xtdb2-in-memory - creates an in memory xtdb2 node; needs ports 3000 and 5432" 
+(defn init-conn
+  "@param opts
+     -> :type :xtdb2-in-memory - creates an in memory xtdb2 node; needs ports 3000 and 5432"
   [opts]
-  (dispatch/init-conn opts))
+  (xtdb2/init-conn opts))
 
-(defn close-conn 
-  [conn] 
-  (dispatch/close-conn conn))
+(defn close-conn
+  [conn]
+  (xtdb2/close-conn conn))
 
 (defn get-persona-by-name
   [conn name]
-  (dispatch/get-persona-by-name conn name))
+  (xtdb2/get-persona-by-name conn name))
 
 (defn get-persona-by-email
   [conn email]
-  (dispatch/get-persona-by-email conn email))
+  (xtdb2/get-persona-by-email conn email))
 
 (defn add-persona
   "@returns true if persona added, false otherwise"
   [conn name email]
-  (dispatch/add-persona conn name email))
+  (xtdb2/add-persona conn name email))
 
 (defn list-personas [conn]
-  (dispatch/list-personas conn))
+  (xtdb2/list-personas conn))
 
 (defn list-identities [conn mind]
-  (dispatch/list-identities conn mind))
+  (xtdb2/list-identities conn mind))
 
 (defn add-identity
   "@param mind - persona the identity belongs to
    @param opts - optional map with :valid-from for explicit valid-time"
   [conn mind id name text & [opts]]
-  (dispatch/add-identity conn mind id name text opts))
+  (xtdb2/add-identity conn mind id name text opts))
 
 (defn update-identity
   "@param opts - optional map with :valid-from for explicit valid-time"
   [conn mind id name text & [opts]]
-  (dispatch/update-identity conn mind id name text opts))
+  (xtdb2/update-identity conn mind id name text opts))
 
 (defn get-identity-at
   "@param at - java.time.Instant for time-travel query"
   [conn mind id at]
-  (dispatch/get-identity-at conn mind id at))
+  (xtdb2/get-identity-at conn mind id at))
 
 (defn get-identity-history
   [conn mind id]
-  (dispatch/get-identity-history conn mind id))
+  (xtdb2/get-identity-history conn mind id))
 
 (defn add-relation
   [conn mind source-id target-id & [opts]]
-  (dispatch/add-relation conn mind source-id target-id opts))
+  (xtdb2/add-relation conn mind source-id target-id opts))
 
 (defn list-relations
   [conn mind target-id & [opts]]
-  (dispatch/list-relations conn mind target-id opts))
+  (xtdb2/list-relations conn mind target-id opts))
 
 (defn delete-relation
   [conn mind relation-id]
-  (dispatch/delete-relation conn mind relation-id))
+  (xtdb2/delete-relation conn mind relation-id))
 
 (defn search-identities
   [conn mind query]
-  (dispatch/search-identities conn mind query))
+  (xtdb2/search-identities conn mind query))
