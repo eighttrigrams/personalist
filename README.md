@@ -12,9 +12,20 @@ Run
 
 ```bash
 $ scripts/start.sh
-# Visit a browser under http://localhost:3017
+```
+
+Now visit a browser under http://localhost:3017.
+
+To stop, use
+
+```bash
 $ scripts/stop.sh (afterwards)
 ```
+
+## Use a persistent database
+
+Put `config.edn` in place. This will allow you to choose to use a persistent database, or the in memory variant,
+and let's you choose whether whatever db you choose should be pre-seeded with some data.
 
 ## Development
 
@@ -35,7 +46,7 @@ This starts
 - the server on port 3017
 - an REPL server on port 7888.
 - shadow-cljs (hot code reload etc.)
-- use an in-memory database, which is pre-seeded
+- use an in-memory database, which is pre-seeded (unless a `config.edn` is provided; see above)
 
 With `start.sh`, you can use (prefix the command with) `PORT=<3017>` and `NREPL_PORT=<7999>` for custom ports.
 
@@ -47,23 +58,12 @@ $ scripts/stop.sh
 
 to tear things down afterwards.
 
-### Use a persistent database
-
-Put `config.edn` in place. This will allow you to choose to use a persistent database, or the in memory variant,
-and let's you choose whether whatever db you choose should be pre-seeded with some data.
-
-### Use shadow-cljs with hot code reload
-
-```bash
-$ scripts/start.sh dev
-```
-
 ### nREPL
 
-Connect to the running nREPL:
+Connect to the running nREPL from your editor (Calva, CIDER, Cursive) on port 7888, or via command line:
 
 ```bash
-$ basedir-eval -p 7888 "(+ 1 2)"
+$ clj -Sdeps '{:deps {nrepl/nrepl {:mvn/version "1.3.0"}}}' -M -m nrepl.cmdline --connect --port 7888
 ```
 
 ### Tests
