@@ -69,11 +69,3 @@ $ basedir-eval -p 7888 "(+ 1 2)"
 ```bash
 $ clj -M:test
 ```
-
-### GraphQL
-
-```bash
-$ curl -X POST http://localhost:3017/graphql \
-   -H "Content-Type: application/json" \
-   -d '{"query": "{ identitiesByPersonaId(personaName: \"dan\") { identity text }}"}'
-```

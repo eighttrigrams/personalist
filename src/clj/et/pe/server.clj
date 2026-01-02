@@ -10,6 +10,7 @@
             [ring.middleware.json :refer [wrap-json-response wrap-json-body]]
             [ring.middleware.params :refer [wrap-params]]
             [ring.middleware.cors :refer [wrap-cors]]
+            [et.pe.middleware.rate-limit :refer [wrap-rate-limit]]
             [nrepl.server :as nrepl])
   (:import [java.time Instant ZonedDateTime]))
 
@@ -197,7 +198,8 @@
       (wrap-json-body {:keywords? true})
       (wrap-json-response)
       (wrap-cors :access-control-allow-origin [#".*"]
-                 :access-control-allow-methods [:get :post :put :delete])))
+                 :access-control-allow-methods [:get :post :put :delete])
+      (wrap-rate-limit)))
 
 (defn- run-server [port]
   (jetty/run-jetty #'app {:port port :join? false}))
