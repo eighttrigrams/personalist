@@ -13,3 +13,5 @@ When the changes involve the UI, we additionally use an existing browser to look
 (so the application needs to get started) and verify those changes do what they are supposed to. When testing
 the UI, make sure to most of the time do "natural" interactions as the user would do, like clicking, instead
 of brute-forcing your way using javascript.
+
+Leave the browser open after a UI testing round and invite the user to see for themselves. Give them a reproduction guideline.

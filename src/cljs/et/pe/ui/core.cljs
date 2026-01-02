@@ -249,6 +249,7 @@
          :auth-user nil
          :current-user nil
          :auth-token nil
+         :current-tab :main
          :identities []
          :selected-identity nil
          :identity-history []))

@@ -77,3 +77,9 @@ $ clj -M:test
 ```bash
 $ fly deploy
 ```
+
+## Backup
+
+```bash
+$ fly ssh console -C "tar -czf - /app/data" > volume-backup.tar.gz
+```

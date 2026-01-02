@@ -8,17 +8,16 @@
       "WebFetch(domain:docs.xtdb.com)",
       "Bash(npm init:*)",
       "Bash(npm install:*)",
-      "Bash(npx shadow-cljs watch app)",
       "Bash(clj -Stree:*)",
       "Bash(clj -M:test:xtdb:*)",
-      "Bash(./seed-db.sh:*)",
-      "Bash(./tear-down.sh)",
       "Edit(src/**)",
       "Write(src/**)",
       "Bash(fly logs:*)",
       "Bash(fly deploy:*)",
       "Bash(fly volumes list:*)",
-      "Bash(./scripts/*)"
+      "Bash(./scripts/stop.sh)",
+      "Bash(./scripts/start.sh)",
+      "Bash(./scripts/seed-db.sh)"
     ],
     "deny": [
       "Edit(scripts/**)",
