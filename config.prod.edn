@@ -1,0 +1,3 @@
+{:db {:type :xtdb2-on-disk
+      :path "/app/data/xtdb"}
+ :pre-seed? false}

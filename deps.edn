@@ -30,4 +30,6 @@
                                 "-Dio.netty.tryReflectionSetAccessible=true"
                                "--enable-native-access=ALL-UNNAMED"]
                   :main-opts   ["-m" "cognitect.test-runner"]
-                  :exec-fn     cognitect.test-runner.api/test}}}
+                  :exec-fn     cognitect.test-runner.api/test}
+           :build {:deps {io.github.clojure/tools.build {:git/tag "v0.10.5" :git/sha "2a21b7a"}}
+                   :ns-default build}}}

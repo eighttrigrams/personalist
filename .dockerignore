@@ -1,0 +1,10 @@
+.git
+.gitignore
+.nrepl-port
+target
+data
+node_modules
+.shadow-cljs
+.cpcache
+*.md
+test

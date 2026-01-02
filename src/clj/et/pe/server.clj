@@ -12,7 +12,8 @@
             [ring.middleware.cors :refer [wrap-cors]]
             [et.pe.middleware.rate-limit :refer [wrap-rate-limit]]
             [nrepl.server :as nrepl])
-  (:import [java.time Instant ZonedDateTime]))
+  (:import [java.time Instant ZonedDateTime])
+  (:gen-class))
 
 (defonce ds-conn (atom nil))
 (defonce config (atom nil))
