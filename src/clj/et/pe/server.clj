@@ -4,6 +4,7 @@
             [clojure.walk]
             [clojure.java.io :as io]
             [clojure.edn :as edn]
+            [clojure.string :as str]
             et.pe.ds.xtdb2
             [compojure.core :refer [defroutes GET POST PUT DELETE context]]
             [compojure.route :as route]
@@ -12,7 +13,8 @@
             [ring.middleware.cors :refer [wrap-cors]]
             [et.pe.middleware.rate-limit :refer [wrap-rate-limit]]
             [nrepl.server :as nrepl]
-            [buddy.hashers :as hashers])
+            [buddy.hashers :as hashers]
+            [buddy.sign.jwt :as jwt])
   (:import [java.time Instant ZonedDateTime])
   (:gen-class))
 
@@ -176,6 +178,17 @@
 (defn- password-required? []
   (some? (System/getenv "ADMIN_PASSWORD")))
 
+(defn- jwt-secret []
+  (or (System/getenv "ADMIN_PASSWORD") "dev-secret"))
+
+(defn- create-token [persona-name]
+  (jwt/sign {:persona (name persona-name)} (jwt-secret)))
+
+(defn- verify-token [token]
+  (try
+    (jwt/unsign token (jwt-secret))
+    (catch Exception _ nil)))
+
 (defn persona-login-handler [req]
   (let [{:keys [name password]} (:body req)
         persona-name (str->keyword name)]
@@ -184,11 +197,11 @@
       (if (= persona-name :admin)
         (let [admin-password (System/getenv "ADMIN_PASSWORD")]
           (if (= password admin-password)
-            {:status 200 :body {:success true}}
+            {:status 200 :body {:success true :token (create-token persona-name)}}
             {:status 401 :body {:success false :error "Invalid password"}}))
         (let [stored-hash (ds/get-persona-password-hash (ensure-conn) persona-name)]
           (if (and stored-hash (hashers/check password stored-hash))
-            {:status 200 :body {:success true}}
+            {:status 200 :body {:success true :token (create-token persona-name)}}
             {:status 401 :body {:success false :error "Invalid password"}}))))))
 
 (defn password-required-handler [_req]
@@ -218,10 +231,41 @@
   (route/resources "/")
   (route/not-found {:status 404 :body {:error "Not found"}}))
 
+(defn- extract-token [req]
+  (when-let [auth-header (get-in req [:headers "authorization"])]
+    (when (str/starts-with? auth-header "Bearer ")
+      (subs auth-header 7))))
+
+(defn- mutating-request? [req]
+  (#{:post :put :delete} (:request-method req)))
+
+(defn- public-endpoint? [req]
+  (let [uri (:uri req)]
+    (or (= uri "/api/auth/login")
+        (= uri "/api/personas"))))
+
+(defn wrap-auth [handler]
+  (fn [req]
+    (if (and (password-required?)
+             (mutating-request? req)
+             (str/starts-with? (or (:uri req) "") "/api")
+             (not (public-endpoint? req)))
+      (if-let [token (extract-token req)]
+        (if (verify-token token)
+          (handler req)
+          {:status 401
+           :headers {"Content-Type" "application/json"}
+           :body "{\"error\":\"Invalid token\"}"})
+        {:status 401
+         :headers {"Content-Type" "application/json"}
+         :body "{\"error\":\"Authentication required\"}"})
+      (handler req))))
+
 (def app
   (-> app-routes
       (wrap-params)
       (wrap-json-body {:keywords? true})
+      (wrap-auth)
       (wrap-json-response)
       (wrap-cors :access-control-allow-origin [#".*"]
                  :access-control-allow-methods [:get :post :put :delete])
@@ -253,5 +297,5 @@
 (comment
   (reset! ds-conn nil)
   (ensure-conn)
-  (ds/add-persona @ds-conn :dan "d@et.n")
+  (ds/add-persona @ds-conn :dan "d@et.n" nil)
   (ds/list-personas @ds-conn))

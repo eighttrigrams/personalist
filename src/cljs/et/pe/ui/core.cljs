@@ -34,9 +34,15 @@
                             :login-error nil
                             :login-persona nil
                             :show-password-modal false
-                            :new-persona-password ""}))
+                            :new-persona-password ""
+                            :auth-token nil}))
 
 (def api-base "")
+
+(defn auth-headers []
+  (if-let [token (:auth-token @app-state)]
+    {"Authorization" (str "Bearer " token)}
+    {}))
 
 (defn fetch-personas []
   (GET (str api-base "/api/personas")
@@ -84,6 +90,7 @@
         (POST (str api-base "/api/personas/" (:name current-user) "/identities")
           {:params {:id new-identity-id :name new-identity-name :text new-identity-text}
            :format :json
+           :headers (auth-headers)
            :handler (fn [_]
                       (swap! app-state assoc
                              :new-identity-id ""
@@ -101,6 +108,7 @@
     (PUT (str api-base "/api/personas/" (:name current-user) "/identities/" identity-id)
       {:params {:name name :text text}
        :format :json
+       :headers (auth-headers)
        :handler (fn [_]
                   (fetch-identities (:name current-user))
                   (fetch-identity-history identity-id))
@@ -146,6 +154,7 @@
     (POST (str api-base "/api/personas/" (:name current-user) "/identities/" (:identity selected-identity) "/relations")
       {:params {:source_id source-id}
        :format :json
+       :headers (auth-headers)
        :handler (fn [_]
                   (swap! app-state assoc
                          :show-add-relation-modal false
@@ -157,7 +166,8 @@
 (defn delete-relation [relation-id]
   (let [{:keys [current-user selected-identity]} @app-state]
     (DELETE (str api-base "/api/personas/" (:name current-user) "/relations/" relation-id)
-      {:handler (fn [_]
+      {:headers (auth-headers)
+       :handler (fn [_]
                   (fetch-relations (:identity selected-identity)))
        :error-handler #(js/console.error "Error deleting relation" %)})))
 
@@ -212,7 +222,9 @@
        :keywords? true
        :handler (fn [res]
                   (if (:success res)
-                    (login-user persona)
+                    (do
+                      (swap! app-state assoc :auth-token (:token res))
+                      (login-user persona))
                     (swap! app-state assoc :login-error "Invalid password")))
        :error-handler (fn [_]
                         (swap! app-state assoc :login-error "Invalid password"))})))
@@ -231,6 +243,7 @@
   (swap! app-state assoc
          :auth-user nil
          :current-user nil
+         :auth-token nil
          :identities []
          :selected-identity nil
          :identity-history []))
