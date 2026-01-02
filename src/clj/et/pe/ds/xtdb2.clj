@@ -1,7 +1,8 @@
 (ns et.pe.ds.xtdb2
   (:require [xtdb.api :as xt]
             [xtdb.node :as xtn]
-            [clojure.string :as str]))
+            [clojure.string :as str])
+  (:import [java.util UUID]))
 
 (defn- ensure-admin-exists [conn]
   (let [admin (first (xt/q conn
@@ -96,14 +97,16 @@
           persona-id])))
 
 (defn add-identity
-  [conn {persona-id :name :as _mind} id nm text & [{:keys [valid-from]}]]
-  (xt/execute-tx (:conn conn)
-                 [[:put-docs (cond-> {:into :identities}
-                               valid-from (assoc :valid-from valid-from))
-                   {:xt/id            (make-identity-id persona-id id)
-                    :identity/mind-id persona-id
-                    :identity/name    nm
-                    :identity/text    text}]]))
+  [conn {persona-id :name :as _mind} nm text & [{:keys [valid-from]}]]
+  (let [id (keyword (str (UUID/randomUUID)))]
+    (xt/execute-tx (:conn conn)
+                   [[:put-docs (cond-> {:into :identities}
+                                 valid-from (assoc :valid-from valid-from))
+                     {:xt/id            (make-identity-id persona-id id)
+                      :identity/mind-id persona-id
+                      :identity/name    nm
+                      :identity/text    text}]])
+    id))
 
 (defn update-identity
   [conn {persona-id :name :as _mind} id nm text & [{:keys [valid-from]}]]

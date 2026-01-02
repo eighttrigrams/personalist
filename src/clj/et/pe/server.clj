@@ -85,13 +85,12 @@
 
 (defn add-identity-handler [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
-        {:keys [id name text valid_from]} (:body req)
+        {:keys [name text valid_from]} (:body req)
         persona (ds/get-persona-by-name (ensure-conn) persona-name)
         opts (when valid_from {:valid-from (Instant/parse valid_from)})]
     (if persona
-      (do
-        (ds/add-identity (ensure-conn) persona (str->keyword id) name text opts)
-        {:status 201 :body {:success true}})
+      (let [generated-id (ds/add-identity (ensure-conn) persona name text opts)]
+        {:status 201 :body {:success true :id (clojure.core/name generated-id)}})
       {:status 404 :body {:error "Persona not found"}})))
 
 (defn update-identity-handler [req]

@@ -17,7 +17,6 @@
                             :slider-value 0
                             :new-persona-name ""
                             :new-persona-email ""
-                            :new-identity-id ""
                             :new-identity-name ""
                             :new-identity-text ""
                             :relations []
@@ -82,23 +81,24 @@
 (declare select-identity)
 
 (defn add-identity []
-  (let [{:keys [current-user new-identity-id new-identity-name new-identity-text]} @app-state]
-    (when (and current-user (seq new-identity-id) (seq new-identity-name) (seq new-identity-text))
-      (let [id-to-select new-identity-id
-            name-to-select new-identity-name
+  (let [{:keys [current-user new-identity-name new-identity-text]} @app-state]
+    (when (and current-user (seq new-identity-name) (seq new-identity-text))
+      (let [name-to-select new-identity-name
             text-to-select new-identity-text]
         (POST (str api-base "/api/personas/" (:name current-user) "/identities")
-          {:params {:id new-identity-id :name new-identity-name :text new-identity-text}
+          {:params {:name new-identity-name :text new-identity-text}
            :format :json
+           :response-format :json
+           :keywords? true
            :headers (auth-headers)
-           :handler (fn [_]
-                      (swap! app-state assoc
-                             :new-identity-id ""
-                             :new-identity-name ""
-                             :new-identity-text ""
-                             :show-add-identity-modal false)
-                      (fetch-identities (:name current-user))
-                      (select-identity {:identity id-to-select :name name-to-select :text text-to-select}))
+           :handler (fn [res]
+                      (let [generated-id (:id res)]
+                        (swap! app-state assoc
+                               :new-identity-name ""
+                               :new-identity-text ""
+                               :show-add-identity-modal false)
+                        (fetch-identities (:name current-user))
+                        (select-identity {:identity generated-id :name name-to-select :text text-to-select})))
            :error-handler #(js/console.error "Error adding identity" %)})))))
 
 (declare fetch-identity-history)
@@ -612,7 +612,7 @@
          "Cancel"]]])))
 
 (defn add-identity-modal []
-  (let [{:keys [show-add-identity-modal new-identity-id new-identity-name new-identity-text]} @app-state]
+  (let [{:keys [show-add-identity-modal new-identity-name new-identity-text]} @app-state]
     (when show-add-identity-modal
       [:div {:style {:position "fixed"
                      :top 0
@@ -633,22 +633,11 @@
               :on-click #(.stopPropagation %)}
         [:h2 {:style {:margin-top 0}} "Add Identity"]
         [:div {:style {:margin-bottom "1rem"}}
-         [:label {:style {:display "block" :margin-bottom "0.5rem" :font-weight "bold"}} "Identity ID"]
-         [:input {:type "text"
-                  :placeholder "e.g., bio, goals, values..."
-                  :value new-identity-id
-                  :auto-focus true
-                  :on-change #(swap! app-state assoc :new-identity-id (-> % .-target .-value))
-                  :style {:width "100%"
-                          :padding "0.75rem"
-                          :font-size "1rem"
-                          :border "1px solid #ccc"
-                          :border-radius "4px"}}]]
-        [:div {:style {:margin-bottom "1rem"}}
          [:label {:style {:display "block" :margin-bottom "0.5rem" :font-weight "bold"}} "Name"]
          [:input {:type "text"
                   :placeholder "Display name for this identity..."
                   :value new-identity-name
+                  :auto-focus true
                   :on-change #(swap! app-state assoc :new-identity-name (-> % .-target .-value))
                   :style {:width "100%"
                           :padding "0.75rem"
@@ -668,15 +657,15 @@
                              :border-radius "4px"
                              :resize "vertical"}}]]
         [:div {:style {:display "flex" :gap "1rem" :justify-content "flex-end"}}
-         [:button {:on-click #(swap! app-state assoc :show-add-identity-modal false :new-identity-id "" :new-identity-name "" :new-identity-text "")
+         [:button {:on-click #(swap! app-state assoc :show-add-identity-modal false :new-identity-name "" :new-identity-text "")
                    :style {:padding "0.5rem 1rem"
                            :cursor "pointer"}}
           "Cancel"]
          [:button {:on-click add-identity
-                   :disabled (or (empty? new-identity-id) (empty? new-identity-name) (empty? new-identity-text))
+                   :disabled (or (empty? new-identity-name) (empty? new-identity-text))
                    :style {:padding "0.5rem 1rem"
                            :cursor "pointer"
-                           :background (if (or (empty? new-identity-id) (empty? new-identity-name) (empty? new-identity-text)) "#ccc" "#4CAF50")
+                           :background (if (or (empty? new-identity-name) (empty? new-identity-text)) "#ccc" "#4CAF50")
                            :color "white"
                            :border "none"
                            :border-radius "4px"}}

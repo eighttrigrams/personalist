@@ -36,9 +36,10 @@
 
 (defn add-identity
   "@param mind - persona the identity belongs to
-   @param opts - optional map with :valid-from for explicit valid-time"
-  [conn mind id name text & [opts]]
-  (xtdb2/add-identity conn mind id name text opts))
+   @param opts - optional map with :valid-from for explicit valid-time
+   @returns the generated identity id"
+  [conn mind name text & [opts]]
+  (xtdb2/add-identity conn mind name text opts))
 
 (defn update-identity
   "@param opts - optional map with :valid-from for explicit valid-time"

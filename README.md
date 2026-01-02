@@ -71,3 +71,9 @@ $ basedir-eval -p 7888 "(+ 1 2)"
 ```bash
 $ clj -M:test
 ```
+
+## Deployment
+
+```bash
+$ fly deploy
+```
