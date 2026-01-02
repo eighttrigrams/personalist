@@ -734,8 +734,17 @@
                      :text-decoration "none"
                      :border-radius "4px"
                      :font-weight "bold"
-                     :margin-bottom "1rem"}}
+                     :margin-bottom "0.5rem"}}
          "Read the Whitepaper"]
+        [:br]
+        [:a {:href "https://github.com/eighttrigrams/personalist/blob/main/DEMO.md"
+             :target "_blank"
+             :style {:display "inline-block"
+                     :padding "0.5rem 1rem"
+                     :color "#666"
+                     :text-decoration "none"
+                     :font-size "0.9rem"}}
+         "View Demo Guide"]
         [:br]
         [:button {:on-click #(swap! app-state assoc :show-beta-modal false)
                   :style {:margin-top "1rem"
