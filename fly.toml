@@ -1,5 +1,5 @@
 app = "personalist"
-primary_region = "fra"
+primary_region = "iad"
 
 [env]
   PORT = "8080"
@@ -20,3 +20,4 @@ primary_region = "fra"
   memory = "1gb"
   cpu_kind = "shared"
   cpus = 1
+  count = 1

@@ -171,10 +171,27 @@
         {:status 200 :body (serialize-response results)})
       {:status 404 :body {:error "Persona not found"}})))
 
+(defn- admin-password-required? []
+  (some? (System/getenv "ADMIN_PASSWORD")))
+
+(defn admin-login-handler [req]
+  (let [{:keys [password]} (:body req)
+        admin-password (System/getenv "ADMIN_PASSWORD")]
+    (if (not (admin-password-required?))
+      {:status 200 :body {:success true :message "No password required"}}
+      (if (= password admin-password)
+        {:status 200 :body {:success true}}
+        {:status 401 :body {:success false :error "Invalid password"}}))))
+
+(defn admin-required-handler [_req]
+  {:status 200 :body {:required (admin-password-required?)}})
+
 (defroutes api-routes
   (context "/api" []
     (GET "/personas" [] list-personas-handler)
     (POST "/personas" [] add-persona-handler)
+    (GET "/admin/required" [] admin-required-handler)
+    (POST "/admin/login" [] admin-login-handler)
     (GET "/personas/:name/identities" [name] list-identities-handler)
     (GET "/personas/:name/identities/search" [name] search-identities-handler)
     (POST "/personas/:name/identities" [name] add-identity-handler)
@@ -204,6 +221,7 @@
 
 (defn- run-server [port]
   (let [host (or (System/getenv "HOST") "127.0.0.1")]
+    (prn "Binding to" host ":" port)
     (jetty/run-jetty #'app {:port port :host host :join? false})))
 
 (defn -main
