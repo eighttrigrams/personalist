@@ -203,7 +203,8 @@
       (wrap-rate-limit)))
 
 (defn- run-server [port]
-  (jetty/run-jetty #'app {:port port :join? false}))
+  (let [host (or (System/getenv "HOST") "127.0.0.1")]
+    (jetty/run-jetty #'app {:port port :host host :join? false})))
 
 (defn -main
   [& _args]
