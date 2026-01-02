@@ -11,7 +11,7 @@ The app is publicly accessible under https://personalist.fly.dev.
 Run
 
 ```bash
-$ scripts/start.sh
+$ make start
 ```
 
 Now visit a browser under http://localhost:3017.
@@ -19,7 +19,7 @@ Now visit a browser under http://localhost:3017.
 To stop afterwards, use
 
 ```bash
-$ scripts/stop.sh
+$ make stop
 ```
 
 ## Use a persistent database
@@ -37,8 +37,8 @@ and let's you choose whether whatever db you choose should be pre-seeded with so
 ### Running
 
 ```bash
-$ scripts/start.sh dev
-$ scripts/stop.sh (afterwards)
+$ make start-dev
+$ make stop (afterwards)
 ```
 
 This starts 
@@ -48,15 +48,15 @@ This starts
 - shadow-cljs (hot code reload etc.)
 - use an in-memory database, which is pre-seeded (unless a `config.edn` is provided; see above)
 
-With `start.sh`, you can use (prefix the command with) `PORT=<3017>` and `NREPL_PORT=<7999>` for custom ports.
+With `scripts/start.sh`, you can use (prefix the command with) `PORT=<3017>` and `NREPL_PORT=<7999>` for custom ports.
 
 Use
 
 ```bash
-$ scripts/stop.sh
+$ make restart-dev
 ```
 
-to tear things down afterwards.
+to restart the application.
 
 ### nREPL
 
@@ -69,17 +69,17 @@ $ clj -Sdeps '{:deps {nrepl/nrepl {:mvn/version "1.3.0"}}}' -M -m nrepl.cmdline 
 ### Tests
 
 ```bash
-$ clj -M:test
+$ make test
 ```
 
 ## Deployment
 
 ```bash
-$ fly deploy
+$ make deploy
 ```
 
 ## Backup
 
 ```bash
-$ fly ssh console -C "tar -czf - /app/data" > volume-backup.tar.gz
+$ make backup
 ```
