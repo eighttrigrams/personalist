@@ -72,8 +72,8 @@ curl -s -X POST -H "Content-Type: application/json" \
   "$API_BASE/api/personas/alice/identities/x7k9m2/relations" > /dev/null
 
 curl -s -X POST -H "Content-Type: application/json" \
-  -d '{"source_id":"h6j1t9","valid_from":"2025-12-28T10:00:00Z"}' \
-  "$API_BASE/api/personas/bob/identities/q4w2r8/relations" > /dev/null
+  -d '{"source_id":"q4w2r8","valid_from":"2025-12-28T10:00:00Z"}' \
+  "$API_BASE/api/personas/bob/identities/h6j1t9/relations" > /dev/null
 
 echo "Database seeded successfully!"
 echo ""
@@ -85,6 +85,6 @@ echo "    - Relation: Career Goals -> Biography"
 echo "  - bob - Display: Bob Smith"
 echo "    - q4w2r8 About Me: 3 versions"
 echo "    - h6j1t9 Personal Motto: 3 versions"
-echo "    - Relation: Personal Motto -> About Me"
+echo "    - Relation: Professional Profile -> My Core Belief"
 echo ""
 echo "Time travel test: View Alice's Biography and travel back to Dec 26 - the relation wont appear!"
