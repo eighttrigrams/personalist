@@ -76,6 +76,15 @@
       {:status 201 :body {:success true}}
       {:status 400 :body {:success false :error "Persona already exists"}})))
 
+(defn update-persona-handler [req]
+  (let [persona-name (str->keyword (get-in req [:params :name]))
+        {:keys [email]} (:body req)
+        result (ds/update-persona (ensure-conn) persona-name email)]
+    (cond
+      (nil? result) {:status 404 :body {:success false :error "Persona not found"}}
+      (:error result) {:status 400 :body {:success false :error "Email already exists"}}
+      :else {:status 200 :body {:success true}})))
+
 (defn list-identities-handler [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         persona (ds/get-persona-by-name (ensure-conn) persona-name)]
@@ -186,12 +195,16 @@
    Locally: prod mode unless config has :shadow? true or in-memory db."
   []
   (let [on-fly? (some? (System/getenv "FLY_APP_NAME"))
-        admin-pw (System/getenv "ADMIN_PASSWORD")]
-    (when (or on-fly?
-              (System/getenv "LOCAL_PROD"))
-      (when-not admin-pw
-        (throw (ex-info "ADMIN_PASSWORD required in production" {}))))
-    true))
+        admin-pw (System/getenv "ADMIN_PASSWORD")
+        cfg @config
+        in-memory? (= :xtdb2-in-memory (get-in cfg [:db :type]))
+        shadow? (true? (:shadow? cfg))]
+    (if on-fly?
+      (do
+        (when-not admin-pw
+          (throw (ex-info "ADMIN_PASSWORD required in production" {})))
+        true)
+      (not (or in-memory? shadow?)))))
 
 (defn- jwt-secret []
   (or (System/getenv "ADMIN_PASSWORD") "dev-secret"))
@@ -233,6 +246,7 @@
   (context "/api" []
     (GET "/personas" [] list-personas-handler)
     (POST "/personas" [] add-persona-handler)
+    (PUT "/personas/:name" [name] update-persona-handler)
     (GET "/auth/required" [] password-required-handler)
     (POST "/auth/login" [] persona-login-handler)
     (GET "/personas/:name/identities" [name] list-identities-handler)

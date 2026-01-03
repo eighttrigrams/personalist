@@ -66,6 +66,18 @@
                                                                :persona/email email}
                                                         password-hash (assoc :persona/password-hash password-hash))]])))
 
+(defn update-persona
+  [conn name new-email]
+  (let [existing (get-persona-by-email conn new-email)]
+    (if (and existing (not= (:name existing) name))
+      {:error :email-exists}
+      (let [current (get-persona-by-name conn name)]
+        (when current
+          (xt/execute-tx (:conn conn) [[:put-docs :personas {:xt/id name
+                                                             :persona/email new-email
+                                                             :persona/password-hash (:persona/password-hash current)}]])
+          {:success true})))))
+
 (defn get-persona-password-hash
   [conn name]
   (let [result (first (xt/q (:conn conn)

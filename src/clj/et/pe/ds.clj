@@ -24,6 +24,11 @@
   [conn name email password-hash]
   (xtdb2/add-persona conn name email password-hash))
 
+(defn update-persona
+  "@returns {:success true} or {:error :email-exists}"
+  [conn name new-email]
+  (xtdb2/update-persona conn name new-email))
+
 (defn get-persona-password-hash
   [conn name]
   (xtdb2/get-persona-password-hash conn name))

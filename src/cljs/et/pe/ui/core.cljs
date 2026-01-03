@@ -55,6 +55,21 @@
      :keywords? true
      :error-handler #(js/console.error "Error fetching personas" %)}))
 
+(defn update-persona-email [persona-name new-email on-success on-error]
+  (PUT (str api-base "/api/personas/" persona-name)
+    {:params {:email new-email}
+     :format :json
+     :response-format :json
+     :keywords? true
+     :headers (auth-headers)
+     :handler (fn [res]
+                (if (:success res)
+                  (on-success)
+                  (on-error "Update failed")))
+     :error-handler (fn [err]
+                      (let [error-msg (or (get-in err [:response :error]) "Update failed")]
+                        (on-error error-msg)))}))
+
 (defn check-password-required []
   (GET (str api-base "/api/auth/required")
     {:handler (fn [res]
@@ -311,7 +326,7 @@
                            :color "white"
                            :border "1px solid #555"
                            :border-radius "4px"}}
-          "Settings"])
+          "Users"])
        (when (and logged-in? (not is-admin?))
          [:<>
           [:button {:on-click #(swap! app-state assoc :show-add-identity-modal true)
@@ -413,7 +428,7 @@
                      :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
                 [:strong (:name p)]]))]
           [:p {:style {:color "#666" :font-style "italic"}}
-           "No personas yet. Add one in Settings."])
+           "No personas yet. Add one in Users tab."])
         [:button {:on-click #(swap! app-state assoc :show-login-modal false)
                   :style {:margin-top "1rem"
                           :padding "0.5rem 1rem"
@@ -1040,10 +1055,62 @@
                    :style {:padding "0.5rem 1rem" :cursor "pointer" :margin-top "0.5rem"}}
           "Add Persona"]]))))
 
+(defn- persona-row [p]
+  (let [editing? (r/atom false)
+        edit-email (r/atom (:email p))
+        error (r/atom nil)]
+    (fn [p]
+      (let [personas (:personas @app-state)
+            other-emails (set (map :email (filter #(not= (:name %) (:name p)) personas)))]
+        [:li {:style {:padding "0.5rem" :background "#f5f5f5" :margin-bottom "0.25rem" :border-radius "4px"}}
+         [:div {:style {:display "flex" :align-items "center" :gap "0.5rem"}}
+          [:strong {:style {:min-width "100px"}} (:name p)]
+          (if @editing?
+            [:<>
+             [:input {:type "email"
+                      :value @edit-email
+                      :on-change #(do (reset! edit-email (.. % -target -value))
+                                      (reset! error nil))
+                      :style {:padding "0.25rem" :flex 1}}]
+             [:button {:on-click (fn []
+                                   (let [new-email @edit-email]
+                                     (cond
+                                       (not (valid-email? new-email))
+                                       (reset! error "Invalid email format")
+
+                                       (contains? other-emails new-email)
+                                       (reset! error "Email already exists")
+
+                                       :else
+                                       (update-persona-email
+                                        (:name p)
+                                        new-email
+                                        (fn []
+                                          (reset! editing? false)
+                                          (reset! error nil)
+                                          (fetch-personas))
+                                        (fn [err]
+                                          (reset! error err))))))
+                       :style {:padding "0.25rem 0.5rem" :cursor "pointer" :background "#4CAF50" :color "white" :border "none" :border-radius "4px"}}
+              "Save"]
+             [:button {:on-click #(do (reset! editing? false)
+                                      (reset! edit-email (:email p))
+                                      (reset! error nil))
+                       :style {:padding "0.25rem 0.5rem" :cursor "pointer"}}
+              "Cancel"]]
+            [:<>
+             [:span {:style {:flex 1}} (:email p)]
+             (when (not= (:name p) "admin")
+               [:button {:on-click #(reset! editing? true)
+                         :style {:padding "0.25rem 0.5rem" :cursor "pointer"}}
+                "Edit"])])]
+         (when @error
+           [:div {:style {:color "red" :font-size "0.85rem" :margin-top "0.25rem"}} @error])]))))
+
 (defn settings-tab []
   (let [personas (:personas @app-state)]
     [:div {:style {:padding "2rem" :max-width "600px"}}
-     [:h2 "Settings"]
+     [:h2 "Users"]
      [:div {:style {:margin-bottom "2rem"}}
       [:h3 "Add New Persona"]
       [persona-form]]
@@ -1053,8 +1120,7 @@
         [:ul {:style {:list-style "none" :padding 0}}
          (for [p personas]
            ^{:key (:name p)}
-           [:li {:style {:padding "0.5rem" :background "#f5f5f5" :margin-bottom "0.25rem" :border-radius "4px"}}
-            [:strong (:name p)] " - " (:email p)])]
+           [persona-row p])]
         [:p {:style {:color "#666" :font-style "italic"}} "No personas yet."])]]))
 
 (defn app []
