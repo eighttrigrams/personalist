@@ -38,6 +38,10 @@
 
 (def api-base "")
 
+(defn valid-email? [email]
+  (and (string? email)
+       (re-matches #"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$" email)))
+
 (defn auth-headers []
   (if-let [token (:auth-token @app-state)]
     {"Authorization" (str "Bearer " token)}
@@ -407,7 +411,7 @@
                              :transition "background 0.2s"}
                      :on-mouse-over #(set! (.-background (.-style (.-target %))) "#e0e0e0")
                      :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
-                [:strong (:name p)] [:br] [:span {:style {:color "#666" :font-size "0.9rem"}} (:email p)]]))]
+                [:strong (:name p)]]))]
           [:p {:style {:color "#666" :font-style "italic"}}
            "No personas yet. Add one in Settings."])
         [:button {:on-click #(swap! app-state assoc :show-login-modal false)
@@ -985,37 +989,56 @@
 (defn- persona-form []
   (let [name-ref (atom nil)
         email-ref (atom nil)
-        password-ref (atom nil)]
+        password-ref (atom nil)
+        error (r/atom nil)]
     (fn []
-      [:div {:style {:display "flex" :flex-direction "column" :gap "0.5rem" :max-width "300px"}}
-       [:input {:type "text"
-                :placeholder "Name"
-                :ref #(reset! name-ref %)
-                :style {:padding "0.5rem"}}]
-       [:input {:type "email"
-                :placeholder "Email"
-                :ref #(reset! email-ref %)
-                :style {:padding "0.5rem"}}]
-       [:input {:type "password"
-                :placeholder "Password"
-                :ref #(reset! password-ref %)
-                :style {:padding "0.5rem"}}]
-       [:button {:on-click (fn []
-                             (let [name-val (when @name-ref (.-value @name-ref))
-                                   email-val (when @email-ref (.-value @email-ref))
-                                   password-val (when @password-ref (.-value @password-ref))]
-                               (when (and (seq name-val) (seq email-val))
-                                 (POST (str api-base "/api/personas")
-                                   {:params {:name name-val :email email-val :password password-val}
-                                    :format :json
-                                    :handler (fn [_]
-                                               (when @name-ref (set! (.-value @name-ref) ""))
-                                               (when @email-ref (set! (.-value @email-ref) ""))
-                                               (when @password-ref (set! (.-value @password-ref) ""))
-                                               (fetch-personas))
-                                    :error-handler #(js/console.error "Error adding persona" %)}))))
-                 :style {:padding "0.5rem 1rem" :cursor "pointer" :margin-top "0.5rem"}}
-        "Add Persona"]])))
+      (let [personas (:personas @app-state)
+            existing-emails (set (map :email personas))]
+        [:div {:style {:display "flex" :flex-direction "column" :gap "0.5rem" :max-width "300px"}}
+         [:input {:type "text"
+                  :placeholder "Name"
+                  :ref #(reset! name-ref %)
+                  :style {:padding "0.5rem"}}]
+         [:input {:type "email"
+                  :placeholder "Email"
+                  :ref #(reset! email-ref %)
+                  :style {:padding "0.5rem"}}]
+         [:input {:type "password"
+                  :placeholder "Password"
+                  :ref #(reset! password-ref %)
+                  :style {:padding "0.5rem"}}]
+         (when @error
+           [:p {:style {:color "red" :margin "0" :font-size "0.85rem"}} @error])
+         [:button {:on-click (fn []
+                               (let [name-val (when @name-ref (.-value @name-ref))
+                                     email-val (when @email-ref (.-value @email-ref))
+                                     password-val (when @password-ref (.-value @password-ref))]
+                                 (reset! error nil)
+                                 (cond
+                                   (not (seq name-val))
+                                   (reset! error "Name is required")
+
+                                   (not (seq email-val))
+                                   (reset! error "Email is required")
+
+                                   (not (valid-email? email-val))
+                                   (reset! error "Invalid email format")
+
+                                   (contains? existing-emails email-val)
+                                   (reset! error "Email already exists")
+
+                                   :else
+                                   (POST (str api-base "/api/personas")
+                                     {:params {:name name-val :email email-val :password password-val}
+                                      :format :json
+                                      :handler (fn [_]
+                                                 (when @name-ref (set! (.-value @name-ref) ""))
+                                                 (when @email-ref (set! (.-value @email-ref) ""))
+                                                 (when @password-ref (set! (.-value @password-ref) ""))
+                                                 (fetch-personas))
+                                      :error-handler #(js/console.error "Error adding persona" %)}))))
+                   :style {:padding "0.5rem 1rem" :cursor "pointer" :margin-top "0.5rem"}}
+          "Add Persona"]]))))
 
 (defn settings-tab []
   (let [personas (:personas @app-state)]
