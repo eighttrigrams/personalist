@@ -1,6 +1,7 @@
 .PHONY: start start-prod stop restart restart-prod seed test build deploy backup swap-config-bkp
 
 start:
+	@test -d node_modules || npm i
 	./scripts/start.sh
 
 start-prod:
