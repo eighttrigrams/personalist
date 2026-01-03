@@ -11,7 +11,8 @@
             [ring.middleware.cors :refer [wrap-cors]]
             [et.pe.middleware.rate-limit :refer [wrap-rate-limit]]
             [et.pe.server.handlers :as handlers]
-            [nrepl.server :as nrepl])
+            [nrepl.server :as nrepl]
+            [taoensso.telemere :as tel])
   (:gen-class))
 
 (defonce ds-conn (atom nil))
@@ -35,10 +36,10 @@
   (let [config-file (io/file "config.edn")]
     (if (.exists config-file)
       (do
-        (prn "Loading configuration from config.edn")
+        (tel/log! :info "Loading configuration from config.edn")
         (edn/read-string (slurp config-file)))
       (do
-        (prn "config.edn not found, using default in-memory database with pre-seed")
+        (tel/log! :info "config.edn not found, using default in-memory database with pre-seed")
         {:db {:type :xtdb2-in-memory} :pre-seed? true}))))
 
 (defn- should-pre-seed? [cfg]
@@ -47,12 +48,12 @@
 (defn- run-seed-script []
   (let [seed-script (io/file "scripts/seed-db.sh")]
     (when (.exists seed-script)
-      (prn "Running seed script...")
+      (tel/log! :info "Running seed script...")
       (let [process (.exec (Runtime/getRuntime) "bash scripts/seed-db.sh")
             exit-code (.waitFor process)]
         (if (zero? exit-code)
-          (prn "Seed script completed successfully")
-          (prn "Seed script failed with exit code:" exit-code))))))
+          (tel/log! :info "Seed script completed successfully")
+          (tel/log! :error ["Seed script failed with exit code:" exit-code]))))))
 
 (defn ensure-conn []
   (when (nil? @ds-conn)
@@ -140,7 +141,7 @@
 
 (defn- run-server [port]
   (let [host (or (System/getenv "HOST") "127.0.0.1")]
-    (prn "Binding to" host ":" port)
+    (tel/log! :info ["Binding to" host ":" port])
     (jetty/run-jetty #'app {:port port :host host :join? false})))
 
 (defn- ensure-valid-options [config]
@@ -155,27 +156,25 @@
   [& _args]
   (reset! config (load-config))
   (handlers/set-config! @config)
-  (prn (str "Starting system in " (if prod-mode?
-                                    "production"
-                                    "development") " mode."))
+  (tel/log! :info ["Starting system in" (if prod-mode? "production" "development") "mode"])
   (ensure-valid-options @config)
   (ensure-conn)
-  (when-not  prod-mode?
+  (when-not prod-mode?
     (let [nrepl-port (Integer/parseInt (or (System/getenv "NREPL_PORT") "7888"))]
       (nrepl/start-server :port nrepl-port)
       (spit ".nrepl-port" nrepl-port)
-      (prn "nREPL server started on port" nrepl-port)))
+      (tel/log! :info ["nREPL server started on port" nrepl-port])))
   (let [port (Integer/parseInt (or (System/getenv "PORT") "3017"))]
-    (prn "Starting server on port" port)
+    (tel/log! :info ["Starting server on port" port])
     (run-server port)
     (when (should-pre-seed? @config)
       (future
         (Thread/sleep 2000)
         (if (db-empty?)
           (do
-            (prn "Pre-seed enabled and database empty, seeding...")
+            (tel/log! :info "Pre-seed enabled and database empty, seeding...")
             (run-seed-script))
-          (prn "Pre-seed enabled but database has data, skipping seed"))))
+          (tel/log! :info "Pre-seed enabled but database has data, skipping seed"))))
     @(promise)))
 
 (comment

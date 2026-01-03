@@ -191,31 +191,31 @@
 
 (defn persona-login-handler [prod-mode?]
   (fn [req]
-                              (let [{:keys [id email password]} (:body req)]
-                                (prn "..." id email password)
-                                (if (allow-skip-logins? prod-mode?)
-                                  {:status 200 :body {:success true :message "No password required"}}
-                                  (if (= (str->keyword id) :admin)
-                                    (let [admin-password (if prod-mode?
-                                                           (System/getenv "ADMIN_PASSWORD")
-                                                           "admin")]
-                                      (if (= password admin-password)
-                                        {:status 200 :body {:success true :token (create-token :admin)}}
-                                        {:status 401 :body {:success false :error "Invalid credentials"}}))
-                                    (let [persona (cond
-                                                    (seq id) (ds/get-persona-by-id (ensure-conn) (str->keyword id))
-                                                    (seq email) (ds/get-persona-by-email (ensure-conn) email)
-                                                    :else nil)]
-                                      (if (nil? persona)
-                                        {:status 401 :body {:success false :error "Invalid credentials"}}
-                                        (let [persona-id (str->keyword (:id persona))
-                                              stored-hash (ds/get-persona-password-hash (ensure-conn) persona-id)]
-                                          (if (and stored-hash (hashers/check password stored-hash))
-                                            {:status 200 :body {:success true :token (create-token persona-id)}}
-                                            {:status 401 :body {:success false :error "Invalid credentials"}})))))))))
+    (let [{:keys [id email password]} (:body req)]
+      (if (allow-skip-logins? prod-mode?)
+        {:status 200 :body {:success true :message "No password required"}}
+        (if (= (str->keyword id) :admin)
+          (let [admin-password (if prod-mode?
+                                 (System/getenv "ADMIN_PASSWORD")
+                                 "admin")]
+            (if (= password admin-password)
+              {:status 200 :body {:success true :token (create-token :admin)}}
+              {:status 401 :body {:success false :error "Invalid credentials"}}))
+          (let [persona (cond
+                          (seq id) (ds/get-persona-by-id (ensure-conn) (str->keyword id))
+                          (seq email) (ds/get-persona-by-email (ensure-conn) email)
+                          :else nil)]
+            (if (nil? persona)
+              {:status 401 :body {:success false :error "Invalid credentials"}}
+              (let [persona-id (str->keyword (:id persona))
+                    stored-hash (ds/get-persona-password-hash (ensure-conn) persona-id)]
+                (if (and stored-hash (hashers/check password stored-hash))
+                  {:status 200 :body {:success true :token (create-token persona-id)}}
+                  {:status 401 :body {:success false :error "Invalid credentials"}})))))))))
 
-(defn password-required-handler [prod-mode?] (fn [_req]
-                                               {:status 200 :body {:required (not (allow-skip-logins? prod-mode?))}}))
+(defn password-required-handler [prod-mode?]
+  (fn [_req]
+    {:status 200 :body {:required (not (allow-skip-logins? prod-mode?))}}))
 
 (defn generate-id-handler [_req]
   (let [existing-ids (set (map :id (ds/list-personas (ensure-conn))))]
