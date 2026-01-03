@@ -66,15 +66,36 @@ For persistent storage:
 
 ## Production Environment Detection
 
-The application detects it is running in production by checking for the `ADMIN_PASSWORD` environment variable.
+The application determines production mode based on where it's running:
 
-When `ADMIN_PASSWORD` is set:
+### On Fly.io
+
+Always runs in production mode. `ADMIN_PASSWORD` environment variable is required - the app will fail to start without it.
+
+### Locally
+
+Production mode is determined by `config.edn`:
+
+- If `:shadow? true` → **not** production mode (dev environment)
+- If `:db {:type :xtdb2-in-memory}` → **not** production mode (data would be lost)
+- Otherwise → production mode
+
+This means you can test production auth locally by using persistent storage without `:shadow?`:
+```edn
+{:db {:type :xtdb2-on-disk
+      :path "data/xtdb"}
+ :pre-seed? false}
+```
+
+### Production Mode Behavior
+
+When in production mode:
 - Password authentication is required for all users
 - The admin user authenticates with the value of `ADMIN_PASSWORD`
 - Regular users authenticate with passwords stored in the database
 - JWT tokens are used for session management
 
-When `ADMIN_PASSWORD` is not set:
+When not in production mode:
 - No password is required
 - Users can login by simply clicking on their persona in the login modal
 - This makes it easy to test and demo the application

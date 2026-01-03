@@ -182,9 +182,16 @@
 
 (defn- prod-mode?
   "Returns true when running in production mode.
-   Currently determined by presence of ADMIN_PASSWORD env var."
+   On Fly.io: always prod mode, requires ADMIN_PASSWORD.
+   Locally: prod mode unless config has :shadow? true or in-memory db."
   []
-  (some? (System/getenv "ADMIN_PASSWORD")))
+  (let [on-fly? (some? (System/getenv "FLY_APP_NAME"))
+        admin-pw (System/getenv "ADMIN_PASSWORD")]
+    (when (or on-fly?
+              (System/getenv "LOCAL_PROD"))
+      (when-not admin-pw
+        (throw (ex-info "ADMIN_PASSWORD required in production" {}))))
+    true))
 
 (defn- jwt-secret []
   (or (System/getenv "ADMIN_PASSWORD") "dev-secret"))

@@ -57,14 +57,6 @@ This starts:
 
 With `scripts/start.sh`, you can use `PORT=<port>` and `NREPL_PORT=<port>` for custom ports.
 
-### Testing Production Build Locally
-
-```bash
-$ make start-prod
-```
-
-This builds the uberjar and runs it locally.
-
 ### nREPL
 
 Connect to the running nREPL from your editor (Calva, CIDER, Cursive) on port 7888, or via command line:
@@ -78,6 +70,14 @@ $ clj -Sdeps '{:deps {nrepl/nrepl {:mvn/version "1.3.0"}}}' -M -m nrepl.cmdline 
 ```bash
 $ make test
 ```
+
+### Test production build locally
+
+```bash
+$ make start-prod
+```
+
+This builds the uberjar and runs it locally.
 
 ## Deployment
 
