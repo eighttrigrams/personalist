@@ -213,10 +213,13 @@
                                :margin-bottom "0.5rem"
                                :background "#f5f5f5"
                                :border-radius "4px"
-                               :cursor "pointer"}
-                       :on-click #(select-identity identity)}
-                 [:div {:style {:font-weight "500"}} (:name identity)]
-                 [:div {:style {:font-size "0.85rem" :color "#999" :margin-top "0.25rem"}}
+                               :cursor "pointer"
+                               :transition "background 0.2s"}
+                       :on-click #(select-identity identity)
+                       :on-mouse-over #(set! (.-background (.-style (.-currentTarget %))) "#e0e0e0")
+                       :on-mouse-out #(set! (.-background (.-style (.-currentTarget %))) "#f5f5f5")}
+                 [:div {:style {:font-weight "500" :pointer-events "none"}} (:name identity)]
+                 [:div {:style {:font-size "0.85rem" :color "#999" :margin-top "0.25rem" :pointer-events "none"}}
                   (let [text (:text identity)]
                     (if (> (count text) 60)
                       (str (subs text 0 60) "...")
