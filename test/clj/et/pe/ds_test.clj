@@ -37,19 +37,16 @@
    (testing "- can't add a persona with the same name"
      (are=
       false (ds/add-persona conn :dan "d2@et.n" nil nil)
-      2 (count (ds/list-personas conn))))
+      1 (count (ds/list-personas conn))))
    (testing "- can't add a persona with the same email"
      (are=
       false (ds/add-persona conn :dan2 "d@et.n" nil nil)
-      2 (count (ds/list-personas conn)))))
+      1 (count (ds/list-personas conn)))))
   (testing-with-conn "retrieve personas"
    (ds/add-persona conn :dan "d@et.n" nil nil)
    (ds/add-persona conn :dan2 "d2@et.n" nil nil)
    (sets-are=
-    [{:id  :admin
-      :email "admin@localhost"
-      :display-name "admin"}
-     {:id  :dan
+    [{:id  :dan
       :email "d@et.n"
       :display-name "dan"}
      {:id  :dan2

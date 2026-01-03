@@ -4,25 +4,12 @@
             [clojure.string :as str])
   (:import [java.util UUID]))
 
-(defn- ensure-admin-exists [conn]
-  (let [admin (first (xt/q conn
-                           '(fn []
-                              (-> (from :personas [xt/id persona/email])
-                                  (where (= xt/id :admin))))))]
-    (when-not admin
-      (xt/execute-tx conn [[:put-docs :personas {:xt/id :admin
-                                                  :persona/email "admin@localhost"}]]))))
-
 (defn init-conn
   [{:keys [type path] :or {path "data/xtdb"}}]
   (if (= type :xtdb2-in-memory)
-    (let [node (xtn/start-node)]
-      (ensure-admin-exists node)
-      {:conn node})
-    (let [node (xtn/start-node {:log [:local {:path (str path "/log")}]
-                                :storage [:local {:path (str path "/storage")}]})]
-      (ensure-admin-exists node)
-      {:conn node})))
+    {:conn (xtn/start-node)}
+    {:conn (xtn/start-node {:log [:local {:path (str path "/log")}]
+                            :storage [:local {:path (str path "/storage")}]})}))
 
 (defn close-conn
   [{:keys [conn]}]
