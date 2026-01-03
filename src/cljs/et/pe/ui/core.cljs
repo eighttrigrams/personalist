@@ -80,7 +80,7 @@
      [:div {:style {:display "flex" :align-items "center" :gap "1rem"}}
       (when (and (not logged-in?) current-user)
         [:<>
-         [:span (str "Persona: " (:id current-user))]
+         [:span (str "Persona: " (:name current-user))]
          [:button {:on-click #(swap! app-state assoc :current-user nil :identities [] :selected-identity nil)
                    :style {:padding "0.5rem 1rem" :cursor "pointer"}}
           "Change"]])

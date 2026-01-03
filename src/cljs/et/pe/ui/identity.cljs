@@ -201,6 +201,8 @@
                        :min-height "calc(100vh - 60px)"
                        :color "#666"}}
          [:div {:style {:text-align "center" :width "100%" :max-width "400px"}}
+          [:p {:style {:font-size "0.9rem" :color "#999" :margin-bottom "0.25rem"}} (:id current-user)]
+          [:h1 {:style {:font-size "2rem" :margin-top "0" :margin-bottom "1.5rem" :color "#333"}} (:name current-user)]
           (if (seq recent-identities)
             [:<>
              [:p {:style {:font-size "1.2rem" :margin-bottom "1rem"}} "Recently modified"]
