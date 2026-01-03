@@ -186,7 +186,7 @@
           results)))
 
 (defn- make-relation-id [persona-id source-id target-id]
-  (keyword (str (name persona-id) "/rel-" (name source-id) "->" (name target-id))))
+  (keyword (str (name persona-id) "/" (name source-id) "/" (name target-id))))
 
 (defn- get-relation-by-id
   [conn relation-id]
