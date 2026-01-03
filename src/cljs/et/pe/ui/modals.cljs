@@ -75,9 +75,9 @@
         (if password-required
           [:<>
            [:p {:style {:color "#666"}} "Enter your credentials:"]
-           [:input {:type "email"
+           [:input {:type "text"
                     :value login-email
-                    :placeholder "Email"
+                    :placeholder "Email or Persona ID"
                     :on-change #(swap! app-state assoc :login-email (.. % -target -value))
                     :on-key-down #(when (= (.-key %) "Enter") (attempt-email-login))
                     :style {:width "100%"
