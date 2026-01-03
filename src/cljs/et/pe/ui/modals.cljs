@@ -195,7 +195,7 @@
   (when (>= (count query) 1)
     (search-identities query
                        (date-to-instant valid-at)
-                       #(swap! app-state assoc :nav-search-results %))))
+                       #(swap! app-state assoc :nav-search-results (take 5 %)))))
 
 (defn search-modal []
   (let [{:keys [show-search-modal nav-search-query nav-search-results search-valid-at identities]} @app-state]
@@ -248,26 +248,29 @@
         (when search-valid-at
           [:div {:style {:margin-bottom "1rem" :padding "0.5rem" :background "#e3f2fd" :border-radius "4px" :font-size "0.9rem"}}
            [:span "Searching identities as of: " search-valid-at]])
-        (if (seq nav-search-results)
-          [:ul {:style {:list-style "none" :padding 0 :margin 0}}
-           (for [result nav-search-results]
-             ^{:key (:identity result)}
-             [:li {:on-click (fn []
-                               (let [identity-data (first (filter #(= (:identity %) (:identity result)) identities))]
-                                 (when identity-data
-                                   (select-identity identity-data))
-                                 (swap! app-state assoc :show-search-modal false :nav-search-query "" :nav-search-results [] :search-valid-at nil)))
-                   :style {:padding "0.75rem"
-                           :cursor "pointer"
-                           :background "#f5f5f5"
-                           :border-radius "4px"
-                           :margin-bottom "0.5rem"
-                           :transition "background 0.2s"}
-                   :on-mouse-over #(set! (.-background (.-style (.-target %))) "#e0e0e0")
-                   :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
-              [:span (:name result)]])]
-          (when (seq nav-search-query)
-            [:p {:style {:color "#666" :font-style "italic"}} "No results found"]))
+        (let [results-to-show (if (seq nav-search-query)
+                              nav-search-results
+                              (take 5 identities))]
+          (if (seq results-to-show)
+            [:ul {:style {:list-style "none" :padding 0 :margin 0}}
+             (for [result results-to-show]
+               ^{:key (:identity result)}
+               [:li {:on-click (fn []
+                                 (let [identity-data (first (filter #(= (:identity %) (:identity result)) identities))]
+                                   (when identity-data
+                                     (select-identity identity-data))
+                                   (swap! app-state assoc :show-search-modal false :nav-search-query "" :nav-search-results [] :search-valid-at nil)))
+                     :style {:padding "0.75rem"
+                             :cursor "pointer"
+                             :background "#f5f5f5"
+                             :border-radius "4px"
+                             :margin-bottom "0.5rem"
+                             :transition "background 0.2s"}
+                     :on-mouse-over #(set! (.-background (.-style (.-target %))) "#e0e0e0")
+                     :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
+                [:span (:name result)]])]
+            (when (seq nav-search-query)
+              [:p {:style {:color "#666" :font-style "italic"}} "No results found"])))
         [:button {:on-click #(swap! app-state assoc :show-search-modal false :nav-search-query "" :nav-search-results [] :search-valid-at nil)
                   :style {:margin-top "1rem"
                           :padding "0.5rem 1rem"
@@ -307,7 +310,7 @@
                               (let [q (-> e .-target .-value)]
                                 (swap! app-state assoc :relation-search-query q)
                                 (when (>= (count q) 1)
-                                  (search-identities q #(swap! app-state assoc :relation-search-results %)))))
+                                  (search-identities q #(swap! app-state assoc :relation-search-results (take 5 %))))))
                  :style {:width "100%"
                          :padding "0.75rem"
                          :font-size "1rem"
