@@ -4,7 +4,8 @@ if [ ! -f config.edn ]; then
   echo "No config.edn found. Creating default configuration..."
   cat > config.edn << 'CONFIG'
 {:db {:type :xtdb2-in-memory}
- :pre-seed? true}
+ :pre-seed? true
+ :dangerously-skip-logins? true}
 CONFIG
   echo "Created config.edn"
 fi
