@@ -19,6 +19,12 @@ if [ "$1" = "prod" ]; then
     echo "Please configure a persistent database in config.edn"
     exit 1
   fi
+  SKIP_LOGINS=$(clj -M -e "(-> \"config.edn\" slurp read-string :dangerously-skip-logins? true?)")
+  if [ "$SKIP_LOGINS" = "true" ]; then
+    echo "Error: Cannot start in production mode with :dangerously-skip-logins? enabled."
+    echo "Please remove or set :dangerously-skip-logins? to false in config.edn"
+    exit 1
+  fi
   echo "Starting in production mode on port $PORT..."
   echo "Building uberjar..."
   clj -T:build uber

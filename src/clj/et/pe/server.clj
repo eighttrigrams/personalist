@@ -194,19 +194,31 @@
 
 (defn- prod-mode?
   "Returns true when running in production mode.
-   On Fly.io: always prod mode, requires ADMIN_PASSWORD.
-   Locally: prod mode unless config has :shadow? true or in-memory db."
+   Production mode when: on Fly.io, DEV not set to 'true', or ADMIN_PASSWORD is set."
   []
   (let [on-fly? (some? (System/getenv "FLY_APP_NAME"))
-        admin-pw (System/getenv "ADMIN_PASSWORD")
-        cfg @config
-        in-memory? (= :xtdb2-in-memory (get-in cfg [:db :type]))
-        shadow? (true? (:shadow? cfg))]
+        dev-mode? (= "true" (System/getenv "DEV"))
+        admin-pw (System/getenv "ADMIN_PASSWORD")]
     (cond
-      on-fly? (do (when-not admin-pw
-                    (throw (ex-info "ADMIN_PASSWORD required in production" {})))
-                  true)
-      :else (not (or in-memory? shadow?)))))
+      on-fly?
+      (do (when-not admin-pw
+            (throw (ex-info "ADMIN_PASSWORD required in production" {})))
+          true)
+      (not dev-mode?)
+      (do (when-not admin-pw
+            (throw (ex-info "ADMIN_PASSWORD required in production (set DEV=true for dev mode)" {})))
+          true)
+      admin-pw
+      true
+      :else
+      false)))
+
+(defn- allow-skip-logins?
+  "Returns true if login can be skipped (just clicking usernames).
+   Only allowed when :dangerously-skip-logins? is true AND not in prod mode."
+  []
+  (and (true? (:dangerously-skip-logins? @config))
+       (not (prod-mode?))))
 
 (defn- jwt-secret []
   (or (System/getenv "ADMIN_PASSWORD") "dev-secret"))
@@ -227,7 +239,7 @@
                   (seq email) (ds/get-persona-by-email (ensure-conn) email)
                   :else nil)
         persona-id (str->keyword (:id persona))]
-    (if (not (prod-mode?))
+    (if (allow-skip-logins?)
       {:status 200 :body {:success true :message "No password required"}}
       (if (nil? persona)
         {:status 401 :body {:success false :error "Invalid credentials"}}
@@ -317,6 +329,9 @@
 (defn -main
   [& _args]
   (reset! config (load-config))
+  (when (and (true? (:dangerously-skip-logins? @config))
+             (prod-mode?))
+    (throw (ex-info "Cannot use :dangerously-skip-logins? in production mode" {})))
   (ensure-conn)
   (let [nrepl-port (Integer/parseInt (or (System/getenv "NREPL_PORT") "7888"))]
     (nrepl/start-server :port nrepl-port)
