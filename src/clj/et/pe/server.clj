@@ -229,10 +229,13 @@
 
 (defn persona-login-handler [req]
   (let [{:keys [id email password]} (:body req)]
+    (prn "..." id email password)
     (if (allow-skip-logins?)
       {:status 200 :body {:success true :message "No password required"}}
-      (if (= (str->keyword id) :admin)
-        (let [admin-password (System/getenv "ADMIN_PASSWORD")]
+      (if (= (str->keyword email) :admin)
+        (let [admin-password (if (prod-mode?)
+                               (System/getenv "ADMIN_PASSWORD")
+                               "admin")]
           (if (= password admin-password)
             {:status 200 :body {:success true :token (create-token :admin)}}
             {:status 401 :body {:success false :error "Invalid credentials"}}))
@@ -249,7 +252,7 @@
                 {:status 401 :body {:success false :error "Invalid credentials"}}))))))))
 
 (defn password-required-handler [_req]
-  {:status 200 :body {:required (prod-mode?)}})
+  {:status 200 :body {:required (not (allow-skip-logins?))}})
 
 (defroutes api-routes
   (context "/api" []
@@ -324,14 +327,22 @@
 (defn -main
   [& _args]
   (reset! config (load-config))
+  (when (and (or (true? (:re-seed? @config))
+                 (true? (:pre-seed? @config)))
+             (prod-mode?))
+    (throw (ex-info "Cannot use :pre-seed? or :re-seed? in prod mode" {})))
   (when (and (true? (:dangerously-skip-logins? @config))
              (prod-mode?))
     (throw (ex-info "Cannot use :dangerously-skip-logins? in production mode" {})))
+  (prn (str "Starting system in " (if (prod-mode?)
+                                    "production"
+                                    "development") " mode."))
   (ensure-conn)
-  (let [nrepl-port (Integer/parseInt (or (System/getenv "NREPL_PORT") "7888"))]
-    (nrepl/start-server :port nrepl-port)
-    (spit ".nrepl-port" nrepl-port)
-    (prn "nREPL server started on port" nrepl-port))
+  (when-not (prod-mode?)
+    (let [nrepl-port (Integer/parseInt (or (System/getenv "NREPL_PORT") "7888"))]
+      (nrepl/start-server :port nrepl-port)
+      (spit ".nrepl-port" nrepl-port)
+      (prn "nREPL server started on port" nrepl-port)))
   (let [port (Integer/parseInt (or (System/getenv "PORT") "3017"))]
     (prn "Starting server on port" port)
     (run-server port)
