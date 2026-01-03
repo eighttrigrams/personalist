@@ -1,7 +1,6 @@
 (ns et.pe.ds-test
   (:require [clojure.test :refer [deftest testing is are use-fixtures]]
-            [et.pe.ds :as ds]
-            et.pe.ds.xtdb2)
+            [et.pe.ds :as ds])
   (:import [java.time Instant]))
 
 (def ^:dynamic *conn-type* nil)

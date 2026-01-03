@@ -1,76 +1,265 @@
 (ns et.pe.ds
-  (:require [et.pe.ds.xtdb2 :as xtdb2]))
+  (:require [xtdb.api :as xt]
+            [xtdb.node :as xtn]
+            [clojure.string :as str]
+            [et.pe.urbit :as urbit]))
 
 (defn init-conn
-  "@param opts
-     -> :type :xtdb2-in-memory - creates an in memory xtdb2 node; needs ports 3000 and 5432"
-  [opts]
-  (xtdb2/init-conn opts))
+  [{:keys [type path] :or {path "data/xtdb"}}]
+  (if (= type :xtdb2-in-memory)
+    {:conn (xtn/start-node)}
+    {:conn (xtn/start-node {:log [:local {:path (str path "/log")}]
+                            :storage [:local {:path (str path "/storage")}]})}))
 
 (defn close-conn
-  [conn]
-  (xtdb2/close-conn conn))
+  [{:keys [conn]}]
+  (.close conn))
+
+(defn- convert-persona [{id :xt/id email :persona/email persona-name :persona/name :as persona}]
+  (when-not (nil? persona)
+    {:id id :email email :name (or persona-name (clojure.core/name id))}))
+
+(defn get-persona-by-id-or-email
+  [conn id email]
+  (map convert-persona (xt/q (:conn conn)
+                             ['(fn [id email]
+                                 (-> (from :personas [xt/id persona/email persona/name])
+                                     (where (or (= xt/id id)
+                                                (= persona/email email)))))
+                              id email])))
 
 (defn get-persona-by-id
   [conn id]
-  (xtdb2/get-persona-by-id conn id))
+  (convert-persona (first (xt/q (:conn conn)
+                                ['(fn [id]
+                                    (-> (from :personas [xt/id persona/email persona/name])
+                                        (where (= xt/id id))))
+                                 id]))))
 
 (defn get-persona-by-email
   [conn email]
-  (xtdb2/get-persona-by-email conn email))
+  (convert-persona
+   (first (xt/q (:conn conn)
+                ['(fn [email]
+                    (-> (from :personas [xt/id persona/email persona/name])
+                        (where (= persona/email email))))
+                 email]))))
 
 (defn add-persona
-  "@returns true if persona added, false otherwise"
   [conn id email password-hash persona-name]
-  (xtdb2/add-persona conn id email password-hash persona-name))
+  (if (seq (get-persona-by-id-or-email conn id email))
+    false
+    (xt/execute-tx (:conn conn) [[:put-docs :personas (cond-> {:xt/id         id
+                                                               :persona/email email
+                                                               :persona/name  (or persona-name (clojure.core/name id))}
+                                                        password-hash (assoc :persona/password-hash password-hash))]])))
 
 (defn update-persona
-  "@returns {:success true} or {:error :email-exists} or nil if not found
-   @param updates - map with optional keys :email and :name"
-  [conn id updates]
-  (xtdb2/update-persona conn id updates))
+  [conn id {:keys [email name]}]
+  (let [current (get-persona-by-id conn id)]
+    (if-not current
+      nil
+      (let [new-email (or email (:email current))
+            existing (when email (get-persona-by-email conn email))]
+        (if (and existing (not= (:id existing) id))
+          {:error :email-exists}
+          (do
+            (xt/execute-tx (:conn conn) [[:put-docs :personas {:xt/id                id
+                                                               :persona/email        new-email
+                                                               :persona/name (or name (:name current))
+                                                               :persona/password-hash (:persona/password-hash current)}]])
+            {:success true}))))))
 
 (defn get-persona-password-hash
   [conn id]
-  (xtdb2/get-persona-password-hash conn id))
+  (let [result (first (xt/q (:conn conn)
+                            ['(fn [id]
+                                (-> (from :personas [xt/id persona/password-hash])
+                                    (where (= xt/id id))))
+                             id]))]
+    (:persona/password-hash result)))
 
-(defn list-personas [conn]
-  (xtdb2/list-personas conn))
+(defn list-personas
+  [conn]
+  (map convert-persona (xt/q (:conn conn) '(from :personas [xt/id persona/email persona/name]))))
 
-(defn list-identities [conn persona]
-  (xtdb2/list-identities conn persona))
+(defn- make-identity-id [persona-id id]
+  (keyword (str (name persona-id) "/" (name id))))
 
-(defn list-recent-identities [conn persona limit]
-  (xtdb2/list-recent-identities conn persona limit))
+(defn- extract-identity-id [composite-id]
+  (let [s (name composite-id)
+        idx (.lastIndexOf s "/")]
+    (keyword (subs s (inc idx)))))
+
+(defn- get-identity-by-composite-id
+  [conn composite-id]
+  (first (xt/q (:conn conn)
+               ['(fn [composite-id]
+                   (-> (from :identities [xt/id])
+                       (where (= xt/id composite-id))))
+                composite-id])))
+
+(defn list-identities
+  [conn {persona-id :id :as _persona}]
+  (map
+   (fn [{id :xt/id nm :identity/name text :identity/text}] {:identity (extract-identity-id id) :name nm :text text})
+   (xt/q (:conn conn)
+         ['(fn [persona-id]
+             (-> (from :identities [persona/id identity/name identity/text xt/id])
+                 (where (= persona/id persona-id))
+                 (return identity/name identity/text xt/id)))
+          persona-id])))
+
+(defn- to-millis [zdt]
+  (.toEpochMilli (.toInstant zdt)))
+
+(defn list-recent-identities
+  [conn {persona-id :id :as _persona} limit]
+  (let [results (xt/q (:conn conn)
+                      ['(fn [persona-id]
+                          (-> (from :identities {:bind [persona/id identity/name identity/text xt/id xt/valid-from]
+                                                 :for-valid-time :all-time})
+                              (where (= persona/id persona-id))
+                              (return identity/name identity/text xt/id xt/valid-from)))
+                       persona-id])
+        by-id (group-by :xt/id results)
+        latest-per-id (map (fn [[_ versions]]
+                             (apply max-key #(to-millis (:xt/valid-from %)) versions))
+                           by-id)
+        sorted (take limit (reverse (sort-by #(to-millis (:xt/valid-from %)) latest-per-id)))]
+    (mapv (fn [{id :xt/id nm :identity/name text :identity/text valid-from :xt/valid-from}]
+            {:identity (extract-identity-id id) :name nm :text text :modified-at valid-from})
+          sorted)))
 
 (defn add-identity
-  [conn persona name text & [opts]]
-  (xtdb2/add-identity conn persona name text opts))
+  [conn {persona-id :id :as _persona} nm text & [{:keys [valid-from id]}]]
+  (let [id (or id (keyword (urbit/generate-name)))
+        composite-id (make-identity-id persona-id id)]
+    (if (get-identity-by-composite-id conn composite-id)
+      false
+      (do
+        (xt/execute-tx (:conn conn)
+                       [[:put-docs (cond-> {:into :identities}
+                                     valid-from (assoc :valid-from valid-from))
+                         {:xt/id            composite-id
+                          :persona/id persona-id
+                          :identity/name    nm
+                          :identity/text    text}]])
+        id))))
 
 (defn update-identity
-  [conn persona id name text & [opts]]
-  (xtdb2/update-identity conn persona id name text opts))
+  [conn {persona-id :id :as _persona} id nm text & [{:keys [valid-from]}]]
+  (xt/execute-tx (:conn conn)
+                 [[:put-docs (cond-> {:into :identities}
+                               valid-from (assoc :valid-from valid-from))
+                   {:xt/id            (make-identity-id persona-id id)
+                    :persona/id persona-id
+                    :identity/name    nm
+                    :identity/text    text}]]))
 
 (defn get-identity-at
-  [conn persona id at]
-  (xtdb2/get-identity-at conn persona id at))
+  [conn {persona-id :id :as _persona} id time-point]
+  (let [composite-id (make-identity-id persona-id id)
+        result (first (xt/q (:conn conn)
+                            ['(fn [composite-id time-point]
+                                (-> (from :identities {:bind [persona/id identity/name identity/text xt/id]
+                                                       :for-valid-time (at time-point)})
+                                    (where (= xt/id composite-id))
+                                    (return identity/name identity/text xt/id)))
+                             composite-id time-point]))]
+    (when result
+      {:identity id :name (:identity/name result) :text (:identity/text result)})))
 
 (defn get-identity-history
-  [conn persona id]
-  (xtdb2/get-identity-history conn persona id))
+  [conn {persona-id :id :as _persona} id]
+  (let [composite-id (make-identity-id persona-id id)
+        results (xt/q (:conn conn)
+                      ['(fn [composite-id]
+                          (-> (from :identities {:bind [persona/id identity/name identity/text xt/id xt/valid-from]
+                                                 :for-valid-time :all-time})
+                              (where (= xt/id composite-id))
+                              (order-by xt/valid-from)
+                              (return identity/name identity/text xt/id xt/valid-from)))
+                       composite-id])]
+    (mapv (fn [{:keys [identity/name identity/text xt/valid-from]}]
+            {:identity id :name name :text text :valid-from valid-from})
+          results)))
+
+(defn- make-relation-id [persona-id source-id target-id]
+  (keyword (str (name persona-id) "/" (name source-id) "/" (name target-id))))
+
+(defn- get-relation-by-id
+  [conn relation-id]
+  (first (xt/q (:conn conn)
+               ['(fn [relation-id]
+                   (-> (from :relations [xt/id])
+                       (where (= xt/id relation-id))))
+                relation-id])))
 
 (defn add-relation
-  [conn persona source-id target-id & [opts]]
-  (xtdb2/add-relation conn persona source-id target-id opts))
+  [conn {persona-id :id :as _persona} source-id target-id & [{:keys [valid-from]}]]
+  (let [relation-id (make-relation-id persona-id source-id target-id)
+        source-composite (make-identity-id persona-id source-id)
+        target-composite (make-identity-id persona-id target-id)]
+    (if (get-relation-by-id conn relation-id)
+      false
+      (do
+        (xt/execute-tx (:conn conn)
+                       [[:put-docs (cond-> {:into :relations}
+                                     valid-from (assoc :valid-from valid-from))
+                         {:xt/id             relation-id
+                          :relation/source   source-composite
+                          :relation/target   target-composite
+                          :persona/id  persona-id}]])
+        true))))
 
 (defn list-relations
-  [conn persona source-id & [opts]]
-  (xtdb2/list-relations conn persona source-id opts))
+  [conn {persona-id :id :as _persona} source-id & [{:keys [at]}]]
+  (let [source-composite (make-identity-id persona-id source-id)
+        results (if at
+                  (xt/q (:conn conn)
+                        ['(fn [source-composite time-point]
+                            (-> (from :relations {:bind [xt/id relation/source relation/target persona/id]
+                                                  :for-valid-time (at time-point)})
+                                (where (= relation/source source-composite))
+                                (return xt/id relation/source relation/target)))
+                         source-composite at])
+                  (xt/q (:conn conn)
+                        ['(fn [source-composite]
+                            (-> (from :relations [xt/id relation/source relation/target persona/id])
+                                (where (= relation/source source-composite))
+                                (return xt/id relation/source relation/target)))
+                         source-composite]))]
+    (mapv (fn [{:keys [xt/id relation/target]}]
+            {:id (name id)
+             :target (extract-identity-id target)})
+          results)))
 
 (defn delete-relation
-  [conn persona relation-id]
-  (xtdb2/delete-relation conn persona relation-id))
+  [conn {persona-id :id :as _persona} relation-id]
+  (let [full-id (keyword (str (name persona-id) "/" relation-id))]
+    (xt/execute-tx (:conn conn)
+                   [[:delete-docs :relations full-id]])))
 
 (defn search-identities
-  [conn persona query & [opts]]
-  (xtdb2/search-identities conn persona query opts))
+  [conn {persona-id :id :as _persona} query & [{:keys [at]}]]
+  (let [results (if at
+                  (xt/q (:conn conn)
+                        ['(fn [persona-id time-point]
+                            (-> (from :identities {:bind [persona/id identity/name identity/text xt/id]
+                                                   :for-valid-time (at time-point)})
+                                (where (= persona/id persona-id))
+                                (return identity/name identity/text xt/id)))
+                         persona-id at])
+                  (xt/q (:conn conn)
+                        ['(fn [persona-id]
+                            (-> (from :identities [persona/id identity/name identity/text xt/id])
+                                (where (= persona/id persona-id))
+                                (return identity/name identity/text xt/id)))
+                         persona-id]))
+        query-lower (str/lower-case (or query ""))]
+    (->> results
+         (filter (fn [{:keys [identity/name]}]
+                   (str/includes? (str/lower-case (or name "")) query-lower)))
+         (mapv (fn [{id :xt/id nm :identity/name text :identity/text}]
+                 {:identity (extract-identity-id id) :name nm :text text})))))
