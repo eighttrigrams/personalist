@@ -6,6 +6,8 @@ Read about it here: [*Personalist - An integrated universe of personal encyclope
 
 The app is publicly accessible under https://personalist.fly.dev.
 
+*Note: This runs on a small cloud instance that sleeps when idle. If it feels slow at first, it's just waking up!*
+
 ## Quickstart and Demo
 
 Run

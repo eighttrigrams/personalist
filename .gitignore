@@ -16,3 +16,4 @@ data/
 config.edn
 config.edn.*
 !config.edn.template
+.editor-layouts.json

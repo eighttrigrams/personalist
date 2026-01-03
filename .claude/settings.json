@@ -21,7 +21,9 @@
     ],
     "deny": [
       "Edit(scripts/**)",
-      "Write(scripts/**)"
+      "Write(scripts/**)",
+      "Edit(Makefile)",
+      "Write(Makefile)"
     ],
     "ask": []
   }

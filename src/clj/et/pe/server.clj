@@ -200,14 +200,10 @@
         dev-mode? (= "true" (System/getenv "DEV"))
         admin-pw (System/getenv "ADMIN_PASSWORD")]
     (cond
-      on-fly?
+      (or on-fly? (not dev-mode?))
       (do (when-not admin-pw
             (throw (ex-info "ADMIN_PASSWORD required in production" {})))
-          true)
-      (not dev-mode?)
-      (do (when-not admin-pw
-            (throw (ex-info "ADMIN_PASSWORD required in production (set DEV=true for dev mode)" {})))
-          true)
+          true) 
       admin-pw
       true
       :else
