@@ -135,8 +135,8 @@
                        :style {:padding "0.25rem 0.5rem" :cursor "pointer"}}
               "Cancel"]]]
            [:div {:style {:display "flex" :align-items "center" :gap "0.5rem"}}
-            [:strong {:style {:min-width "100px"}} (or (:name p) (:id p))]
             [:span {:style {:color "#888" :font-size "0.85rem" :font-family "monospace" :min-width "120px"}} (:id p)]
+            [:strong {:style {:min-width "100px"}} (or (:name p) (:id p))]
             [:span {:style {:flex 1 :color "#666"}} (:email p)]
             (when (not= (:id p) "admin")
               [:button {:on-click #(reset! editing? true)
