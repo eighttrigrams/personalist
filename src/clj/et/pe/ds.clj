@@ -21,13 +21,14 @@
 
 (defn add-persona
   "@returns true if persona added, false otherwise"
-  [conn name email password-hash]
-  (xtdb2/add-persona conn name email password-hash))
+  [conn name email password-hash display-name]
+  (xtdb2/add-persona conn name email password-hash display-name))
 
 (defn update-persona
-  "@returns {:success true} or {:error :email-exists}"
-  [conn name new-email]
-  (xtdb2/update-persona conn name new-email))
+  "@returns {:success true} or {:error :email-exists} or nil if not found
+   @param updates - map with optional keys :email and :display-name"
+  [conn name updates]
+  (xtdb2/update-persona conn name updates))
 
 (defn get-persona-password-hash
   [conn name]

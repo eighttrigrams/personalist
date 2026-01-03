@@ -28,15 +28,15 @@
   [{:keys [conn]}]
   (.close conn))
 
-(defn- convert-persona [{name :xt/id email :persona/email :as persona}]
+(defn- convert-persona [{name :xt/id email :persona/email display-name :persona/display-name :as persona}]
   (when-not (nil? persona)
-    {:name name :email email}))
+    {:name name :email email :display-name (or display-name (clojure.core/name name))}))
 
 (defn get-persona-by-name-or-email
   [conn name email]
   (map convert-persona (xt/q (:conn conn)
                              ['(fn [name email]
-                                 (-> (from :personas [xt/id persona/email])
+                                 (-> (from :personas [xt/id persona/email persona/display-name])
                                      (where (or (= xt/id name)
                                                 (= persona/email email)))))
                               name email])))
@@ -45,7 +45,7 @@
   [conn name]
   (convert-persona (first (xt/q (:conn conn)
                                 ['(fn [name]
-                                    (-> (from :personas [xt/id persona/email])
+                                    (-> (from :personas [xt/id persona/email persona/display-name])
                                         (where (= xt/id name))))
                                  name]))))
 
@@ -54,29 +54,34 @@
   (convert-persona
    (first (xt/q (:conn conn)
                 ['(fn [email]
-                    (-> (from :personas [xt/id persona/email])
+                    (-> (from :personas [xt/id persona/email persona/display-name])
                         (where (= persona/email email))))
                  email]))))
 
 (defn add-persona
-  [conn name email password-hash]
+  [conn name email password-hash display-name]
   (if (seq (get-persona-by-name-or-email conn name email))
     false
-    (xt/execute-tx (:conn conn) [[:put-docs :personas (cond-> {:xt/id         name
-                                                               :persona/email email}
+    (xt/execute-tx (:conn conn) [[:put-docs :personas (cond-> {:xt/id                name
+                                                               :persona/email        email
+                                                               :persona/display-name (or display-name (clojure.core/name name))}
                                                         password-hash (assoc :persona/password-hash password-hash))]])))
 
 (defn update-persona
-  [conn name new-email]
-  (let [existing (get-persona-by-email conn new-email)]
-    (if (and existing (not= (:name existing) name))
-      {:error :email-exists}
-      (let [current (get-persona-by-name conn name)]
-        (when current
-          (xt/execute-tx (:conn conn) [[:put-docs :personas {:xt/id name
-                                                             :persona/email new-email
-                                                             :persona/password-hash (:persona/password-hash current)}]])
-          {:success true})))))
+  [conn name {:keys [email display-name]}]
+  (let [current (get-persona-by-name conn name)]
+    (if-not current
+      nil
+      (let [new-email (or email (:email current))
+            existing (when email (get-persona-by-email conn email))]
+        (if (and existing (not= (:name existing) name))
+          {:error :email-exists}
+          (do
+            (xt/execute-tx (:conn conn) [[:put-docs :personas {:xt/id                name
+                                                               :persona/email        new-email
+                                                               :persona/display-name (or display-name (:display-name current))
+                                                               :persona/password-hash (:persona/password-hash current)}]])
+            {:success true}))))))
 
 (defn get-persona-password-hash
   [conn name]
@@ -89,7 +94,7 @@
 
 (defn list-personas
   [conn]
-  (map convert-persona (xt/q (:conn conn) '(from :personas [xt/id persona/email]))))
+  (map convert-persona (xt/q (:conn conn) '(from :personas [xt/id persona/email persona/display-name]))))
 
 (defn- make-identity-id [persona-id id]
   (keyword (str (name persona-id) "/" (name id))))

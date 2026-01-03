@@ -55,9 +55,9 @@
      :keywords? true
      :error-handler #(js/console.error "Error fetching personas" %)}))
 
-(defn update-persona-email [persona-name new-email on-success on-error]
+(defn update-persona [persona-name updates on-success on-error]
   (PUT (str api-base "/api/personas/" persona-name)
-    {:params {:email new-email}
+    {:params updates
      :format :json
      :response-format :json
      :keywords? true
@@ -367,7 +367,7 @@
           "Change"]])
       (when logged-in?
         [:<>
-         [:span (str "Logged in: " (:name auth-user))]
+         [:span (str "Logged in: " (or (:display-name auth-user) (:name auth-user)))]
          [:button {:on-click logout-user
                    :style {:padding "0.5rem 1rem" :cursor "pointer"}}
           "Logout"]])
@@ -426,7 +426,7 @@
                              :transition "background 0.2s"}
                      :on-mouse-over #(set! (.-background (.-style (.-target %))) "#e0e0e0")
                      :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
-                [:strong (:name p)]]))]
+                [:strong (or (:display-name p) (:name p))]]))]
           [:p {:style {:color "#666" :font-style "italic"}}
            "No personas yet. Add one in Users tab."])
         [:button {:on-click #(swap! app-state assoc :show-login-modal false)
@@ -511,7 +511,7 @@
                               :transition "background 0.2s"}
                       :on-mouse-over #(set! (.-background (.-style (.-target %))) "#e0e0e0")
                       :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
-                 [:strong (:name p)]])]
+                 [:strong (or (:display-name p) (:name p))]])]
              [:p {:style {:color "#666" :font-style "italic"}}
               "No personas yet."])
            [:button {:on-click #(swap! app-state assoc :show-auth-modal false)
@@ -540,7 +540,7 @@
                       :min-width "300px"
                       :max-width "400px"}
               :on-click #(.stopPropagation %)}
-        [:h2 {:style {:margin-top 0}} (str "Login as " (:name login-persona))]
+        [:h2 {:style {:margin-top 0}} (str "Login as " (or (:display-name login-persona) (:name login-persona)))]
         [:p {:style {:color "#666"}} "Enter your password:"]
         [:input {:type "password"
                  :value login-password
@@ -1003,6 +1003,7 @@
 
 (defn- persona-form []
   (let [name-ref (atom nil)
+        display-name-ref (atom nil)
         email-ref (atom nil)
         password-ref (atom nil)
         error (r/atom nil)]
@@ -1011,8 +1012,12 @@
             existing-emails (set (map :email personas))]
         [:div {:style {:display "flex" :flex-direction "column" :gap "0.5rem" :max-width "300px"}}
          [:input {:type "text"
-                  :placeholder "Name"
+                  :placeholder "Username (internal ID)"
                   :ref #(reset! name-ref %)
+                  :style {:padding "0.5rem"}}]
+         [:input {:type "text"
+                  :placeholder "Display Name"
+                  :ref #(reset! display-name-ref %)
                   :style {:padding "0.5rem"}}]
          [:input {:type "email"
                   :placeholder "Email"
@@ -1026,12 +1031,13 @@
            [:p {:style {:color "red" :margin "0" :font-size "0.85rem"}} @error])
          [:button {:on-click (fn []
                                (let [name-val (when @name-ref (.-value @name-ref))
+                                     display-name-val (when @display-name-ref (.-value @display-name-ref))
                                      email-val (when @email-ref (.-value @email-ref))
                                      password-val (when @password-ref (.-value @password-ref))]
                                  (reset! error nil)
                                  (cond
                                    (not (seq name-val))
-                                   (reset! error "Name is required")
+                                   (reset! error "Username is required")
 
                                    (not (seq email-val))
                                    (reset! error "Email is required")
@@ -1044,10 +1050,14 @@
 
                                    :else
                                    (POST (str api-base "/api/personas")
-                                     {:params {:name name-val :email email-val :password password-val}
+                                     {:params {:name name-val
+                                               :email email-val
+                                               :password password-val
+                                               :display_name (if (seq display-name-val) display-name-val name-val)}
                                       :format :json
                                       :handler (fn [_]
                                                  (when @name-ref (set! (.-value @name-ref) ""))
+                                                 (when @display-name-ref (set! (.-value @display-name-ref) ""))
                                                  (when @email-ref (set! (.-value @email-ref) ""))
                                                  (when @password-ref (set! (.-value @password-ref) ""))
                                                  (fetch-personas))
@@ -1057,24 +1067,39 @@
 
 (defn- persona-row [p]
   (let [editing? (r/atom false)
+        edit-display-name (r/atom (or (:display-name p) (:name p)))
         edit-email (r/atom (:email p))
         error (r/atom nil)]
     (fn [p]
       (let [personas (:personas @app-state)
             other-emails (set (map :email (filter #(not= (:name %) (:name p)) personas)))]
-        [:li {:style {:padding "0.5rem" :background "#f5f5f5" :margin-bottom "0.25rem" :border-radius "4px"}}
-         [:div {:style {:display "flex" :align-items "center" :gap "0.5rem"}}
-          [:strong {:style {:min-width "100px"}} (:name p)]
-          (if @editing?
-            [:<>
+        [:li {:style {:padding "0.75rem" :background "#f5f5f5" :margin-bottom "0.5rem" :border-radius "4px"}}
+         (if @editing?
+           [:div {:style {:display "flex" :flex-direction "column" :gap "0.5rem"}}
+            [:div {:style {:display "flex" :align-items "center" :gap "0.5rem"}}
+             [:label {:style {:min-width "80px" :font-size "0.85rem"}} "Display:"]
+             [:input {:type "text"
+                      :value @edit-display-name
+                      :on-change #(do (reset! edit-display-name (.. % -target -value))
+                                      (reset! error nil))
+                      :style {:padding "0.25rem" :flex 1}}]]
+            [:div {:style {:display "flex" :align-items "center" :gap "0.5rem"}}
+             [:label {:style {:min-width "80px" :font-size "0.85rem"}} "Email:"]
              [:input {:type "email"
                       :value @edit-email
                       :on-change #(do (reset! edit-email (.. % -target -value))
                                       (reset! error nil))
-                      :style {:padding "0.25rem" :flex 1}}]
+                      :style {:padding "0.25rem" :flex 1}}]]
+            (when @error
+              [:div {:style {:color "red" :font-size "0.85rem"}} @error])
+            [:div {:style {:display "flex" :gap "0.5rem" :margin-top "0.25rem"}}
              [:button {:on-click (fn []
-                                   (let [new-email @edit-email]
+                                   (let [new-email @edit-email
+                                         new-display-name @edit-display-name]
                                      (cond
+                                       (empty? new-display-name)
+                                       (reset! error "Display name required")
+
                                        (not (valid-email? new-email))
                                        (reset! error "Invalid email format")
 
@@ -1082,9 +1107,9 @@
                                        (reset! error "Email already exists")
 
                                        :else
-                                       (update-persona-email
+                                       (update-persona
                                         (:name p)
-                                        new-email
+                                        {:email new-email :display_name new-display-name}
                                         (fn []
                                           (reset! editing? false)
                                           (reset! error nil)
@@ -1094,18 +1119,18 @@
                        :style {:padding "0.25rem 0.5rem" :cursor "pointer" :background "#4CAF50" :color "white" :border "none" :border-radius "4px"}}
               "Save"]
              [:button {:on-click #(do (reset! editing? false)
+                                      (reset! edit-display-name (or (:display-name p) (:name p)))
                                       (reset! edit-email (:email p))
                                       (reset! error nil))
                        :style {:padding "0.25rem 0.5rem" :cursor "pointer"}}
-              "Cancel"]]
-            [:<>
-             [:span {:style {:flex 1}} (:email p)]
-             (when (not= (:name p) "admin")
-               [:button {:on-click #(reset! editing? true)
-                         :style {:padding "0.25rem 0.5rem" :cursor "pointer"}}
-                "Edit"])])]
-         (when @error
-           [:div {:style {:color "red" :font-size "0.85rem" :margin-top "0.25rem"}} @error])]))))
+              "Cancel"]]]
+           [:div {:style {:display "flex" :align-items "center" :gap "0.5rem"}}
+            [:strong {:style {:min-width "100px"}} (or (:display-name p) (:name p))]
+            [:span {:style {:flex 1 :color "#666"}} (:email p)]
+            (when (not= (:name p) "admin")
+              [:button {:on-click #(reset! editing? true)
+                        :style {:padding "0.25rem 0.5rem" :cursor "pointer"}}
+               "Edit"])])]))))
 
 (defn settings-tab []
   (let [personas (:personas @app-state)]

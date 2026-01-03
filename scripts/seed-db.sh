@@ -6,11 +6,11 @@ echo "Seeding database..."
 
 echo "Creating personas..."
 curl -s -X POST -H "Content-Type: application/json" \
-  -d '{"name":"alice","email":"alice@example.com"}' \
+  -d '{"name":"alice","email":"alice@example.com","display_name":"Alice Johnson"}' \
   "$API_BASE/api/personas" > /dev/null
 
 curl -s -X POST -H "Content-Type: application/json" \
-  -d '{"name":"bob","email":"bob@example.com"}' \
+  -d '{"name":"bob","email":"bob@example.com","display_name":"Bob Smith"}' \
   "$API_BASE/api/personas" > /dev/null
 
 echo "Creating identities for alice..."
@@ -67,12 +67,10 @@ curl -s -X PUT -H "Content-Type: application/json" \
 
 echo "Creating relations..."
 
-# Alice: Link Career Goals to Biography (created Dec 27, so won't show before that)
 curl -s -X POST -H "Content-Type: application/json" \
   -d '{"source_id":"p3n8v5","valid_from":"2025-12-27T12:00:00Z"}' \
   "$API_BASE/api/personas/alice/identities/x7k9m2/relations" > /dev/null
 
-# Bob: Link Personal Motto to About Me (created Dec 28, so won't show before that)
 curl -s -X POST -H "Content-Type: application/json" \
   -d '{"source_id":"h6j1t9","valid_from":"2025-12-28T10:00:00Z"}' \
   "$API_BASE/api/personas/bob/identities/q4w2r8/relations" > /dev/null
@@ -80,13 +78,13 @@ curl -s -X POST -H "Content-Type: application/json" \
 echo "Database seeded successfully!"
 echo ""
 echo "Created:"
-echo "  - alice (alice@example.com)"
-echo "    - x7k9m2 (Biography): 3 versions (Dec 25-28)"
-echo "    - p3n8v5 (Career Goals): 3 versions (Dec 25-29)"
-echo "    - Relation: Career Goals -> Biography (from Dec 27)"
-echo "  - bob (bob@example.com)"
-echo "    - q4w2r8 (About Me): 3 versions (Dec 24-28)"
-echo "    - h6j1t9 (Personal Motto): 3 versions (Dec 25-29)"
-echo "    - Relation: Personal Motto -> About Me (from Dec 28)"
+echo "  - alice - Display: Alice Johnson"
+echo "    - x7k9m2 Biography: 3 versions"
+echo "    - p3n8v5 Career Goals: 3 versions"
+echo "    - Relation: Career Goals -> Biography"
+echo "  - bob - Display: Bob Smith"
+echo "    - q4w2r8 About Me: 3 versions"
+echo "    - h6j1t9 Personal Motto: 3 versions"
+echo "    - Relation: Personal Motto -> About Me"
 echo ""
-echo "Time travel test: View alice's Biography and travel back to Dec 26 - the relation won't appear!"
+echo "Time travel test: View Alice's Biography and travel back to Dec 26 - the relation wont appear!"
