@@ -69,8 +69,8 @@
   (xtdb2/add-relation conn mind source-id target-id opts))
 
 (defn list-relations
-  [conn mind target-id & [opts]]
-  (xtdb2/list-relations conn mind target-id opts))
+  [conn mind source-id & [opts]]
+  (xtdb2/list-relations conn mind source-id opts))
 
 (defn delete-relation
   [conn mind relation-id]

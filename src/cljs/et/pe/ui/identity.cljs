@@ -79,7 +79,7 @@
        [:ul {:style {:list-style "none" :padding 0 :margin 0}}
         (for [rel relations]
           ^{:key (:id rel)}
-          (let [source-identity (first (filter #(= (:identity %) (:source rel)) identities))]
+          (let [target-identity (first (filter #(= (:identity %) (:target rel)) identities))]
             [:li {:style {:padding "0.5rem"
                           :background "#f5f5f5"
                           :border-radius "4px"
@@ -88,10 +88,10 @@
                           :justify-content "space-between"
                           :align-items "center"}}
              [:span {:on-click (fn []
-                                 (when source-identity
-                                   (select-identity source-identity)))
+                                 (when target-identity
+                                   (select-identity target-identity)))
                      :style {:cursor "pointer"}}
-              [:span (or (:name source-identity) (:source rel))]]
+              [:span (or (:name target-identity) (:target rel))]]
              (when can-edit?
                [:button {:on-click #(delete-relation (:id rel))
                          :style {:padding "0.25rem 0.5rem"

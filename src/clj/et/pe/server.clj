@@ -171,11 +171,11 @@
 (defn add-relation-handler [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         identity-id (str->keyword (get-in req [:params :id]))
-        {:keys [source_id valid_from]} (:body req)
+        {:keys [target_id valid_from]} (:body req)
         opts (when valid_from {:valid-from (Instant/parse valid_from)})
         persona (ds/get-persona-by-id (ensure-conn) persona-name)]
     (if persona
-      (let [result (ds/add-relation (ensure-conn) persona (str->keyword source_id) identity-id opts)]
+      (let [result (ds/add-relation (ensure-conn) persona identity-id (str->keyword target_id) opts)]
         (if (false? result)
           {:status 409 :body {:error "Relation already exists"}}
           {:status 201 :body {:success true}}))

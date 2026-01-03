@@ -230,10 +230,10 @@
                         (swap! app-state assoc :notification {:message "Failed to save. Please try again." :type :error})
                         (js/setTimeout #(swap! app-state assoc :notification nil) 5000))})))
 
-(defn add-relation [source-id]
+(defn add-relation [target-id]
   (let [{:keys [current-user selected-identity]} @app-state]
     (POST (str api-base "/api/personas/" (:id current-user) "/identities/" (:identity selected-identity) "/relations")
-      {:params {:source_id source-id}
+      {:params {:target_id target-id}
        :format :json
        :headers (auth-headers)
        :handler (fn [_]

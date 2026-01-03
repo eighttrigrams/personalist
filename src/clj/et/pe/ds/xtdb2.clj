@@ -105,8 +105,8 @@
    (fn [{id :xt/id nm :identity/name text :identity/text}] {:identity (extract-identity-id id) :name nm :text text})
    (xt/q (:conn conn)
          ['(fn [persona-id]
-             (-> (from :identities [identity/mind-id identity/name identity/text xt/id])
-                 (where (= identity/mind-id persona-id))
+             (-> (from :identities [persona/id identity/name identity/text xt/id])
+                 (where (= persona/id persona-id))
                  (return identity/name identity/text xt/id)))
           persona-id])))
 
@@ -117,9 +117,9 @@
   [conn {persona-id :id :as _mind} limit]
   (let [results (xt/q (:conn conn)
                       ['(fn [persona-id]
-                          (-> (from :identities {:bind [identity/mind-id identity/name identity/text xt/id xt/valid-from]
+                          (-> (from :identities {:bind [persona/id identity/name identity/text xt/id xt/valid-from]
                                                  :for-valid-time :all-time})
-                              (where (= identity/mind-id persona-id))
+                              (where (= persona/id persona-id))
                               (return identity/name identity/text xt/id xt/valid-from)))
                        persona-id])
         by-id (group-by :xt/id results)
@@ -142,7 +142,7 @@
                        [[:put-docs (cond-> {:into :identities}
                                      valid-from (assoc :valid-from valid-from))
                          {:xt/id            composite-id
-                          :identity/mind-id persona-id
+                          :persona/id persona-id
                           :identity/name    nm
                           :identity/text    text}]])
         id))))
@@ -153,7 +153,7 @@
                  [[:put-docs (cond-> {:into :identities}
                                valid-from (assoc :valid-from valid-from))
                    {:xt/id            (make-identity-id persona-id id)
-                    :identity/mind-id persona-id
+                    :persona/id persona-id
                     :identity/name    nm
                     :identity/text    text}]]))
 
@@ -162,7 +162,7 @@
   (let [composite-id (make-identity-id persona-id id)
         result (first (xt/q (:conn conn)
                             ['(fn [composite-id time-point]
-                                (-> (from :identities {:bind [identity/mind-id identity/name identity/text xt/id]
+                                (-> (from :identities {:bind [persona/id identity/name identity/text xt/id]
                                                        :for-valid-time (at time-point)})
                                     (where (= xt/id composite-id))
                                     (return identity/name identity/text xt/id)))
@@ -175,7 +175,7 @@
   (let [composite-id (make-identity-id persona-id id)
         results (xt/q (:conn conn)
                       ['(fn [composite-id]
-                          (-> (from :identities {:bind [identity/mind-id identity/name identity/text xt/id xt/valid-from]
+                          (-> (from :identities {:bind [persona/id identity/name identity/text xt/id xt/valid-from]
                                                  :for-valid-time :all-time})
                               (where (= xt/id composite-id))
                               (order-by xt/valid-from)
@@ -210,29 +210,29 @@
                          {:xt/id             relation-id
                           :relation/source   source-composite
                           :relation/target   target-composite
-                          :relation/mind-id  persona-id}]])
+                          :persona/id  persona-id}]])
         true))))
 
 (defn list-relations
-  [conn {persona-id :id :as _mind} target-id & [{:keys [at]}]]
-  (let [target-composite (make-identity-id persona-id target-id)
+  [conn {persona-id :id :as _mind} source-id & [{:keys [at]}]]
+  (let [source-composite (make-identity-id persona-id source-id)
         results (if at
                   (xt/q (:conn conn)
-                        ['(fn [target-composite time-point]
-                            (-> (from :relations {:bind [xt/id relation/source relation/target relation/mind-id]
+                        ['(fn [source-composite time-point]
+                            (-> (from :relations {:bind [xt/id relation/source relation/target persona/id]
                                                   :for-valid-time (at time-point)})
-                                (where (= relation/target target-composite))
+                                (where (= relation/source source-composite))
                                 (return xt/id relation/source relation/target)))
-                         target-composite at])
+                         source-composite at])
                   (xt/q (:conn conn)
-                        ['(fn [target-composite]
-                            (-> (from :relations [xt/id relation/source relation/target relation/mind-id])
-                                (where (= relation/target target-composite))
+                        ['(fn [source-composite]
+                            (-> (from :relations [xt/id relation/source relation/target persona/id])
+                                (where (= relation/source source-composite))
                                 (return xt/id relation/source relation/target)))
-                         target-composite]))]
-    (mapv (fn [{:keys [xt/id relation/source]}]
+                         source-composite]))]
+    (mapv (fn [{:keys [xt/id relation/target]}]
             {:id (name id)
-             :source (extract-identity-id source)})
+             :target (extract-identity-id target)})
           results)))
 
 (defn delete-relation
@@ -246,15 +246,15 @@
   (let [results (if at
                   (xt/q (:conn conn)
                         ['(fn [persona-id time-point]
-                            (-> (from :identities {:bind [identity/mind-id identity/name identity/text xt/id]
+                            (-> (from :identities {:bind [persona/id identity/name identity/text xt/id]
                                                    :for-valid-time (at time-point)})
-                                (where (= identity/mind-id persona-id))
+                                (where (= persona/id persona-id))
                                 (return identity/name identity/text xt/id)))
                          persona-id at])
                   (xt/q (:conn conn)
                         ['(fn [persona-id]
-                            (-> (from :identities [identity/mind-id identity/name identity/text xt/id])
-                                (where (= identity/mind-id persona-id))
+                            (-> (from :identities [persona/id identity/name identity/text xt/id])
+                                (where (= persona/id persona-id))
                                 (return identity/name identity/text xt/id)))
                          persona-id]))
         query-lower (str/lower-case (or query ""))]
