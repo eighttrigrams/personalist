@@ -105,3 +105,27 @@
         (is (= {:identity evolving-id :name "original name" :text "original text"}
                (ds/get-identity-at conn dan evolving-id query-time)))))))
 
+(deftest relations-time-travel
+  (testing-with-conn "relations exist only during specific time periods"
+    (ds/add-persona conn :dan "d@et.n" nil nil)
+    (let [dan (ds/get-persona-by-id conn :dan)
+          t1 (Instant/parse "2020-01-01T00:00:00Z")
+          t2 (Instant/parse "2020-06-01T00:00:00Z")
+          t3 (Instant/parse "2020-12-01T00:00:00Z")
+          source-id (ds/add-identity conn dan "source" "source text" {:valid-from t1})
+          target-id (ds/add-identity conn dan "target" "target text" {:valid-from t1})]
+      (ds/update-identity conn dan source-id "source v2" "source text v2" {:valid-from t2})
+      (ds/add-relation conn dan source-id target-id {:valid-from t2})
+      (ds/update-identity conn dan source-id "source v3" "source text v3" {:valid-from t3})
+      (testing "- querying before relation exists returns no relations"
+        (is (= []
+               (ds/list-relations conn dan source-id {:at (Instant/parse "2020-03-01T00:00:00Z")}))))
+      (testing "- querying during relation period returns the relation"
+        (is (= [{:id (str (name source-id) "/" (name target-id))
+                 :target target-id}]
+               (ds/list-relations conn dan source-id {:at (Instant/parse "2020-09-01T00:00:00Z")}))))
+      (testing "- querying after v3 still returns the relation"
+        (is (= [{:id (str (name source-id) "/" (name target-id))
+                 :target target-id}]
+               (ds/list-relations conn dan source-id {:at (Instant/parse "2021-01-01T00:00:00Z")})))))))
+
