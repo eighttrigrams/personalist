@@ -31,7 +31,11 @@
                     :style {:width "100%"}}])
          (when current-entry
            [:div {:style {:font-size "0.8rem" :color "#666" :margin-top "0.5rem"}}
-            (if single-version? "Created: " "Valid from: ") (:valid-from current-entry)])]))))
+            (cond
+              single-version? "Created: "
+              (zero? slider-value) "Created: "
+              :else "Modified: ")
+            (:valid-from current-entry)])]))))
 
 (defn editor-tab-switcher []
   (let [{:keys [text-editor-mode]} @app-state]
