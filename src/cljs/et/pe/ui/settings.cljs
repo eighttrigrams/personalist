@@ -2,22 +2,29 @@
   (:require [reagent.core :as r]
             [ajax.core :refer [POST]]
             [et.pe.ui.state :refer [app-state api-base valid-email?
-                                    fetch-personas update-persona]]))
+                                    fetch-personas update-persona generate-id]]))
 
 (defn- persona-form []
-  (let [name-ref (atom nil)
+  (let [generated-id (r/atom nil)
         display-name-ref (atom nil)
         email-ref (atom nil)
         password-ref (atom nil)
-        error (r/atom nil)]
+        error (r/atom nil)
+        regenerate! (fn [] (generate-id #(reset! generated-id %)))]
+    (regenerate!)
     (fn []
       (let [personas (:personas @app-state)
             existing-emails (set (map :email personas))]
         [:div {:style {:display "flex" :flex-direction "column" :gap "0.5rem" :max-width "300px"}}
-         [:input {:type "text"
-                  :placeholder "Username (internal ID)"
-                  :ref #(reset! name-ref %)
-                  :style {:padding "0.5rem"}}]
+         [:div {:style {:display "flex" :gap "0.5rem" :align-items "center"}}
+          [:input {:type "text"
+                   :value (or @generated-id "")
+                   :read-only true
+                   :placeholder "Generating ID..."
+                   :style {:padding "0.5rem" :flex 1 :background "#f0f0f0" :color "#666"}}]
+          [:button {:on-click regenerate!
+                    :style {:padding "0.5rem" :cursor "pointer"}}
+           "Regenerate"]]
          [:input {:type "text"
                   :placeholder "Display Name"
                   :ref #(reset! display-name-ref %)
@@ -33,14 +40,14 @@
          (when @error
            [:p {:style {:color "red" :margin "0" :font-size "0.85rem"}} @error])
          [:button {:on-click (fn []
-                               (let [name-val (when @name-ref (.-value @name-ref))
+                               (let [id-val @generated-id
                                      display-name-val (when @display-name-ref (.-value @display-name-ref))
                                      email-val (when @email-ref (.-value @email-ref))
                                      password-val (when @password-ref (.-value @password-ref))]
                                  (reset! error nil)
                                  (cond
-                                   (not (seq name-val))
-                                   (reset! error "Username is required")
+                                   (not (seq id-val))
+                                   (reset! error "ID not generated yet")
 
                                    (not (seq email-val))
                                    (reset! error "Email is required")
@@ -53,13 +60,13 @@
 
                                    :else
                                    (POST (str api-base "/api/personas")
-                                     {:params {:id name-val
+                                     {:params {:id id-val
                                                :email email-val
                                                :password password-val
-                                               :name (if (seq display-name-val) display-name-val name-val)}
+                                               :name (if (seq display-name-val) display-name-val id-val)}
                                       :format :json
                                       :handler (fn [_]
-                                                 (when @name-ref (set! (.-value @name-ref) ""))
+                                                 (regenerate!)
                                                  (when @display-name-ref (set! (.-value @display-name-ref) ""))
                                                  (when @email-ref (set! (.-value @email-ref) ""))
                                                  (when @password-ref (set! (.-value @password-ref) ""))
@@ -129,6 +136,7 @@
               "Cancel"]]]
            [:div {:style {:display "flex" :align-items "center" :gap "0.5rem"}}
             [:strong {:style {:min-width "100px"}} (or (:name p) (:id p))]
+            [:span {:style {:color "#888" :font-size "0.85rem" :font-family "monospace" :min-width "120px"}} (:id p)]
             [:span {:style {:flex 1 :color "#666"}} (:email p)]
             (when (not= (:id p) "admin")
               [:button {:on-click #(reset! editing? true)

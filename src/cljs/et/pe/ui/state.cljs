@@ -282,3 +282,11 @@
          :identities []
          :selected-identity nil
          :identity-history []))
+
+(defn generate-id [callback]
+  (GET (str api-base "/api/generate-id")
+    {:handler (fn [res]
+                (callback (:id res)))
+     :response-format :json
+     :keywords? true
+     :error-handler #(js/console.error "Error generating ID" %)}))

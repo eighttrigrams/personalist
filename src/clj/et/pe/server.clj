@@ -1,6 +1,7 @@
 (ns et.pe.server
   (:require [ring.adapter.jetty9 :as jetty]
             [et.pe.ds :as ds]
+            [et.pe.urbit :as urbit]
             [clojure.walk]
             [clojure.java.io :as io]
             [clojure.edn :as edn]
@@ -257,11 +258,26 @@
 (defn password-required-handler [_req]
   {:status 200 :body {:required (not (allow-skip-logins?))}})
 
+(defn generate-id-handler [_req]
+  (let [existing-ids (set (map :id (ds/list-personas (ensure-conn))))]
+    (loop [attempts 0]
+      (let [candidate (urbit/generate-name)]
+        (cond
+          (not (contains? existing-ids (keyword candidate)))
+          {:status 200 :body {:id candidate}}
+
+          (>= attempts 100)
+          {:status 500 :body {:error "Could not generate unique ID"}}
+
+          :else
+          (recur (inc attempts)))))))
+
 (defroutes api-routes
   (context "/api" []
     (GET "/personas" [] list-personas-handler)
     (POST "/personas" [] add-persona-handler)
     (PUT "/personas/:name" [name] update-persona-handler)
+    (GET "/generate-id" [] generate-id-handler)
     (GET "/auth/required" [] password-required-handler)
     (POST "/auth/login" [] persona-login-handler)
     (GET "/personas/:name/identities" [name] list-identities-handler)
