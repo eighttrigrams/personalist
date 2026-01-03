@@ -30,19 +30,18 @@
           [:ul {:style {:list-style "none" :padding 0 :margin 0}}
            (for [p personas]
              ^{:key (:id p)}
-             (when (not= (:id p) "admin")
-               [:li {:on-click #(select-persona p)
-                     :style {:padding "0.75rem"
-                             :cursor "pointer"
-                             :background "#f5f5f5"
-                             :border-radius "4px"
-                             :margin-bottom "0.5rem"
-                             :transition "background 0.2s"}
-                     :on-mouse-over #(set! (.-background (.-style (.-currentTarget %))) "#e0e0e0")
-                     :on-mouse-out #(set! (.-background (.-style (.-currentTarget %))) "#f5f5f5")}
-                [:div {:style {:display "flex" :justify-content "space-between" :align-items "center" :pointer-events "none"}}
-                 [:strong (or (:name p) (:id p))]
-                 [:span {:style {:color "#888" :font-size "0.85rem" :font-family "monospace"}} (:id p)]]]))]
+             [:li {:on-click #(select-persona p)
+                   :style {:padding "0.75rem"
+                           :cursor "pointer"
+                           :background "#f5f5f5"
+                           :border-radius "4px"
+                           :margin-bottom "0.5rem"
+                           :transition "background 0.2s"}
+                   :on-mouse-over #(set! (.-background (.-style (.-currentTarget %))) "#e0e0e0")
+                   :on-mouse-out #(set! (.-background (.-style (.-currentTarget %))) "#f5f5f5")}
+              [:div {:style {:display "flex" :justify-content "space-between" :align-items "center" :pointer-events "none"}}
+               [:strong (or (:name p) (:id p))]
+               [:span {:style {:color "#888" :font-size "0.85rem" :font-family "monospace"}} (:id p)]]])]
           [:p {:style {:color "#666" :font-style "italic"}}
            "No personas yet. Add one in Users tab."])
         [:button {:on-click #(swap! app-state assoc :show-login-modal false)

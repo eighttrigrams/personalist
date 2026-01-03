@@ -50,9 +50,16 @@
 (defn verify-token-check [token]
   (verify-token token))
 
+(defn- dangerously-skip-logins? []
+  (true? (:dangerously-skip-logins? @config)))
+
 (defn list-personas-handler [_req]
-  {:status 200
-   :body (serialize-response (ds/list-personas (ensure-conn)))})
+  (let [personas (ds/list-personas (ensure-conn))
+        personas (if (dangerously-skip-logins?)
+                   (cons {:id :admin :email nil :name "Admin"} personas)
+                   personas)]
+    {:status 200
+     :body (serialize-response personas)}))
 
 (defn add-persona-handler [req]
   (let [{:keys [id email password name]} (:body req)
