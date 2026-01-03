@@ -290,12 +290,17 @@
     (POST "/personas/:name/identities/:id/relations" [name id] add-relation-handler)
     (DELETE "/personas/:name/relations/:relation-id" [name relation-id] delete-relation-handler)))
 
+(defn- serve-index [_]
+  {:status 200
+   :headers {"Content-Type" "text/html"}
+   :body (slurp (clojure.java.io/resource "public/index.html"))})
+
 (defroutes app-routes
   api-routes
-  (GET "/" [] {:status 200
-               :headers {"Content-Type" "text/html"}
-               :body (slurp (clojure.java.io/resource "public/index.html"))})
+  (GET "/" [] serve-index)
   (route/resources "/")
+  (GET "/:persona-id" [persona-id] serve-index)
+  (GET "/:persona-id/:identity-id" [persona-id identity-id] serve-index)
   (route/not-found {:status 404 :body {:error "Not found"}}))
 
 (defn- extract-token [req]

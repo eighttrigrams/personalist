@@ -1,6 +1,7 @@
 (ns et.pe.ui.identity
   (:require [et.pe.ui.state :refer [app-state update-identity fetch-identity-at
-                                    fetch-relations delete-relation select-identity]]))
+                                    fetch-relations delete-relation select-identity
+                                    set-editing-mode]]))
 
 (defn time-slider []
   (let [{:keys [identity-history slider-value selected-identity]} @app-state]
@@ -87,6 +88,8 @@
           [:input {:type "text"
                    :value editing-name
                    :on-change #(swap! app-state assoc :editing-name (-> % .-target .-value))
+                   :on-focus #(set-editing-mode true)
+                   :on-blur #(set-editing-mode false)
                    :placeholder "Name"
                    :style {:width "100%"
                            :padding "0.75rem"
@@ -97,6 +100,8 @@
                            :margin-bottom "0.5rem"}}]
           [:textarea {:value editing-text
                       :on-change #(swap! app-state assoc :editing-text (-> % .-target .-value))
+                      :on-focus #(set-editing-mode true)
+                      :on-blur #(set-editing-mode false)
                       :style {:width "100%"
                               :height "200px"
                               :padding "0.75rem"

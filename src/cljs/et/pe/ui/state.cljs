@@ -119,14 +119,68 @@
         :keywords? true
         :error-handler #(js/console.error "Error fetching relations" %)}))))
 
+(defn update-url [persona-id identity-id editing?]
+  (let [path (if identity-id
+               (str "/" persona-id "/" identity-id (when editing? "?edit=true"))
+               (if persona-id
+                 (str "/" persona-id)
+                 "/"))]
+    (.pushState js/history nil "" path)))
+
+(defn set-editing-mode [editing?]
+  (let [{:keys [current-user selected-identity]} @app-state]
+    (when (and current-user selected-identity)
+      (update-url (:id current-user) (:identity selected-identity) editing?))))
+
+(defn parse-url []
+  (let [pathname (.-pathname js/window.location)
+        search (.-search js/window.location)
+        parts (vec (filter seq (str/split pathname #"/")))
+        editing? (str/includes? search "edit=true")]
+    {:persona-id (first parts)
+     :identity-id (second parts)
+     :editing? editing?}))
+
+(defn load-from-url [on-complete]
+  (let [{:keys [persona-id identity-id editing?]} (parse-url)]
+    (when persona-id
+      (GET (str api-base "/api/personas")
+        {:handler (fn [personas]
+                    (swap! app-state assoc :personas personas)
+                    (when-let [persona (first (filter #(= (:id %) persona-id) personas))]
+                      (swap! app-state assoc
+                             :current-user persona
+                             :identities []
+                             :selected-identity nil)
+                      (GET (str api-base "/api/personas/" persona-id "/identities")
+                        {:handler (fn [identities]
+                                    (swap! app-state assoc :identities identities)
+                                    (when identity-id
+                                      (when-let [identity (first (filter #(= (:identity %) identity-id) identities))]
+                                        (swap! app-state assoc
+                                               :selected-identity identity
+                                               :editing-name (:name identity)
+                                               :editing-text (:text identity))
+                                        (fetch-identity-history identity-id)
+                                        (fetch-relations identity-id)))
+                                    (when on-complete (on-complete editing?)))
+                         :response-format :json
+                         :keywords? true
+                         :error-handler #(js/console.error "Error fetching identities" %)})))
+         :response-format :json
+         :keywords? true
+         :error-handler #(js/console.error "Error fetching personas" %)}))))
+
 (defn select-identity [identity]
-  (swap! app-state assoc
-         :selected-identity identity
-         :editing-name (:name identity)
-         :editing-text (:text identity)
-         :relations [])
-  (fetch-identity-history (:identity identity))
-  (fetch-relations (:identity identity)))
+  (let [{:keys [current-user]} @app-state]
+    (swap! app-state assoc
+           :selected-identity identity
+           :editing-name (:name identity)
+           :editing-text (:text identity)
+           :relations [])
+    (update-url (:id current-user) (:identity identity) false)
+    (fetch-identity-history (:identity identity))
+    (fetch-relations (:identity identity))))
 
 (defn add-identity []
   (let [{:keys [current-user new-identity-name new-identity-text]} @app-state]
@@ -208,6 +262,7 @@
          :identities []
          :selected-identity nil
          :identity-history [])
+  (update-url (:id persona) nil false)
   (fetch-identities (:id persona)))
 
 (defn login-user [persona]
@@ -288,7 +343,8 @@
          :current-tab :main
          :identities []
          :selected-identity nil
-         :identity-history []))
+         :identity-history [])
+  (.pushState js/history nil "" "/"))
 
 (defn generate-id [callback]
   (GET (str api-base "/api/generate-id")

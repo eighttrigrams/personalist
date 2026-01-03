@@ -1,6 +1,6 @@
 (ns et.pe.ui.core
   (:require [reagent.dom.client :as rdc]
-            [et.pe.ui.state :refer [app-state fetch-personas check-password-required logout-user dismiss-notification]]
+            [et.pe.ui.state :refer [app-state fetch-personas check-password-required logout-user dismiss-notification load-from-url parse-url]]
             [et.pe.ui.modals :refer [login-modal auth-modal password-modal
                                      search-modal add-relation-modal
                                      add-identity-modal beta-modal]]
@@ -20,7 +20,9 @@
      [:div {:style {:display "flex" :align-items "center" :gap "2rem"}}
       [:div {:style {:display "flex" :align-items "center" :gap "0.5rem"}}
        [:h1 {:style {:margin 0 :cursor "pointer"}
-             :on-click #(swap! app-state assoc :current-tab :main)}
+             :on-click #(do
+                          (swap! app-state assoc :current-tab :main :selected-identity nil)
+                          (.pushState js/history nil "" "/"))}
         "Personalist"]
        [:span {:on-click #(swap! app-state assoc :show-beta-modal true)
                :style {:background "linear-gradient(135deg, #ff6b6b, #feca57, #48dbfb)"
@@ -150,6 +152,9 @@
 (defonce root (rdc/create-root (.getElementById js/document "app")))
 
 (defn ^:export init []
-  (fetch-personas)
   (check-password-required)
+  (let [{:keys [persona-id]} (parse-url)]
+    (if persona-id
+      (load-from-url nil)
+      (fetch-personas)))
   (rdc/render root [app]))
