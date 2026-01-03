@@ -1,4 +1,5 @@
 {:db {:type :xtdb2-on-disk ; alternative - :xtdb2-in-memory
       :path "data/xtdb"}
- :pre-seed? false}
+ :pre-seed? false
+ :shadow? true}
 

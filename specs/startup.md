@@ -2,34 +2,26 @@
 
 ## Overview
 
-The application can be started in three different modes, each suited for different use cases.
+The application can be started in two modes: normal mode and production mode.
 
 ## Modes
 
-### Production Mode (`make start`)
+### Normal Mode (`make start`)
 
-Builds an uberjar and runs it directly with Java. This is the default mode.
+Starts the application using the Clojure backend directly.
+
+- Reads `config.edn` for configuration
+- If `:shadow? true` is set: starts shadow-cljs in watch mode (hot reload for ClojureScript)
+- If `:shadow?` is not set or false: builds optimized JS with `shadow-cljs release`
+- Starts the Clojure backend with nREPL on port 7888
+
+### Production Mode (`make start-prod`)
+
+Builds an uberjar and runs it directly with Java.
 
 - Builds the application using `clj -T:build uber`
 - Runs the standalone jar with JVM flags for Netty/XTDB compatibility
 - Intended for local testing of the production build before deployment
-
-### Development Mode (`make start-dev`)
-
-Full development environment with hot code reloading.
-
-- Starts shadow-cljs in watch mode for ClojureScript hot reload
-- Starts the Clojure backend with nREPL on port 7888
-- Uses whatever database is configured in `config.edn`
-- Best for active development
-
-### Demo Mode (`make start-demo`)
-
-Builds optimized JS but runs the Clojure backend directly (not as a jar).
-
-- Runs `shadow-cljs release` to build optimized JS (no dev tooling)
-- Starts the Clojure backend with nREPL
-- Useful for demoing the app locally without the overhead of dev tooling
 
 ## Configuration (`config.edn`)
 
@@ -42,8 +34,30 @@ On first startup, if `config.edn` doesn't exist, it is auto-created with default
 
 This means: use an in-memory database and seed it with demo data on startup.
 
-For persistent storage, use:
+### Configuration Options
 
+| Key | Description |
+|-----|-------------|
+| `:db` | Database configuration (`:type` and optionally `:path`) |
+| `:pre-seed?` | If `true`, seed database with demo data on startup |
+| `:shadow?` | If `true`, use shadow-cljs watch mode for hot reload |
+
+### Example Configurations
+
+For development with hot reload:
+```edn
+{:db {:type :xtdb2-in-memory}
+ :pre-seed? true
+ :shadow? true}
+```
+
+For demos (optimized JS, no hot reload):
+```edn
+{:db {:type :xtdb2-in-memory}
+ :pre-seed? true}
+```
+
+For persistent storage:
 ```edn
 {:db {:type :xtdb2-on-disk
       :path "data/xtdb"}
@@ -60,7 +74,7 @@ When `ADMIN_PASSWORD` is set:
 - Regular users authenticate with passwords stored in the database
 - JWT tokens are used for session management
 
-When `ADMIN_PASSWORD` is not set (dev/demo):
+When `ADMIN_PASSWORD` is not set:
 - No password is required
 - Users can login by simply clicking on their persona in the login modal
 - This makes it easy to test and demo the application
@@ -86,8 +100,10 @@ When `pre-seed?` is `false`:
 
 ## Quick Reference
 
-| Mode | Command | Hot Reload | Auth Required | Use Case |
-|------|---------|------------|---------------|----------|
-| Production | `make start` | No | Yes (if ADMIN_PASSWORD set) | Test prod build locally |
-| Development | `make start-dev` | Yes | No | Active development |
-| Demo | `make start-demo` | No | No | Quick demos |
+| Command | Description |
+|---------|-------------|
+| `make start` | Start app (uses config.edn for shadow? setting) |
+| `make start-prod` | Build and run uberjar locally |
+| `make stop` | Stop the application |
+| `make restart` | Restart the application |
+| `make restart-prod` | Restart in production mode |

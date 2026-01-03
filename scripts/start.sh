@@ -12,18 +12,7 @@ fi
 PORT=${PORT:-3017}
 echo $PORT > .server.port
 
-if [ "$1" = "dev" ]; then
-  echo "Starting in development mode on port $PORT..."
-  npx shadow-cljs watch app &
-  echo $! > .shadow-cljs.pid
-  sleep 5
-  clojure -X:xtdb
-elif [ "$1" = "demo" ]; then
-  echo "Starting in demo mode on port $PORT..."
-  echo "Building release JS (no shadow-cljs dev tooling)..."
-  npx shadow-cljs release app
-  clojure -X:xtdb
-else
+if [ "$1" = "prod" ]; then
   echo "Starting in production mode on port $PORT..."
   echo "Building uberjar..."
   clj -T:build uber
@@ -32,4 +21,16 @@ else
        -Dio.netty.tryReflectionSetAccessible=true \
        --enable-native-access=ALL-UNNAMED \
        -jar target/personalist-0.0.1-standalone.jar
+else
+  SHADOW_MODE=$(grep -o ':shadow?[[:space:]]*true' config.edn)
+  if [ -n "$SHADOW_MODE" ]; then
+    echo "Starting with shadow-cljs watch (hot reload)..."
+    npx shadow-cljs watch app &
+    echo $! > .shadow-cljs.pid
+    sleep 5
+  else
+    echo "Starting with shadow-cljs release (no hot reload)..."
+    npx shadow-cljs release app
+  fi
+  clojure -X:xtdb
 fi

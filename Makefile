@@ -1,13 +1,10 @@
-.PHONY: start start-dev start-demo stop restart restart-dev restart-demo seed test build deploy backup
+.PHONY: start start-prod stop restart restart-prod seed test build deploy backup
 
 start:
 	./scripts/start.sh
 
-start-dev:
-	./scripts/start.sh dev
-
-start-demo:
-	./scripts/start.sh demo
+start-prod:
+	./scripts/start.sh prod
 
 stop:
 	./scripts/stop.sh
@@ -15,11 +12,8 @@ stop:
 restart:
 	./scripts/restart.sh
 
-restart-dev:
-	./scripts/restart.sh dev
-
-restart-demo:
-	./scripts/restart.sh demo
+restart-prod:
+	./scripts/restart.sh prod
 
 seed:
 	./scripts/seed-db.sh

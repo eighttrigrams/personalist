@@ -11,7 +11,7 @@ The app is publicly accessible under https://personalist.fly.dev.
 Run
 
 ```bash
-$ make start-demo
+$ make start
 ```
 
 Now visit a browser under http://localhost:3017.
@@ -19,13 +19,19 @@ Now visit a browser under http://localhost:3017.
 To stop or restart afterwards, use
 
 ```bash
-$ make stop-demo
-$ make restart-demo
+$ make stop
+$ make restart
 ```
 
-## Use a persistent database
+## Configuration
 
-Modify `config.edn` accordingly (see `config.edn.template`).
+On first run, `config.edn` is auto-created with defaults. Modify it to customize:
+
+- `:shadow? true` - enable hot reload for ClojureScript development
+- `:pre-seed? false` - disable demo data seeding
+- `:db {:type :xtdb2-on-disk :path "data/xtdb"}` - use persistent storage
+
+See `config.edn.template` for examples.
 
 ## Development
 
@@ -36,27 +42,28 @@ Modify `config.edn` accordingly (see `config.edn.template`).
 
 ### Running
 
+Add `:shadow? true` to your `config.edn` for hot reload, then:
+
 ```bash
-$ make start-dev
-$ make stop (afterwards)
+$ make start
 ```
 
-This starts 
+This starts:
 
 - the server on port 3017
-- an REPL server on port 7888.
-- shadow-cljs (hot code reload etc.)
-- use an in-memory database, which is pre-seeded (unless a `config.edn` is provided; see above)
+- an nREPL server on port 7888
+- shadow-cljs in watch mode (if `:shadow? true`)
+- an in-memory database, pre-seeded with demo data (by default)
 
-With `scripts/start.sh`, you can use (prefix the command with) `PORT=<3017>` and `NREPL_PORT=<7999>` for custom ports.
+With `scripts/start.sh`, you can use `PORT=<port>` and `NREPL_PORT=<port>` for custom ports.
 
-Use
+### Testing Production Build Locally
 
 ```bash
-$ make restart-dev
+$ make start-prod
 ```
 
-to restart the application.
+This builds the uberjar and runs it locally.
 
 ### nREPL
 
