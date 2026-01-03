@@ -247,7 +247,7 @@
     (prn "..." id email password)
     (if (allow-skip-logins?)
       {:status 200 :body {:success true :message "No password required"}}
-      (if (= (str->keyword email) :admin)
+      (if (= (str->keyword id) :admin)
         (let [admin-password (if (prod-mode?)
                                (System/getenv "ADMIN_PASSWORD")
                                "admin")]
