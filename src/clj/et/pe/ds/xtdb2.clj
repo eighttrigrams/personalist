@@ -28,26 +28,26 @@
   [{:keys [conn]}]
   (.close conn))
 
-(defn- convert-persona [{name :xt/id email :persona/email display-name :persona/display-name :as persona}]
+(defn- convert-persona [{id :xt/id email :persona/email display-name :persona/display-name :as persona}]
   (when-not (nil? persona)
-    {:name name :email email :display-name (or display-name (clojure.core/name name))}))
+    {:id id :email email :display-name (or display-name (clojure.core/name id))}))
 
-(defn get-persona-by-name-or-email
-  [conn name email]
+(defn get-persona-by-id-or-email
+  [conn id email]
   (map convert-persona (xt/q (:conn conn)
-                             ['(fn [name email]
+                             ['(fn [id email]
                                  (-> (from :personas [xt/id persona/email persona/display-name])
-                                     (where (or (= xt/id name)
+                                     (where (or (= xt/id id)
                                                 (= persona/email email)))))
-                              name email])))
+                              id email])))
 
-(defn get-persona-by-name
-  [conn name]
+(defn get-persona-by-id
+  [conn id]
   (convert-persona (first (xt/q (:conn conn)
-                                ['(fn [name]
+                                ['(fn [id]
                                     (-> (from :personas [xt/id persona/email persona/display-name])
-                                        (where (= xt/id name))))
-                                 name]))))
+                                        (where (= xt/id id))))
+                                 id]))))
 
 (defn get-persona-by-email
   [conn email]
@@ -59,37 +59,37 @@
                  email]))))
 
 (defn add-persona
-  [conn name email password-hash display-name]
-  (if (seq (get-persona-by-name-or-email conn name email))
+  [conn id email password-hash display-name]
+  (if (seq (get-persona-by-id-or-email conn id email))
     false
-    (xt/execute-tx (:conn conn) [[:put-docs :personas (cond-> {:xt/id                name
+    (xt/execute-tx (:conn conn) [[:put-docs :personas (cond-> {:xt/id                id
                                                                :persona/email        email
-                                                               :persona/display-name (or display-name (clojure.core/name name))}
+                                                               :persona/display-name (or display-name (clojure.core/name id))}
                                                         password-hash (assoc :persona/password-hash password-hash))]])))
 
 (defn update-persona
-  [conn name {:keys [email display-name]}]
-  (let [current (get-persona-by-name conn name)]
+  [conn id {:keys [email display-name]}]
+  (let [current (get-persona-by-id conn id)]
     (if-not current
       nil
       (let [new-email (or email (:email current))
             existing (when email (get-persona-by-email conn email))]
-        (if (and existing (not= (:name existing) name))
+        (if (and existing (not= (:id existing) id))
           {:error :email-exists}
           (do
-            (xt/execute-tx (:conn conn) [[:put-docs :personas {:xt/id                name
+            (xt/execute-tx (:conn conn) [[:put-docs :personas {:xt/id                id
                                                                :persona/email        new-email
                                                                :persona/display-name (or display-name (:display-name current))
                                                                :persona/password-hash (:persona/password-hash current)}]])
             {:success true}))))))
 
 (defn get-persona-password-hash
-  [conn name]
+  [conn id]
   (let [result (first (xt/q (:conn conn)
-                            ['(fn [name]
+                            ['(fn [id]
                                 (-> (from :personas [xt/id persona/password-hash])
-                                    (where (= xt/id name))))
-                             name]))]
+                                    (where (= xt/id id))))
+                             id]))]
     (:persona/password-hash result)))
 
 (defn list-personas
@@ -105,7 +105,7 @@
     (keyword (subs s (inc idx)))))
 
 (defn list-identities
-  [conn {persona-id :name :as _mind}]
+  [conn {persona-id :id :as _mind}]
   (map
    (fn [{id :xt/id nm :identity/name text :identity/text}] {:identity (extract-identity-id id) :name nm :text text})
    (xt/q (:conn conn)
@@ -116,7 +116,7 @@
           persona-id])))
 
 (defn add-identity
-  [conn {persona-id :name :as _mind} nm text & [{:keys [valid-from id]}]]
+  [conn {persona-id :id :as _mind} nm text & [{:keys [valid-from id]}]]
   (let [id (or id (keyword (str (UUID/randomUUID))))]
     (xt/execute-tx (:conn conn)
                    [[:put-docs (cond-> {:into :identities}
@@ -128,7 +128,7 @@
     id))
 
 (defn update-identity
-  [conn {persona-id :name :as _mind} id nm text & [{:keys [valid-from]}]]
+  [conn {persona-id :id :as _mind} id nm text & [{:keys [valid-from]}]]
   (xt/execute-tx (:conn conn)
                  [[:put-docs (cond-> {:into :identities}
                                valid-from (assoc :valid-from valid-from))
@@ -138,7 +138,7 @@
                     :identity/text    text}]]))
 
 (defn get-identity-at
-  [conn {persona-id :name :as _mind} id time-point]
+  [conn {persona-id :id :as _mind} id time-point]
   (let [composite-id (make-identity-id persona-id id)
         result (first (xt/q (:conn conn)
                             ['(fn [composite-id time-point]
@@ -151,7 +151,7 @@
       {:identity id :name (:identity/name result) :text (:identity/text result)})))
 
 (defn get-identity-history
-  [conn {persona-id :name :as _mind} id]
+  [conn {persona-id :id :as _mind} id]
   (let [composite-id (make-identity-id persona-id id)
         results (xt/q (:conn conn)
                       ['(fn [composite-id]
@@ -169,7 +169,7 @@
   (keyword (str (name persona-id) "/rel-" (name source-id) "->" (name target-id))))
 
 (defn add-relation
-  [conn {persona-id :name :as _mind} source-id target-id & [{:keys [valid-from]}]]
+  [conn {persona-id :id :as _mind} source-id target-id & [{:keys [valid-from]}]]
   (let [relation-id (make-relation-id persona-id source-id target-id)
         source-composite (make-identity-id persona-id source-id)
         target-composite (make-identity-id persona-id target-id)]
@@ -182,7 +182,7 @@
                       :relation/mind-id  persona-id}]])))
 
 (defn list-relations
-  [conn {persona-id :name :as _mind} target-id & [{:keys [at]}]]
+  [conn {persona-id :id :as _mind} target-id & [{:keys [at]}]]
   (let [target-composite (make-identity-id persona-id target-id)
         results (if at
                   (xt/q (:conn conn)
@@ -204,13 +204,13 @@
           results)))
 
 (defn delete-relation
-  [conn {persona-id :name :as _mind} relation-id]
+  [conn {persona-id :id :as _mind} relation-id]
   (let [full-id (keyword (str (name persona-id) "/" relation-id))]
     (xt/execute-tx (:conn conn)
                    [[:delete-docs :relations full-id]])))
 
 (defn search-identities
-  [conn {persona-id :name :as _mind} query & [{:keys [at]}]]
+  [conn {persona-id :id :as _mind} query & [{:keys [at]}]]
   (let [results (if at
                   (xt/q (:conn conn)
                         ['(fn [persona-id time-point]

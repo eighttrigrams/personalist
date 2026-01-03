@@ -11,9 +11,9 @@
   [conn]
   (xtdb2/close-conn conn))
 
-(defn get-persona-by-name
-  [conn name]
-  (xtdb2/get-persona-by-name conn name))
+(defn get-persona-by-id
+  [conn id]
+  (xtdb2/get-persona-by-id conn id))
 
 (defn get-persona-by-email
   [conn email]
@@ -21,18 +21,18 @@
 
 (defn add-persona
   "@returns true if persona added, false otherwise"
-  [conn name email password-hash display-name]
-  (xtdb2/add-persona conn name email password-hash display-name))
+  [conn id email password-hash display-name]
+  (xtdb2/add-persona conn id email password-hash display-name))
 
 (defn update-persona
   "@returns {:success true} or {:error :email-exists} or nil if not found
    @param updates - map with optional keys :email and :display-name"
-  [conn name updates]
-  (xtdb2/update-persona conn name updates))
+  [conn id updates]
+  (xtdb2/update-persona conn id updates))
 
 (defn get-persona-password-hash
-  [conn name]
-  (xtdb2/get-persona-password-hash conn name))
+  [conn id]
+  (xtdb2/get-persona-password-hash conn id))
 
 (defn list-personas [conn]
   (xtdb2/list-personas conn))

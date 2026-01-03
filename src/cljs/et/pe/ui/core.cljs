@@ -55,8 +55,8 @@
      :keywords? true
      :error-handler #(js/console.error "Error fetching personas" %)}))
 
-(defn update-persona [persona-name updates on-success on-error]
-  (PUT (str api-base "/api/personas/" persona-name)
+(defn update-persona [persona-id updates on-success on-error]
+  (PUT (str api-base "/api/personas/" persona-id)
     {:params updates
      :format :json
      :response-format :json
@@ -93,7 +93,7 @@
     (when (and current-user (seq new-identity-name) (seq new-identity-text))
       (let [name-to-select new-identity-name
             text-to-select new-identity-text]
-        (POST (str api-base "/api/personas/" (:name current-user) "/identities")
+        (POST (str api-base "/api/personas/" (:id current-user) "/identities")
           {:params {:name new-identity-name :text new-identity-text}
            :format :json
            :response-format :json
@@ -105,7 +105,7 @@
                                :new-identity-name ""
                                :new-identity-text ""
                                :show-add-identity-modal false)
-                        (fetch-identities (:name current-user))
+                        (fetch-identities (:id current-user))
                         (select-identity {:identity generated-id :name name-to-select :text text-to-select})))
            :error-handler #(js/console.error "Error adding identity" %)})))))
 
@@ -113,18 +113,18 @@
 
 (defn update-identity [identity-id name text]
   (let [{:keys [current-user]} @app-state]
-    (PUT (str api-base "/api/personas/" (:name current-user) "/identities/" identity-id)
+    (PUT (str api-base "/api/personas/" (:id current-user) "/identities/" identity-id)
       {:params {:name name :text text}
        :format :json
        :headers (auth-headers)
        :handler (fn [_]
-                  (fetch-identities (:name current-user))
+                  (fetch-identities (:id current-user))
                   (fetch-identity-history identity-id))
        :error-handler #(js/console.error "Error updating identity" %)})))
 
 (defn fetch-identity-history [identity-id]
   (let [{:keys [current-user]} @app-state]
-    (GET (str api-base "/api/personas/" (:name current-user) "/identities/" identity-id "/history")
+    (GET (str api-base "/api/personas/" (:id current-user) "/identities/" identity-id "/history")
       {:handler (fn [res]
                   (swap! app-state assoc :identity-history res)
                   (when (seq res)
@@ -135,7 +135,7 @@
 
 (defn fetch-identity-at [identity-id time-str]
   (let [{:keys [current-user]} @app-state]
-    (GET (str api-base "/api/personas/" (:name current-user) "/identities/" identity-id "/at")
+    (GET (str api-base "/api/personas/" (:id current-user) "/identities/" identity-id "/at")
       {:params {:time time-str}
        :handler (fn [res]
                   (swap! app-state assoc :editing-name (:name res) :editing-text (:text res)))
@@ -149,7 +149,7 @@
   ([identity-id] (fetch-relations identity-id nil))
   ([identity-id time-str]
    (let [{:keys [current-user]} @app-state
-         url (str api-base "/api/personas/" (:name current-user) "/identities/" identity-id "/relations")]
+         url (str api-base "/api/personas/" (:id current-user) "/identities/" identity-id "/relations")]
      (GET (if time-str (str url "?time=" (js/encodeURIComponent time-str)) url)
        {:handler (fn [res]
                    (swap! app-state assoc :relations res))
@@ -159,7 +159,7 @@
 
 (defn add-relation [source-id]
   (let [{:keys [current-user selected-identity]} @app-state]
-    (POST (str api-base "/api/personas/" (:name current-user) "/identities/" (:identity selected-identity) "/relations")
+    (POST (str api-base "/api/personas/" (:id current-user) "/identities/" (:identity selected-identity) "/relations")
       {:params {:source_id source-id}
        :format :json
        :headers (auth-headers)
@@ -173,7 +173,7 @@
 
 (defn delete-relation [relation-id]
   (let [{:keys [current-user selected-identity]} @app-state]
-    (DELETE (str api-base "/api/personas/" (:name current-user) "/relations/" relation-id)
+    (DELETE (str api-base "/api/personas/" (:id current-user) "/relations/" relation-id)
       {:headers (auth-headers)
        :handler (fn [_]
                   (fetch-relations (:identity selected-identity)))
@@ -185,7 +185,7 @@
    (let [{:keys [current-user]} @app-state
          params (cond-> {:q query}
                   valid-at (assoc :valid_at valid-at))]
-     (GET (str api-base "/api/personas/" (:name current-user) "/identities/search")
+     (GET (str api-base "/api/personas/" (:id current-user) "/identities/search")
        {:params params
         :handler callback
         :response-format :json
@@ -199,7 +199,7 @@
          :identities []
          :selected-identity nil
          :identity-history [])
-  (fetch-identities (:name persona)))
+  (fetch-identities (:id persona)))
 
 (defn select-identity [identity]
   (swap! app-state assoc
@@ -222,13 +222,13 @@
          :identities []
          :selected-identity nil
          :identity-history [])
-  (fetch-identities (:name persona)))
+  (fetch-identities (:id persona)))
 
 (defn attempt-login []
   (let [password (:login-password @app-state)
         persona (:login-persona @app-state)]
     (POST (str api-base "/api/auth/login")
-      {:params {:name (:name persona) :password password}
+      {:params {:id (:id persona) :password password}
        :format :json
        :response-format :json
        :keywords? true
@@ -258,14 +258,14 @@
                              :login-email ""
                              :login-password ""
                              :login-error nil)
-                      (let [persona-name (-> res :token
-                                             (str/split #"\.")
-                                             second
-                                             js/atob
-                                             js/JSON.parse
-                                             (js->clj :keywordize-keys true)
-                                             :persona)]
-                        (login-user {:name persona-name})))
+                      (let [persona-id (-> res :token
+                                           (str/split #"\.")
+                                           second
+                                           js/atob
+                                           js/JSON.parse
+                                           (js->clj :keywordize-keys true)
+                                           :persona)]
+                        (login-user {:id persona-id})))
                     (swap! app-state assoc :login-error "Invalid credentials")))
        :error-handler (fn [_]
                         (swap! app-state assoc :login-error "Invalid credentials"))})))
@@ -293,7 +293,7 @@
 (defn header []
   (let [{:keys [current-user auth-user current-tab]} @app-state
         logged-in? (some? auth-user)
-        is-admin? (= (:name auth-user) "admin")]
+        is-admin? (= (:id auth-user) "admin")]
     [:div {:style {:display "flex"
                    :justify-content "space-between"
                    :align-items "center"
@@ -361,13 +361,13 @@
      [:div {:style {:display "flex" :align-items "center" :gap "1rem"}}
       (when (and (not logged-in?) current-user)
         [:<>
-         [:span (str "Persona: " (:name current-user))]
+         [:span (str "Persona: " (:id current-user))]
          [:button {:on-click #(swap! app-state assoc :current-user nil :identities [] :selected-identity nil)
                    :style {:padding "0.5rem 1rem" :cursor "pointer"}}
           "Change"]])
       (when logged-in?
         [:<>
-         [:span (str "Logged in: " (or (:display-name auth-user) (:name auth-user)))]
+         [:span (str "Logged in: " (or (:display-name auth-user) (:id auth-user)))]
          [:button {:on-click logout-user
                    :style {:padding "0.5rem 1rem" :cursor "pointer"}}
           "Logout"]])
@@ -415,8 +415,8 @@
         (if (seq personas)
           [:ul {:style {:list-style "none" :padding 0 :margin 0}}
            (for [p personas]
-             ^{:key (:name p)}
-             (when (not= (:name p) "admin")
+             ^{:key (:id p)}
+             (when (not= (:id p) "admin")
                [:li {:on-click #(select-persona p)
                      :style {:padding "0.75rem"
                              :cursor "pointer"
@@ -426,7 +426,7 @@
                              :transition "background 0.2s"}
                      :on-mouse-over #(set! (.-background (.-style (.-target %))) "#e0e0e0")
                      :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
-                [:strong (or (:display-name p) (:name p))]]))]
+                [:strong (or (:display-name p) (:id p))]]))]
           [:p {:style {:color "#666" :font-style "italic"}}
            "No personas yet. Add one in Users tab."])
         [:button {:on-click #(swap! app-state assoc :show-login-modal false)
@@ -501,7 +501,7 @@
            (if (seq personas)
              [:ul {:style {:list-style "none" :padding 0 :margin 0}}
               (for [p personas]
-                ^{:key (:name p)}
+                ^{:key (:id p)}
                 [:li {:on-click #(try-login p)
                       :style {:padding "0.75rem"
                               :cursor "pointer"
@@ -511,7 +511,7 @@
                               :transition "background 0.2s"}
                       :on-mouse-over #(set! (.-background (.-style (.-target %))) "#e0e0e0")
                       :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
-                 [:strong (or (:display-name p) (:name p))]])]
+                 [:strong (or (:display-name p) (:id p))]])]
              [:p {:style {:color "#666" :font-style "italic"}}
               "No personas yet."])
            [:button {:on-click #(swap! app-state assoc :show-auth-modal false)
@@ -540,7 +540,7 @@
                       :min-width "300px"
                       :max-width "400px"}
               :on-click #(.stopPropagation %)}
-        [:h2 {:style {:margin-top 0}} (str "Login as " (or (:display-name login-persona) (:name login-persona)))]
+        [:h2 {:style {:margin-top 0}} (str "Login as " (or (:display-name login-persona) (:id login-persona)))]
         [:p {:style {:color "#666"}} "Enter your password:"]
         [:input {:type "password"
                  :value login-password
@@ -1050,7 +1050,7 @@
 
                                    :else
                                    (POST (str api-base "/api/personas")
-                                     {:params {:name name-val
+                                     {:params {:id name-val
                                                :email email-val
                                                :password password-val
                                                :display_name (if (seq display-name-val) display-name-val name-val)}
@@ -1067,12 +1067,12 @@
 
 (defn- persona-row [p]
   (let [editing? (r/atom false)
-        edit-display-name (r/atom (or (:display-name p) (:name p)))
+        edit-display-name (r/atom (or (:display-name p) (:id p)))
         edit-email (r/atom (:email p))
         error (r/atom nil)]
     (fn [p]
       (let [personas (:personas @app-state)
-            other-emails (set (map :email (filter #(not= (:name %) (:name p)) personas)))]
+            other-emails (set (map :email (filter #(not= (:id %) (:id p)) personas)))]
         [:li {:style {:padding "0.75rem" :background "#f5f5f5" :margin-bottom "0.5rem" :border-radius "4px"}}
          (if @editing?
            [:div {:style {:display "flex" :flex-direction "column" :gap "0.5rem"}}
@@ -1108,7 +1108,7 @@
 
                                        :else
                                        (update-persona
-                                        (:name p)
+                                        (:id p)
                                         {:email new-email :display_name new-display-name}
                                         (fn []
                                           (reset! editing? false)
@@ -1119,15 +1119,15 @@
                        :style {:padding "0.25rem 0.5rem" :cursor "pointer" :background "#4CAF50" :color "white" :border "none" :border-radius "4px"}}
               "Save"]
              [:button {:on-click #(do (reset! editing? false)
-                                      (reset! edit-display-name (or (:display-name p) (:name p)))
+                                      (reset! edit-display-name (or (:display-name p) (:id p)))
                                       (reset! edit-email (:email p))
                                       (reset! error nil))
                        :style {:padding "0.25rem 0.5rem" :cursor "pointer"}}
               "Cancel"]]]
            [:div {:style {:display "flex" :align-items "center" :gap "0.5rem"}}
-            [:strong {:style {:min-width "100px"}} (or (:display-name p) (:name p))]
+            [:strong {:style {:min-width "100px"}} (or (:display-name p) (:id p))]
             [:span {:style {:flex 1 :color "#666"}} (:email p)]
-            (when (not= (:name p) "admin")
+            (when (not= (:id p) "admin")
               [:button {:on-click #(reset! editing? true)
                         :style {:padding "0.25rem 0.5rem" :cursor "pointer"}}
                "Edit"])])]))))
@@ -1144,7 +1144,7 @@
       (if (seq personas)
         [:ul {:style {:list-style "none" :padding 0}}
          (for [p personas]
-           ^{:key (:name p)}
+           ^{:key (:id p)}
            [persona-row p])]
         [:p {:style {:color "#666" :font-style "italic"}} "No personas yet."])]]))
 

@@ -6,11 +6,11 @@ echo "Seeding database..."
 
 echo "Creating personas..."
 curl -s -X POST -H "Content-Type: application/json" \
-  -d '{"name":"alice","email":"alice@example.com","display_name":"Alice Johnson"}' \
+  -d '{"id":"alice","email":"alice@example.com","display_name":"Alice Johnson"}' \
   "$API_BASE/api/personas" > /dev/null
 
 curl -s -X POST -H "Content-Type: application/json" \
-  -d '{"name":"bob","email":"bob@example.com","display_name":"Bob Smith"}' \
+  -d '{"id":"bob","email":"bob@example.com","display_name":"Bob Smith"}' \
   "$API_BASE/api/personas" > /dev/null
 
 echo "Creating identities for alice..."

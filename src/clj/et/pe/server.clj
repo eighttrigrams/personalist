@@ -69,9 +69,9 @@
    :body (serialize-response (ds/list-personas (ensure-conn)))})
 
 (defn add-persona-handler [req]
-  (let [{:keys [name email password display_name]} (:body req)
+  (let [{:keys [id email password display_name]} (:body req)
         password-hash (when (seq password) (hashers/derive password))
-        result (ds/add-persona (ensure-conn) (str->keyword name) email password-hash display_name)]
+        result (ds/add-persona (ensure-conn) (str->keyword id) email password-hash display_name)]
     (if result
       {:status 201 :body {:success true}}
       {:status 400 :body {:success false :error "Persona already exists"}})))
@@ -90,7 +90,7 @@
 
 (defn list-identities-handler [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
-        persona (ds/get-persona-by-name (ensure-conn) persona-name)]
+        persona (ds/get-persona-by-id (ensure-conn) persona-name)]
     (if persona
       {:status 200 :body (serialize-response (ds/list-identities (ensure-conn) persona))}
       {:status 404 :body {:error "Persona not found"}})))
@@ -98,7 +98,7 @@
 (defn add-identity-handler [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         {:keys [id name text valid_from]} (:body req)
-        persona (ds/get-persona-by-name (ensure-conn) persona-name)
+        persona (ds/get-persona-by-id (ensure-conn) persona-name)
         opts (cond-> {}
                valid_from (assoc :valid-from (Instant/parse valid_from))
                id (assoc :id (keyword id)))]
@@ -111,7 +111,7 @@
   (let [persona-name (str->keyword (get-in req [:params :name]))
         identity-id (str->keyword (get-in req [:params :id]))
         {:keys [name text valid_from]} (:body req)
-        persona (ds/get-persona-by-name (ensure-conn) persona-name)
+        persona (ds/get-persona-by-id (ensure-conn) persona-name)
         opts (when valid_from {:valid-from (Instant/parse valid_from)})]
     (if persona
       (do
@@ -126,7 +126,7 @@
                      (get-in req [:params "time"])
                      (get-in req [:query-params "time"]))
         at (Instant/parse time-str)
-        persona (ds/get-persona-by-name (ensure-conn) persona-name)]
+        persona (ds/get-persona-by-id (ensure-conn) persona-name)]
     (if persona
       (let [result (ds/get-identity-at (ensure-conn) persona identity-id at)]
         {:status 200 :body (serialize-response result)})
@@ -135,7 +135,7 @@
 (defn get-identity-history-handler [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         identity-id (str->keyword (get-in req [:params :id]))
-        persona (ds/get-persona-by-name (ensure-conn) persona-name)]
+        persona (ds/get-persona-by-id (ensure-conn) persona-name)]
     (if persona
       (let [history (ds/get-identity-history (ensure-conn) persona identity-id)]
         {:status 200 :body (serialize-response history)})
@@ -148,7 +148,7 @@
                      (get-in req [:params "time"])
                      (get-in req [:query-params "time"]))
         at (when time-str (Instant/parse time-str))
-        persona (ds/get-persona-by-name (ensure-conn) persona-name)]
+        persona (ds/get-persona-by-id (ensure-conn) persona-name)]
     (if persona
       (let [relations (ds/list-relations (ensure-conn) persona identity-id (when at {:at at}))]
         {:status 200 :body (serialize-response relations)})
@@ -159,7 +159,7 @@
         identity-id (str->keyword (get-in req [:params :id]))
         {:keys [source_id valid_from]} (:body req)
         opts (when valid_from {:valid-from (Instant/parse valid_from)})
-        persona (ds/get-persona-by-name (ensure-conn) persona-name)]
+        persona (ds/get-persona-by-id (ensure-conn) persona-name)]
     (if persona
       (do
         (ds/add-relation (ensure-conn) persona (str->keyword source_id) identity-id opts)
@@ -169,7 +169,7 @@
 (defn delete-relation-handler [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         relation-id (get-in req [:params :relation-id])
-        persona (ds/get-persona-by-name (ensure-conn) persona-name)]
+        persona (ds/get-persona-by-id (ensure-conn) persona-name)]
     (if persona
       (do
         (ds/delete-relation (ensure-conn) persona relation-id)
@@ -186,7 +186,7 @@
                          (get-in req [:params "valid_at"])
                          (get-in req [:query-params "valid_at"]))
         at (when valid-at-str (Instant/parse valid-at-str))
-        persona (ds/get-persona-by-name (ensure-conn) persona-name)]
+        persona (ds/get-persona-by-id (ensure-conn) persona-name)]
     (if persona
       (let [results (ds/search-identities (ensure-conn) persona query (when at {:at at}))]
         {:status 200 :body (serialize-response results)})
@@ -202,12 +202,11 @@
         cfg @config
         in-memory? (= :xtdb2-in-memory (get-in cfg [:db :type]))
         shadow? (true? (:shadow? cfg))]
-    (if on-fly?
-      (do
-        (when-not admin-pw
-          (throw (ex-info "ADMIN_PASSWORD required in production" {})))
-        true)
-      (not (or in-memory? shadow?)))))
+    (cond
+      on-fly? (do (when-not admin-pw
+                    (throw (ex-info "ADMIN_PASSWORD required in production" {})))
+                  true)
+      :else (not (or in-memory? shadow?)))))
 
 (defn- jwt-secret []
   (or (System/getenv "ADMIN_PASSWORD") "dev-secret"))
@@ -221,25 +220,25 @@
     (catch Exception _ nil)))
 
 (defn persona-login-handler [req]
-  (let [{:keys [name email password]} (:body req)
+  (let [{:keys [id email password]} (:body req)
         persona (cond
-                  (seq name) (ds/get-persona-by-name (ensure-conn) (str->keyword name))
-                  (and (seq email) (= email "admin@localhost")) {:name :admin :email "admin@localhost"}
+                  (seq id) (ds/get-persona-by-id (ensure-conn) (str->keyword id))
+                  (and (seq email) (= email "admin@localhost")) {:id :admin :email "admin@localhost"}
                   (seq email) (ds/get-persona-by-email (ensure-conn) email)
                   :else nil)
-        persona-name (str->keyword (:name persona))]
+        persona-id (str->keyword (:id persona))]
     (if (not (prod-mode?))
       {:status 200 :body {:success true :message "No password required"}}
       (if (nil? persona)
         {:status 401 :body {:success false :error "Invalid credentials"}}
-        (if (= persona-name :admin)
+        (if (= persona-id :admin)
           (let [admin-password (System/getenv "ADMIN_PASSWORD")]
             (if (= password admin-password)
-              {:status 200 :body {:success true :token (create-token persona-name)}}
+              {:status 200 :body {:success true :token (create-token persona-id)}}
               {:status 401 :body {:success false :error "Invalid credentials"}}))
-          (let [stored-hash (ds/get-persona-password-hash (ensure-conn) persona-name)]
+          (let [stored-hash (ds/get-persona-password-hash (ensure-conn) persona-id)]
             (if (and stored-hash (hashers/check password stored-hash))
-              {:status 200 :body {:success true :token (create-token persona-name)}}
+              {:status 200 :body {:success true :token (create-token persona-id)}}
               {:status 401 :body {:success false :error "Invalid credentials"}})))))))
 
 (defn password-required-handler [_req]
