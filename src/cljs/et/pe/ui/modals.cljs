@@ -25,7 +25,7 @@
                       :max-width "400px"}
               :on-click #(.stopPropagation %)}
         [:h2 {:style {:margin-top 0}} "Select Persona"]
-        [:p {:style {:color "#666"}} "Choose a persona to view:"]
+        [:p {:style {:color "#666"}} "Choose a persona and explore their worldview:"]
         (if (seq personas)
           [:ul {:style {:list-style "none" :padding 0 :margin 0}}
            (for [p personas]
