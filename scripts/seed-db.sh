@@ -68,11 +68,11 @@ curl -s -X PUT -H "Content-Type: application/json" \
 echo "Creating relations..."
 
 curl -s -X POST -H "Content-Type: application/json" \
-  -d '{"source_id":"p3n8v5","valid_from":"2025-12-27T12:00:00Z"}' \
+  -d '{"target_id":"p3n8v5","valid_from":"2025-12-27T12:00:00Z"}' \
   "$API_BASE/api/personas/alice/identities/x7k9m2/relations" > /dev/null
 
 curl -s -X POST -H "Content-Type: application/json" \
-  -d '{"source_id":"q4w2r8","valid_from":"2025-12-28T10:00:00Z"}' \
+  -d '{"target_id":"q4w2r8","valid_from":"2025-12-28T10:00:00Z"}' \
   "$API_BASE/api/personas/bob/identities/h6j1t9/relations" > /dev/null
 
 echo "Database seeded successfully!"
