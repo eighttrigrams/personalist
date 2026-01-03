@@ -111,12 +111,10 @@
       [:div {:style {:padding "2rem"
                      :max-width "800px"
                      :margin "0 auto"}}
-       [:div {:style {:display "flex"
-                      :justify-content "space-between"
-                      :align-items "center"
-                      :margin-bottom "1rem"}}
-        [:span {:style {:color "#666" :font-size "0.9rem"}} (str "Identity: " (:identity selected-identity))]
-        (when can-edit?
+       (when can-edit?
+         [:div {:style {:display "flex"
+                        :justify-content "flex-end"
+                        :margin-bottom "1rem"}}
           [:button {:on-click #(update-identity (:identity selected-identity) editing-name editing-text)
                     :style {:padding "0.5rem 1rem"
                             :cursor "pointer"
@@ -124,7 +122,7 @@
                             :color "white"
                             :border "none"
                             :border-radius "4px"}}
-           "Save"])]
+           "Save"]])
        [time-slider]
        (if can-edit?
          [:<>
