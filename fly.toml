@@ -11,6 +11,13 @@ primary_region = "iad"
   auto_stop_machines = false
   auto_start_machines = true
 
+[[http_service.checks]]
+    grace_period = "60s"
+    interval = "15s"
+    timeout = "5s"
+    method = "GET"
+    path = "/"
+
 [mounts]
   source = "personalist_data"
   destination = "/app/data"
