@@ -804,6 +804,8 @@
                      :font-size "0.9rem"}}
          "View Demo Guide"]
         [:br]
+        [:p {:style {:color "#999" :font-size "0.75rem" :margin-top "1rem" :margin-bottom "0" :max-width "280px" :margin-left "auto" :margin-right "auto" :line-height "1.4"}}
+         "This runs on a small cloud instance that sleeps when idle. If slow at first, it's just waking up!"]
         [:button {:on-click #(swap! app-state assoc :show-beta-modal false)
                   :style {:margin-top "1rem"
                           :padding "0.5rem 1rem"
