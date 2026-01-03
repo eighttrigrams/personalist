@@ -8,6 +8,8 @@
       "Bash(npm install:*)",
       "Bash(clj -Stree:*)",
       "Bash(clj -M:test:xtdb:*)",
+      "Bash(git pull)",
+      "Bash(git status)",
       "Edit(src/**)",
       "Write(src/**)",
       "Bash(fly logs:*)",
