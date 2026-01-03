@@ -40,7 +40,9 @@
                              :transition "background 0.2s"}
                      :on-mouse-over #(set! (.-background (.-style (.-target %))) "#e0e0e0")
                      :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
-                [:strong (or (:name p) (:id p))]]))]
+                [:div {:style {:display "flex" :justify-content "space-between" :align-items "center"}}
+                 [:strong (or (:name p) (:id p))]
+                 [:span {:style {:color "#888" :font-size "0.85rem" :font-family "monospace"}} (:id p)]]]))]
           [:p {:style {:color "#666" :font-style "italic"}}
            "No personas yet. Add one in Users tab."])
         [:button {:on-click #(swap! app-state assoc :show-login-modal false)
@@ -125,7 +127,9 @@
                               :transition "background 0.2s"}
                       :on-mouse-over #(set! (.-background (.-style (.-target %))) "#e0e0e0")
                       :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
-                 [:strong (or (:name p) (:id p))]])]
+                 [:div {:style {:display "flex" :justify-content "space-between" :align-items "center"}}
+                  [:strong (or (:name p) (:id p))]
+                  [:span {:style {:color "#888" :font-size "0.85rem" :font-family "monospace"}} (:id p)]]])]
              [:p {:style {:color "#666" :font-style "italic"}}
               "No personas yet."])
            [:button {:on-click #(swap! app-state assoc :show-auth-modal false)
@@ -391,6 +395,9 @@
                            :border-radius "4px"}}
           "Create"]]]])))
 
+(defn- localhost? []
+  (= (.-hostname js/window.location) "localhost"))
+
 (defn beta-modal []
   (let [{:keys [show-beta-modal]} @app-state]
     (when show-beta-modal
@@ -427,23 +434,28 @@
                      :font-weight "bold"
                      :margin-bottom "0.5rem"}}
          "Read the Whitepaper"]
-        [:br]
-        [:a {:href "https://github.com/eighttrigrams/personalist/blob/main/DEMO.md"
-             :target "_blank"
-             :style {:display "inline-block"
-                     :padding "0.5rem 1rem"
-                     :color "#666"
-                     :text-decoration "none"
-                     :font-size "0.9rem"}}
-         "View Demo Guide"]
-        [:br]
-        [:p {:style {:color "#999" :font-size "0.75rem" :margin-top "1rem" :margin-bottom "0" :max-width "280px" :margin-left "auto" :margin-right "auto" :line-height "1.4"}}
-         "This runs on a small cloud instance that sleeps when idle. If slow at first, it's just waking up!"]
-        [:button {:on-click #(swap! app-state assoc :show-beta-modal false)
-                  :style {:margin-top "1rem"
-                          :padding "0.5rem 1rem"
-                          :cursor "pointer"
-                          :background "#eee"
-                          :border "none"
-                          :border-radius "4px"}}
-         "Close"]]])))
+        (if (localhost?)
+          [:<>
+           [:br]
+           [:a {:href "https://github.com/eighttrigrams/personalist/blob/main/DEMO.md"
+                :target "_blank"
+                :style {:display "inline-block"
+                        :padding "0.5rem 1rem"
+                        :color "#666"
+                        :text-decoration "none"
+                        :font-size "0.9rem"}}
+            "View Demo Guide"]]
+          [:<>
+           [:br]
+           [:p {:style {:color "#999" :font-size "0.75rem" :margin-top "1rem" :margin-bottom "0" :max-width "280px" :margin-left "auto" :margin-right "auto" :line-height "1.4"}}
+            "This runs on a small cloud instance that sleeps when idle. If slow at first, it's just waking up!"]
+           [:p {:style {:color "#999" :font-size "0.75rem" :margin-top "0.5rem" :margin-bottom "0" :max-width "280px" :margin-left "auto" :margin-right "auto" :line-height "1.4"}}
+            "Ask an admin for your account!"]])
+        [:div {:style {:margin-top "1rem"}}
+         [:button {:on-click #(swap! app-state assoc :show-beta-modal false)
+                   :style {:padding "0.5rem 1rem"
+                           :cursor "pointer"
+                           :background "#eee"
+                           :border "none"
+                           :border-radius "4px"}}
+          "Close"]]]])))
