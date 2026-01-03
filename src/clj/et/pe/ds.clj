@@ -37,45 +37,40 @@
 (defn list-personas [conn]
   (xtdb2/list-personas conn))
 
-(defn list-identities [conn mind]
-  (xtdb2/list-identities conn mind))
+(defn list-identities [conn persona]
+  (xtdb2/list-identities conn persona))
 
-(defn list-recent-identities [conn mind limit]
-  (xtdb2/list-recent-identities conn mind limit))
+(defn list-recent-identities [conn persona limit]
+  (xtdb2/list-recent-identities conn persona limit))
 
 (defn add-identity
-  "@param mind - persona the identity belongs to
-   @param opts - optional map with :valid-from for explicit valid-time
-   @returns the generated identity id"
-  [conn mind name text & [opts]]
-  (xtdb2/add-identity conn mind name text opts))
+  [conn persona name text & [opts]]
+  (xtdb2/add-identity conn persona name text opts))
 
 (defn update-identity
-  "@param opts - optional map with :valid-from for explicit valid-time"
-  [conn mind id name text & [opts]]
-  (xtdb2/update-identity conn mind id name text opts))
+  [conn persona id name text & [opts]]
+  (xtdb2/update-identity conn persona id name text opts))
 
 (defn get-identity-at
-  "@param at - java.time.Instant for time-travel query"
-  [conn mind id at]
-  (xtdb2/get-identity-at conn mind id at))
+  [conn persona id at]
+  (xtdb2/get-identity-at conn persona id at))
 
 (defn get-identity-history
-  [conn mind id]
-  (xtdb2/get-identity-history conn mind id))
+  [conn persona id]
+  (xtdb2/get-identity-history conn persona id))
 
 (defn add-relation
-  [conn mind source-id target-id & [opts]]
-  (xtdb2/add-relation conn mind source-id target-id opts))
+  [conn persona source-id target-id & [opts]]
+  (xtdb2/add-relation conn persona source-id target-id opts))
 
 (defn list-relations
-  [conn mind source-id & [opts]]
-  (xtdb2/list-relations conn mind source-id opts))
+  [conn persona source-id & [opts]]
+  (xtdb2/list-relations conn persona source-id opts))
 
 (defn delete-relation
-  [conn mind relation-id]
-  (xtdb2/delete-relation conn mind relation-id))
+  [conn persona relation-id]
+  (xtdb2/delete-relation conn persona relation-id))
 
 (defn search-identities
-  [conn mind query & [opts]]
-  (xtdb2/search-identities conn mind query opts))
+  [conn persona query & [opts]]
+  (xtdb2/search-identities conn persona query opts))

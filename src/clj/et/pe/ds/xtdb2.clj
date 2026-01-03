@@ -100,7 +100,7 @@
                 composite-id])))
 
 (defn list-identities
-  [conn {persona-id :id :as _mind}]
+  [conn {persona-id :id :as _persona}]
   (map
    (fn [{id :xt/id nm :identity/name text :identity/text}] {:identity (extract-identity-id id) :name nm :text text})
    (xt/q (:conn conn)
@@ -114,7 +114,7 @@
   (.toEpochMilli (.toInstant zdt)))
 
 (defn list-recent-identities
-  [conn {persona-id :id :as _mind} limit]
+  [conn {persona-id :id :as _persona} limit]
   (let [results (xt/q (:conn conn)
                       ['(fn [persona-id]
                           (-> (from :identities {:bind [persona/id identity/name identity/text xt/id xt/valid-from]
@@ -132,7 +132,7 @@
           sorted)))
 
 (defn add-identity
-  [conn {persona-id :id :as _mind} nm text & [{:keys [valid-from id]}]]
+  [conn {persona-id :id :as _persona} nm text & [{:keys [valid-from id]}]]
   (let [id (or id (keyword (urbit/generate-name)))
         composite-id (make-identity-id persona-id id)]
     (if (get-identity-by-composite-id conn composite-id)
@@ -148,7 +148,7 @@
         id))))
 
 (defn update-identity
-  [conn {persona-id :id :as _mind} id nm text & [{:keys [valid-from]}]]
+  [conn {persona-id :id :as _persona} id nm text & [{:keys [valid-from]}]]
   (xt/execute-tx (:conn conn)
                  [[:put-docs (cond-> {:into :identities}
                                valid-from (assoc :valid-from valid-from))
@@ -158,7 +158,7 @@
                     :identity/text    text}]]))
 
 (defn get-identity-at
-  [conn {persona-id :id :as _mind} id time-point]
+  [conn {persona-id :id :as _persona} id time-point]
   (let [composite-id (make-identity-id persona-id id)
         result (first (xt/q (:conn conn)
                             ['(fn [composite-id time-point]
@@ -171,7 +171,7 @@
       {:identity id :name (:identity/name result) :text (:identity/text result)})))
 
 (defn get-identity-history
-  [conn {persona-id :id :as _mind} id]
+  [conn {persona-id :id :as _persona} id]
   (let [composite-id (make-identity-id persona-id id)
         results (xt/q (:conn conn)
                       ['(fn [composite-id]
@@ -197,7 +197,7 @@
                 relation-id])))
 
 (defn add-relation
-  [conn {persona-id :id :as _mind} source-id target-id & [{:keys [valid-from]}]]
+  [conn {persona-id :id :as _persona} source-id target-id & [{:keys [valid-from]}]]
   (let [relation-id (make-relation-id persona-id source-id target-id)
         source-composite (make-identity-id persona-id source-id)
         target-composite (make-identity-id persona-id target-id)]
@@ -214,7 +214,7 @@
         true))))
 
 (defn list-relations
-  [conn {persona-id :id :as _mind} source-id & [{:keys [at]}]]
+  [conn {persona-id :id :as _persona} source-id & [{:keys [at]}]]
   (let [source-composite (make-identity-id persona-id source-id)
         results (if at
                   (xt/q (:conn conn)
@@ -236,13 +236,13 @@
           results)))
 
 (defn delete-relation
-  [conn {persona-id :id :as _mind} relation-id]
+  [conn {persona-id :id :as _persona} relation-id]
   (let [full-id (keyword (str (name persona-id) "/" relation-id))]
     (xt/execute-tx (:conn conn)
                    [[:delete-docs :relations full-id]])))
 
 (defn search-identities
-  [conn {persona-id :id :as _mind} query & [{:keys [at]}]]
+  [conn {persona-id :id :as _persona} query & [{:keys [at]}]]
   (let [results (if at
                   (xt/q (:conn conn)
                         ['(fn [persona-id time-point]
