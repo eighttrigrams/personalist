@@ -1,4 +1,4 @@
-.PHONY: start start-prod stop restart restart-prod seed test build deploy backup
+.PHONY: start start-prod stop restart restart-prod seed test build deploy backup swap-config-bkp
 
 start:
 	./scripts/start.sh
@@ -29,3 +29,7 @@ deploy:
 
 backup:
 	fly ssh console -C "tar -czf - /app/data" > volume-backup.tar.gz
+
+swap-config-bkp:
+	@mv config.edn config.edn.tmp && mv config.edn.bkp config.edn && mv config.edn.tmp config.edn.bkp
+	@echo "Swapped config.edn <-> config.edn.bkp"
