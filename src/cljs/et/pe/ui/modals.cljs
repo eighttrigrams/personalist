@@ -198,7 +198,7 @@
                        #(swap! app-state assoc :nav-search-results (take 5 %)))))
 
 (defn search-modal []
-  (let [{:keys [show-search-modal nav-search-query nav-search-results search-valid-at identities]} @app-state]
+  (let [{:keys [show-search-modal nav-search-query nav-search-results search-valid-at recent-identities]} @app-state]
     (when show-search-modal
       [:div {:style {:position "fixed"
                      :top 0
@@ -250,16 +250,14 @@
            [:span "Searching identities as of: " search-valid-at]])
         (let [results-to-show (if (seq nav-search-query)
                               nav-search-results
-                              (take 5 identities))]
+                              recent-identities)]
           (if (seq results-to-show)
             [:ul {:style {:list-style "none" :padding 0 :margin 0}}
              (for [result results-to-show]
                ^{:key (:identity result)}
                [:li {:on-click (fn []
-                                 (let [identity-data (first (filter #(= (:identity %) (:identity result)) identities))]
-                                   (when identity-data
-                                     (select-identity identity-data))
-                                   (swap! app-state assoc :show-search-modal false :nav-search-query "" :nav-search-results [] :search-valid-at nil)))
+                                 (select-identity result)
+                                 (swap! app-state assoc :show-search-modal false :nav-search-query "" :nav-search-results [] :search-valid-at nil))
                      :style {:padding "0.75rem"
                              :cursor "pointer"
                              :background "#f5f5f5"

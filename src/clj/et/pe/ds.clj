@@ -40,6 +40,9 @@
 (defn list-identities [conn mind]
   (xtdb2/list-identities conn mind))
 
+(defn list-recent-identities [conn mind limit]
+  (xtdb2/list-recent-identities conn mind limit))
+
 (defn add-identity
   "@param mind - persona the identity belongs to
    @param opts - optional map with :valid-from for explicit valid-time

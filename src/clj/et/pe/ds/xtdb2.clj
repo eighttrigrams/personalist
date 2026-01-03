@@ -110,6 +110,27 @@
                  (return identity/name identity/text xt/id)))
           persona-id])))
 
+(defn- to-millis [zdt]
+  (.toEpochMilli (.toInstant zdt)))
+
+(defn list-recent-identities
+  [conn {persona-id :id :as _mind} limit]
+  (let [results (xt/q (:conn conn)
+                      ['(fn [persona-id]
+                          (-> (from :identities {:bind [identity/mind-id identity/name identity/text xt/id xt/valid-from]
+                                                 :for-valid-time :all-time})
+                              (where (= identity/mind-id persona-id))
+                              (return identity/name identity/text xt/id xt/valid-from)))
+                       persona-id])
+        by-id (group-by :xt/id results)
+        latest-per-id (map (fn [[_ versions]]
+                             (apply max-key #(to-millis (:xt/valid-from %)) versions))
+                           by-id)
+        sorted (take limit (reverse (sort-by #(to-millis (:xt/valid-from %)) latest-per-id)))]
+    (mapv (fn [{id :xt/id nm :identity/name text :identity/text valid-from :xt/valid-from}]
+            {:identity (extract-identity-id id) :name nm :text text :modified-at valid-from})
+          sorted)))
+
 (defn add-identity
   [conn {persona-id :id :as _mind} nm text & [{:keys [valid-from id]}]]
   (let [id (or id (keyword (urbit/generate-name)))
