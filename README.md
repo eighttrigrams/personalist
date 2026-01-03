@@ -11,15 +11,16 @@ The app is publicly accessible under https://personalist.fly.dev.
 Run
 
 ```bash
-$ make start
+$ make start-demo
 ```
 
 Now visit a browser under http://localhost:3017.
 
-To stop afterwards, use
+To stop or restart afterwards, use
 
 ```bash
-$ make stop
+$ make stop-demo
+$ make restart-demo
 ```
 
 ## Use a persistent database

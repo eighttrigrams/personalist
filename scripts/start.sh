@@ -18,9 +18,18 @@ if [ "$1" = "dev" ]; then
   echo $! > .shadow-cljs.pid
   sleep 5
   clojure -X:xtdb
-else
+elif [ "$1" = "demo" ]; then
   echo "Starting in demo mode on port $PORT..."
   echo "Building release JS (no shadow-cljs dev tooling)..."
   npx shadow-cljs release app
   clojure -X:xtdb
+else
+  echo "Starting in production mode on port $PORT..."
+  echo "Building uberjar..."
+  clj -T:build uber
+  echo "Running jar..."
+  java --add-opens=java.base/java.nio=ALL-UNNAMED \
+       -Dio.netty.tryReflectionSetAccessible=true \
+       --enable-native-access=ALL-UNNAMED \
+       -jar target/personalist-0.0.1-standalone.jar
 fi
