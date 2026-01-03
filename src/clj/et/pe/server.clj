@@ -51,6 +51,9 @@
     (reset! ds-conn (ds/init-conn (get @config :db {:type :xtdb2-in-memory}))))
   @ds-conn)
 
+(defn- db-empty? []
+  (empty? (ds/list-personas (ensure-conn))))
+
 (defn- str->keyword [s]
   (if (string? s) (keyword s) s))
 
@@ -327,10 +330,9 @@
 (defn -main
   [& _args]
   (reset! config (load-config))
-  (when (and (or (true? (:re-seed? @config))
-                 (true? (:pre-seed? @config)))
+  (when (and (true? (:re-seed? @config))
              (prod-mode?))
-    (throw (ex-info "Cannot use :pre-seed? or :re-seed? in prod mode" {})))
+    (throw (ex-info "Cannot use :re-seed? in prod mode" {})))
   (when (and (true? (:dangerously-skip-logins? @config))
              (prod-mode?))
     (throw (ex-info "Cannot use :dangerously-skip-logins? in production mode" {})))
@@ -347,10 +349,13 @@
     (prn "Starting server on port" port)
     (run-server port)
     (when (should-pre-seed? @config)
-      (prn "Pre-seed enabled, will auto-seed...")
       (future
         (Thread/sleep 2000)
-        (run-seed-script)))
+        (if (db-empty?)
+          (do
+            (prn "Pre-seed enabled and database empty, seeding...")
+            (run-seed-script))
+          (prn "Pre-seed enabled but database has data, skipping seed"))))
     @(promise)))
 
 (comment
