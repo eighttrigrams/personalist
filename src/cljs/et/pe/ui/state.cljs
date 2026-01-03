@@ -33,7 +33,8 @@
                             :login-error nil
                             :login-persona nil
                             :show-password-modal false
-                            :auth-token nil}))
+                            :auth-token nil
+                            :notification nil}))
 
 (def api-base "")
 
@@ -146,7 +147,10 @@
                                :show-add-identity-modal false)
                         (fetch-identities (:id current-user))
                         (select-identity {:identity generated-id :name name-to-select :text text-to-select})))
-           :error-handler #(js/console.error "Error adding identity" %)})))))
+           :error-handler (fn [err]
+                        (js/console.error "Error adding identity" err)
+                        (swap! app-state assoc :notification {:message "Failed to add identity. Please try again." :type :error})
+                        (js/setTimeout #(swap! app-state assoc :notification nil) 5000))})))))
 
 (defn update-identity [identity-id name text]
   (let [{:keys [current-user]} @app-state]
@@ -157,7 +161,10 @@
        :handler (fn [_]
                   (fetch-identities (:id current-user))
                   (fetch-identity-history identity-id))
-       :error-handler #(js/console.error "Error updating identity" %)})))
+       :error-handler (fn [err]
+                        (js/console.error "Error updating identity" err)
+                        (swap! app-state assoc :notification {:message "Failed to save. Please try again." :type :error})
+                        (js/setTimeout #(swap! app-state assoc :notification nil) 5000))})))
 
 (defn add-relation [source-id]
   (let [{:keys [current-user selected-identity]} @app-state]
@@ -290,3 +297,10 @@
      :response-format :json
      :keywords? true
      :error-handler #(js/console.error "Error generating ID" %)}))
+
+(defn show-notification [message type]
+  (swap! app-state assoc :notification {:message message :type type})
+  (js/setTimeout #(swap! app-state assoc :notification nil) 5000))
+
+(defn dismiss-notification []
+  (swap! app-state assoc :notification nil))

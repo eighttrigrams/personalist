@@ -1,6 +1,6 @@
 (ns et.pe.ui.core
   (:require [reagent.dom.client :as rdc]
-            [et.pe.ui.state :refer [app-state fetch-personas check-password-required logout-user]]
+            [et.pe.ui.state :refer [app-state fetch-personas check-password-required logout-user dismiss-notification]]
             [et.pe.ui.modals :refer [login-modal auth-modal password-modal
                                      search-modal add-relation-modal
                                      add-identity-modal beta-modal]]
@@ -107,6 +107,30 @@
                           :border-radius "4px"}}
          "Login"])]]))
 
+(defn notification-bar []
+  (when-let [{:keys [message type]} (:notification @app-state)]
+    [:div {:style {:position "fixed"
+                   :bottom 0
+                   :left 0
+                   :right 0
+                   :padding "1rem"
+                   :background (case type :error "#f44336" :success "#4CAF50" "#333")
+                   :color "white"
+                   :display "flex"
+                   :justify-content "space-between"
+                   :align-items "center"
+                   :z-index 2000
+                   :box-shadow "0 -2px 10px rgba(0,0,0,0.2)"}}
+     [:span message]
+     [:button {:on-click dismiss-notification
+               :style {:background "transparent"
+                       :border "none"
+                       :color "white"
+                       :font-size "1.2rem"
+                       :cursor "pointer"
+                       :padding "0 0.5rem"}}
+      "\u00D7"]]))
+
 (defn app []
   (let [{:keys [current-tab]} @app-state]
     [:div {:style {:font-family "Arial, sans-serif"}}
@@ -118,6 +142,7 @@
      [add-relation-modal]
      [add-identity-modal]
      [beta-modal]
+     [notification-bar]
      (case current-tab
        :settings [settings-tab]
        [main-tab])]))
