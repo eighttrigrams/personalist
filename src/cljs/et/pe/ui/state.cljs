@@ -10,6 +10,7 @@
                             :show-login-modal false
                             :show-auth-modal false
                             :identities []
+                            :recent-identities []
                             :selected-identity nil
                             :identity-history []
                             :editing-name ""
@@ -86,6 +87,14 @@
      :response-format :json
      :keywords? true
      :error-handler #(js/console.error "Error fetching identities" %)}))
+
+(defn fetch-recent-identities [persona-name]
+  (GET (str api-base "/api/personas/" persona-name "/identities/recent")
+    {:handler (fn [res]
+                (swap! app-state assoc :recent-identities res))
+     :response-format :json
+     :keywords? true
+     :error-handler #(js/console.error "Error fetching recent identities" %)}))
 
 (defn fetch-identity-history [identity-id]
   (let [{:keys [current-user]} @app-state]
@@ -261,10 +270,12 @@
          :current-user persona
          :show-login-modal false
          :identities []
+         :recent-identities []
          :selected-identity nil
          :identity-history [])
   (update-url (:id persona) nil false)
-  (fetch-identities (:id persona)))
+  (fetch-identities (:id persona))
+  (fetch-recent-identities (:id persona)))
 
 (defn login-user [persona]
   (swap! app-state assoc
@@ -276,9 +287,11 @@
          :login-error nil
          :login-persona nil
          :identities []
+         :recent-identities []
          :selected-identity nil
          :identity-history [])
-  (fetch-identities (:id persona)))
+  (fetch-identities (:id persona))
+  (fetch-recent-identities (:id persona)))
 
 (defn attempt-login []
   (let [password (:login-password @app-state)

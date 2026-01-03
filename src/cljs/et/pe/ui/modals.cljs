@@ -198,7 +198,7 @@
                        #(swap! app-state assoc :nav-search-results (take 5 %)))))
 
 (defn search-modal []
-  (let [{:keys [show-search-modal nav-search-query nav-search-results search-valid-at identities]} @app-state]
+  (let [{:keys [show-search-modal nav-search-query nav-search-results search-valid-at recent-identities]} @app-state]
     (when show-search-modal
       [:div {:style {:position "fixed"
                      :top 0
@@ -250,16 +250,14 @@
            [:span "Searching identities as of: " search-valid-at]])
         (let [results-to-show (if (seq nav-search-query)
                               nav-search-results
-                              (take 5 identities))]
+                              recent-identities)]
           (if (seq results-to-show)
             [:ul {:style {:list-style "none" :padding 0 :margin 0}}
              (for [result results-to-show]
                ^{:key (:identity result)}
                [:li {:on-click (fn []
-                                 (let [identity-data (first (filter #(= (:identity %) (:identity result)) identities))]
-                                   (when identity-data
-                                     (select-identity identity-data))
-                                   (swap! app-state assoc :show-search-modal false :nav-search-query "" :nav-search-results [] :search-valid-at nil)))
+                                 (select-identity result)
+                                 (swap! app-state assoc :show-search-modal false :nav-search-query "" :nav-search-results [] :search-valid-at nil))
                      :style {:padding "0.75rem"
                              :cursor "pointer"
                              :background "#f5f5f5"
@@ -451,8 +449,6 @@
           [:<>
            [:br]
            [:p {:style {:color "#999" :font-size "0.75rem" :margin-top "1rem" :margin-bottom "0" :max-width "280px" :margin-left "auto" :margin-right "auto" :line-height "1.4"}}
-            "This runs on a small cloud instance that sleeps when idle. If slow at first, it's just waking up!"]
-           [:p {:style {:color "#999" :font-size "0.75rem" :margin-top "0.5rem" :margin-bottom "0" :max-width "280px" :margin-left "auto" :margin-right "auto" :line-height "1.4"}}
             "Ask an admin for your account!"]])
         [:div {:style {:margin-top "1rem"}}
          [:button {:on-click #(swap! app-state assoc :show-beta-modal false)

@@ -99,6 +99,14 @@
       {:status 200 :body (serialize-response (ds/list-identities (ensure-conn) persona))}
       {:status 404 :body {:error "Persona not found"}})))
 
+(defn list-recent-identities-handler [req]
+  (let [persona-name (str->keyword (get-in req [:params :name]))
+        limit (or (some-> (get-in req [:query-params "limit"]) Integer/parseInt) 5)
+        persona (ds/get-persona-by-id (ensure-conn) persona-name)]
+    (if persona
+      {:status 200 :body (serialize-response (ds/list-recent-identities (ensure-conn) persona limit))}
+      {:status 404 :body {:error "Persona not found"}})))
+
 (defn add-identity-handler [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         {:keys [id name text valid_from]} (:body req)
@@ -108,7 +116,9 @@
                id (assoc :id (keyword id)))]
     (if persona
       (let [generated-id (ds/add-identity (ensure-conn) persona name text (when (seq opts) opts))]
-        {:status 201 :body {:success true :id (clojure.core/name generated-id)}})
+        (if (false? generated-id)
+          {:status 409 :body {:error "Identity with this ID already exists"}}
+          {:status 201 :body {:success true :id (clojure.core/name generated-id)}}))
       {:status 404 :body {:error "Persona not found"}})))
 
 (defn update-identity-handler [req]
@@ -165,9 +175,10 @@
         opts (when valid_from {:valid-from (Instant/parse valid_from)})
         persona (ds/get-persona-by-id (ensure-conn) persona-name)]
     (if persona
-      (do
-        (ds/add-relation (ensure-conn) persona (str->keyword source_id) identity-id opts)
-        {:status 201 :body {:success true}})
+      (let [result (ds/add-relation (ensure-conn) persona (str->keyword source_id) identity-id opts)]
+        (if (false? result)
+          {:status 409 :body {:error "Relation already exists"}}
+          {:status 201 :body {:success true}}))
       {:status 404 :body {:error "Persona not found"}})))
 
 (defn delete-relation-handler [req]
@@ -236,7 +247,7 @@
     (prn "..." id email password)
     (if (allow-skip-logins?)
       {:status 200 :body {:success true :message "No password required"}}
-      (if (= (str->keyword email) :admin)
+      (if (= (str->keyword id) :admin)
         (let [admin-password (if (prod-mode?)
                                (System/getenv "ADMIN_PASSWORD")
                                "admin")]
@@ -281,6 +292,7 @@
     (GET "/auth/required" [] password-required-handler)
     (POST "/auth/login" [] persona-login-handler)
     (GET "/personas/:name/identities" [name] list-identities-handler)
+    (GET "/personas/:name/identities/recent" [name] list-recent-identities-handler)
     (GET "/personas/:name/identities/search" [name] search-identities-handler)
     (POST "/personas/:name/identities" [name] add-identity-handler)
     (PUT "/personas/:name/identities/:id" [name id] update-identity-handler)

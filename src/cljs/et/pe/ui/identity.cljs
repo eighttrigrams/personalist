@@ -111,12 +111,10 @@
       [:div {:style {:padding "2rem"
                      :max-width "800px"
                      :margin "0 auto"}}
-       [:div {:style {:display "flex"
-                      :justify-content "space-between"
-                      :align-items "center"
-                      :margin-bottom "1rem"}}
-        [:span {:style {:color "#666" :font-size "0.9rem"}} (str "Identity: " (:identity selected-identity))]
-        (when can-edit?
+       (when can-edit?
+         [:div {:style {:display "flex"
+                        :justify-content "flex-end"
+                        :margin-bottom "1rem"}}
           [:button {:on-click #(update-identity (:identity selected-identity) editing-name editing-text)
                     :style {:padding "0.5rem 1rem"
                             :cursor "pointer"
@@ -124,7 +122,7 @@
                             :color "white"
                             :border "none"
                             :border-radius "4px"}}
-           "Save"])]
+           "Save"]])
        [time-slider]
        (if can-edit?
          [:<>
@@ -196,14 +194,34 @@
          "Select Persona"]]]
 
       (not selected-identity)
-      [:div {:style {:display "flex"
-                     :justify-content "center"
-                     :align-items "center"
-                     :min-height "calc(100vh - 60px)"
-                     :color "#666"}}
-       [:div {:style {:text-align "center"}}
-        [:p {:style {:font-size "1.2rem" :margin-bottom "1rem"}} "No identity selected"]
-        [:p {:style {:color "#999"}} "Use the search button to browse identities"]]]
+      (let [recent-identities (:recent-identities @app-state)]
+        [:div {:style {:display "flex"
+                       :justify-content "center"
+                       :align-items "center"
+                       :min-height "calc(100vh - 60px)"
+                       :color "#666"}}
+         [:div {:style {:text-align "center" :width "100%" :max-width "400px"}}
+          (if (seq recent-identities)
+            [:<>
+             [:p {:style {:font-size "1.2rem" :margin-bottom "1rem"}} "Recently modified"]
+             [:div {:style {:text-align "left"}}
+              (for [identity recent-identities]
+                ^{:key (:identity identity)}
+                [:div {:style {:padding "0.75rem 1rem"
+                               :margin-bottom "0.5rem"
+                               :background "#f5f5f5"
+                               :border-radius "4px"
+                               :cursor "pointer"}
+                       :on-click #(select-identity identity)}
+                 [:div {:style {:font-weight "500"}} (:name identity)]
+                 [:div {:style {:font-size "0.85rem" :color "#999" :margin-top "0.25rem"}}
+                  (let [text (:text identity)]
+                    (if (> (count text) 60)
+                      (str (subs text 0 60) "...")
+                      text))]])]]
+            [:<>
+             [:p {:style {:font-size "1.2rem" :margin-bottom "1rem"}} "No identity selected"]
+             [:p {:style {:color "#999"}} "Use the search button to browse identities"]])]])
 
       :else
       [:div {:style {:min-height "calc(100vh - 60px)"}}
