@@ -1,31 +1,70 @@
 (ns et.pe.ui.identity
   (:require [et.pe.ui.state :refer [app-state update-identity fetch-identity-at
                                     fetch-relations delete-relation select-identity
-                                    set-editing-mode]]))
+                                    set-editing-mode]]
+            ["marked" :refer [marked]]))
 
 (defn time-slider []
   (let [{:keys [identity-history slider-value selected-identity]} @app-state]
     (when (and selected-identity (seq identity-history))
       (let [history-count (count identity-history)
-            current-entry (get identity-history slider-value)]
+            current-entry (get identity-history slider-value)
+            single-version? (= history-count 1)]
         [:div {:style {:margin-bottom "1rem" :padding "1rem" :background "#f5f5f5" :border-radius "4px"}}
          [:div {:style {:display "flex" :justify-content "space-between" :margin-bottom "0.5rem"}}
-          [:span "Time Travel"]
-          [:span (str "Version " (inc slider-value) " of " history-count)]]
-         [:input {:type "range"
-                  :min 0
-                  :max (dec history-count)
-                  :value slider-value
-                  :on-change #(swap! app-state assoc :slider-value (js/parseInt (-> % .-target .-value)))
-                  :on-mouse-up (fn [_]
-                                 (let [entry (get identity-history (:slider-value @app-state))]
-                                   (when entry
-                                     (fetch-identity-at (:identity selected-identity) (:valid-from entry))
-                                     (fetch-relations (:identity selected-identity) (:valid-from entry)))))
-                  :style {:width "100%"}}]
+          (when-not single-version?
+            [:span "Time Travel"])
+          [:span (if single-version?
+                   "Version 1"
+                   (str "Version " (inc slider-value) " of " history-count))]]
+         (when-not single-version?
+           [:input {:type "range"
+                    :min 0
+                    :max (dec history-count)
+                    :value slider-value
+                    :on-change #(swap! app-state assoc :slider-value (js/parseInt (-> % .-target .-value)))
+                    :on-mouse-up (fn [_]
+                                   (let [entry (get identity-history (:slider-value @app-state))]
+                                     (when entry
+                                       (fetch-identity-at (:identity selected-identity) (:valid-from entry))
+                                       (fetch-relations (:identity selected-identity) (:valid-from entry)))))
+                    :style {:width "100%"}}])
          (when current-entry
            [:div {:style {:font-size "0.8rem" :color "#666" :margin-top "0.5rem"}}
-            "Valid from: " (:valid-from current-entry)])]))))
+            (if single-version? "Created: " "Valid from: ") (:valid-from current-entry)])]))))
+
+(defn editor-tab-switcher []
+  (let [{:keys [text-editor-mode]} @app-state]
+    [:div {:style {:display "flex" :margin-bottom "0.5rem"}}
+     [:button {:on-click #(swap! app-state assoc :text-editor-mode :edit)
+               :style {:padding "0.5rem 1rem"
+                       :cursor "pointer"
+                       :background (if (= text-editor-mode :edit) "#4CAF50" "#e0e0e0")
+                       :color (if (= text-editor-mode :edit) "white" "#333")
+                       :border "none"
+                       :border-radius "4px 0 0 4px"
+                       :font-size "0.9rem"}}
+      "Edit"]
+     [:button {:on-click #(swap! app-state assoc :text-editor-mode :view)
+               :style {:padding "0.5rem 1rem"
+                       :cursor "pointer"
+                       :background (if (= text-editor-mode :view) "#4CAF50" "#e0e0e0")
+                       :color (if (= text-editor-mode :view) "white" "#333")
+                       :border "none"
+                       :border-radius "0 4px 4px 0"
+                       :font-size "0.9rem"}}
+      "View"]]))
+
+(defn markdown-preview [text]
+  [:div {:style {:width "100%"
+                 :min-height "200px"
+                 :padding "0.75rem"
+                 :font-size "1rem"
+                 :border "1px solid #ccc"
+                 :border-radius "4px"
+                 :background "#fafafa"
+                 :overflow "auto"}
+         :dangerouslySetInnerHTML {:__html (marked (or text ""))}}])
 
 (defn relations-list []
   (let [{:keys [relations identities auth-user]} @app-state
@@ -62,7 +101,7 @@
        [:p {:style {:color "#666" :font-style "italic" :margin 0}} "No linked identities yet"])]))
 
 (defn identity-editor []
-  (let [{:keys [selected-identity editing-name editing-text auth-user]} @app-state
+  (let [{:keys [selected-identity editing-name editing-text auth-user text-editor-mode]} @app-state
         can-edit? (some? auth-user)]
     (when selected-identity
       [:div {:style {:padding "2rem"
@@ -98,17 +137,21 @@
                            :border "1px solid #ccc"
                            :border-radius "4px"
                            :margin-bottom "0.5rem"}}]
-          [:textarea {:value editing-text
-                      :on-change #(swap! app-state assoc :editing-text (-> % .-target .-value))
-                      :on-focus #(set-editing-mode true)
-                      :on-blur #(set-editing-mode false)
-                      :style {:width "100%"
-                              :height "200px"
-                              :padding "0.75rem"
-                              :font-size "1rem"
-                              :border "1px solid #ccc"
-                              :border-radius "4px"
-                              :resize "vertical"}}]
+          [editor-tab-switcher]
+          (if (= text-editor-mode :edit)
+            [:textarea {:value editing-text
+                        :on-change #(swap! app-state assoc :editing-text (-> % .-target .-value))
+                        :on-focus #(set-editing-mode true)
+                        :on-blur #(set-editing-mode false)
+                        :style {:width "100%"
+                                :height "200px"
+                                :padding "0.75rem"
+                                :font-size "1rem"
+                                :font-family "monospace"
+                                :border "1px solid #ccc"
+                                :border-radius "4px"
+                                :resize "vertical"}}]
+            [markdown-preview editing-text])
           [:div {:style {:display "flex" :gap "0.5rem" :margin-top "1rem"}}
            [:button {:on-click #(swap! app-state assoc :show-add-relation-modal true)
                      :style {:padding "0.5rem 1rem"
@@ -119,24 +162,12 @@
                              :border-radius "4px"}}
             "\u221E"]]]
          [:<>
-          [:div {:style {:width "100%"
-                         :padding "0.75rem"
-                         :font-size "1.2rem"
+          [:div {:style {:font-size "1.2rem"
                          :font-weight "bold"
-                         :border "1px solid #ccc"
-                         :border-radius "4px"
-                         :background "#fafafa"
                          :margin-bottom "0.5rem"}}
            editing-name]
-          [:div {:style {:width "100%"
-                         :min-height "200px"
-                         :padding "0.75rem"
-                         :font-size "1rem"
-                         :border "1px solid #ccc"
-                         :border-radius "4px"
-                         :background "#fafafa"
-                         :white-space "pre-wrap"}}
-           editing-text]])
+          [:div {:style {:font-size "1rem"}
+                 :dangerouslySetInnerHTML {:__html (marked (or editing-text ""))}}]])
        [relations-list]])))
 
 (defn main-tab []

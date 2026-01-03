@@ -22,6 +22,7 @@
   },
   "homepage": "https://github.com/eighttrigrams/personalist#readme",
   "dependencies": {
+    "marked": "^17.0.1",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "shadow-cljs": "^3.3.4"

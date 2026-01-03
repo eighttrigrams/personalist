@@ -34,7 +34,8 @@
                             :login-persona nil
                             :show-password-modal false
                             :auth-token nil
-                            :notification nil}))
+                            :notification nil
+                            :text-editor-mode :edit}))
 
 (def api-base "")
 
