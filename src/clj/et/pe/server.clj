@@ -18,19 +18,22 @@
 (defonce ds-conn (atom nil))
 (defonce config (atom nil))
 
-(def prod-mode?
-  (let [on-fly? (some? (System/getenv "FLY_APP_NAME"))
-        dev-mode? (= "true" (System/getenv "DEV"))
-        admin-pw (System/getenv "ADMIN_PASSWORD")]
-    (cond
-      (or on-fly? (not dev-mode?))
-      (do (when-not admin-pw
-            (throw (ex-info "ADMIN_PASSWORD required in production" {})))
-          true)
-      admin-pw
-      true
-      :else
-      false)))
+(def prod-mode?*
+  (delay
+    (let [on-fly? (some? (System/getenv "FLY_APP_NAME"))
+          dev-mode? (= "true" (System/getenv "DEV"))
+          admin-pw (System/getenv "ADMIN_PASSWORD")]
+      (cond
+        (or on-fly? (not dev-mode?))
+        (do (when-not admin-pw
+              (throw (ex-info "ADMIN_PASSWORD required in production" {})))
+            true)
+        admin-pw
+        true
+        :else
+        false))))
+
+(defn prod-mode? [] @prod-mode?*)
 
 (defn- load-config []
   (let [config-file (io/file "config.edn")]
@@ -73,8 +76,8 @@
     (POST "/personas" [] handlers/add-persona-handler)
     (PUT "/personas/:name" [name] handlers/update-persona-handler)
     (GET "/generate-id" [] handlers/generate-id-handler)
-    (GET "/auth/required" [] (handlers/password-required-handler prod-mode?))
-    (POST "/auth/login" [] (handlers/persona-login-handler prod-mode?))
+    (GET "/auth/required" [] (handlers/password-required-handler (prod-mode?)))
+    (POST "/auth/login" [] (handlers/persona-login-handler (prod-mode?)))
     (GET "/personas/:name/identities" [name] handlers/list-identities-handler)
     (GET "/personas/:name/identities/recent" [name] handlers/list-recent-identities-handler)
     (GET "/personas/:name/identities/search" [name] handlers/search-identities-handler)
@@ -114,10 +117,10 @@
 
 (defn wrap-auth [handler]
   (fn [req]
-    (if (and prod-mode? 
+    (if (and (prod-mode?)
              (mutating-request? req)
-              (str/starts-with? (or (:uri req) "") "/api")
-              (not (public-endpoint? req)))
+             (str/starts-with? (or (:uri req) "") "/api")
+             (not (public-endpoint? req)))
       (if-let [token (extract-token req)]
         (if (handlers/verify-token-check token)
           (handler req)
@@ -146,20 +149,20 @@
 
 (defn- ensure-valid-options [config]
   (when (and (true? (:pre-seed? config))
-             prod-mode?)
+             (prod-mode?))
     (throw (ex-info "Cannot use :pre-seed? in prod mode" {})))
   (when (and (true? (:dangerously-skip-logins? config))
-             prod-mode?)
+             (prod-mode?))
     (throw (ex-info "Cannot use :dangerously-skip-logins? in production mode" {}))))
 
 (defn -main
   [& _args]
   (reset! config (load-config))
   (handlers/set-config! @config)
-  (tel/log! :info ["Starting system in" (if prod-mode? "production" "development") "mode"])
+  (tel/log! :info ["Starting system in" (if (prod-mode?) "production" "development") "mode"])
   (ensure-valid-options @config)
   (ensure-conn)
-  (when-not prod-mode?
+  (when-not (prod-mode?)
     (let [nrepl-port (Integer/parseInt (or (System/getenv "NREPL_PORT") "7888"))]
       (nrepl/start-server :port nrepl-port)
       (spit ".nrepl-port" nrepl-port)
