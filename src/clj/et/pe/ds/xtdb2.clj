@@ -15,15 +15,15 @@
   [{:keys [conn]}]
   (.close conn))
 
-(defn- convert-persona [{id :xt/id email :persona/email display-name :persona/display-name :as persona}]
+(defn- convert-persona [{id :xt/id email :persona/email persona-name :persona/name :as persona}]
   (when-not (nil? persona)
-    {:id id :email email :display-name (or display-name (clojure.core/name id))}))
+    {:id id :email email :name (or persona-name (clojure.core/name id))}))
 
 (defn get-persona-by-id-or-email
   [conn id email]
   (map convert-persona (xt/q (:conn conn)
                              ['(fn [id email]
-                                 (-> (from :personas [xt/id persona/email persona/display-name])
+                                 (-> (from :personas [xt/id persona/email persona/name])
                                      (where (or (= xt/id id)
                                                 (= persona/email email)))))
                               id email])))
@@ -32,7 +32,7 @@
   [conn id]
   (convert-persona (first (xt/q (:conn conn)
                                 ['(fn [id]
-                                    (-> (from :personas [xt/id persona/email persona/display-name])
+                                    (-> (from :personas [xt/id persona/email persona/name])
                                         (where (= xt/id id))))
                                  id]))))
 
@@ -41,21 +41,21 @@
   (convert-persona
    (first (xt/q (:conn conn)
                 ['(fn [email]
-                    (-> (from :personas [xt/id persona/email persona/display-name])
+                    (-> (from :personas [xt/id persona/email persona/name])
                         (where (= persona/email email))))
                  email]))))
 
 (defn add-persona
-  [conn id email password-hash display-name]
+  [conn id email password-hash persona-name]
   (if (seq (get-persona-by-id-or-email conn id email))
     false
-    (xt/execute-tx (:conn conn) [[:put-docs :personas (cond-> {:xt/id                id
-                                                               :persona/email        email
-                                                               :persona/display-name (or display-name (clojure.core/name id))}
+    (xt/execute-tx (:conn conn) [[:put-docs :personas (cond-> {:xt/id         id
+                                                               :persona/email email
+                                                               :persona/name  (or persona-name (clojure.core/name id))}
                                                         password-hash (assoc :persona/password-hash password-hash))]])))
 
 (defn update-persona
-  [conn id {:keys [email display-name]}]
+  [conn id {:keys [email name]}]
   (let [current (get-persona-by-id conn id)]
     (if-not current
       nil
@@ -66,7 +66,7 @@
           (do
             (xt/execute-tx (:conn conn) [[:put-docs :personas {:xt/id                id
                                                                :persona/email        new-email
-                                                               :persona/display-name (or display-name (:display-name current))
+                                                               :persona/name (or name (:name current))
                                                                :persona/password-hash (:persona/password-hash current)}]])
             {:success true}))))))
 
@@ -81,7 +81,7 @@
 
 (defn list-personas
   [conn]
-  (map convert-persona (xt/q (:conn conn) '(from :personas [xt/id persona/email persona/display-name]))))
+  (map convert-persona (xt/q (:conn conn) '(from :personas [xt/id persona/email persona/name]))))
 
 (defn- make-identity-id [persona-id id]
   (keyword (str (name persona-id) "/" (name id))))

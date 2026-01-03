@@ -48,19 +48,19 @@
    (sets-are=
     [{:id  :dan
       :email "d@et.n"
-      :display-name "dan"}
+      :name "dan"}
      {:id  :dan2
       :email "d2@et.n"
-      :display-name "dan2"}]
+      :name "dan2"}]
     (ds/list-personas conn))
    (are=
     {:id  :dan
      :email "d@et.n"
-     :display-name "dan"}
+     :name "dan"}
     (ds/get-persona-by-id conn :dan)
     {:id  :dan2
      :email "d2@et.n"
-     :display-name "dan2"}
+     :name "dan2"}
     (ds/get-persona-by-email conn "d2@et.n"))))
 
 (deftest identities

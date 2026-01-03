@@ -69,20 +69,20 @@
    :body (serialize-response (ds/list-personas (ensure-conn)))})
 
 (defn add-persona-handler [req]
-  (let [{:keys [id email password display_name]} (:body req)
+  (let [{:keys [id email password name]} (:body req)
         password-hash (when (seq password) (hashers/derive password))
-        result (ds/add-persona (ensure-conn) (str->keyword id) email password-hash display_name)]
+        result (ds/add-persona (ensure-conn) (str->keyword id) email password-hash name)]
     (if result
       {:status 201 :body {:success true}}
       {:status 400 :body {:success false :error "Persona already exists"}})))
 
 (defn update-persona-handler [req]
-  (let [persona-name (str->keyword (get-in req [:params :name]))
-        {:keys [email display_name]} (:body req)
+  (let [persona-id (str->keyword (get-in req [:params :name]))
+        {:keys [email name]} (:body req)
         updates (cond-> {}
                   email (assoc :email email)
-                  display_name (assoc :display-name display_name))
-        result (ds/update-persona (ensure-conn) persona-name updates)]
+                  name (assoc :name name))
+        result (ds/update-persona (ensure-conn) persona-id updates)]
     (cond
       (nil? result) {:status 404 :body {:success false :error "Persona not found"}}
       (:error result) {:status 400 :body {:success false :error "Email already exists"}}

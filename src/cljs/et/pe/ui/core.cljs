@@ -367,7 +367,7 @@
           "Change"]])
       (when logged-in?
         [:<>
-         [:span (str "Logged in: " (or (:display-name auth-user) (:id auth-user)))]
+         [:span (str "Logged in: " (or (:name auth-user) (:id auth-user)))]
          [:button {:on-click logout-user
                    :style {:padding "0.5rem 1rem" :cursor "pointer"}}
           "Logout"]])
@@ -426,7 +426,7 @@
                              :transition "background 0.2s"}
                      :on-mouse-over #(set! (.-background (.-style (.-target %))) "#e0e0e0")
                      :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
-                [:strong (or (:display-name p) (:id p))]]))]
+                [:strong (or (:name p) (:id p))]]))]
           [:p {:style {:color "#666" :font-style "italic"}}
            "No personas yet. Add one in Users tab."])
         [:button {:on-click #(swap! app-state assoc :show-login-modal false)
@@ -511,7 +511,7 @@
                               :transition "background 0.2s"}
                       :on-mouse-over #(set! (.-background (.-style (.-target %))) "#e0e0e0")
                       :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
-                 [:strong (or (:display-name p) (:id p))]])]
+                 [:strong (or (:name p) (:id p))]])]
              [:p {:style {:color "#666" :font-style "italic"}}
               "No personas yet."])
            [:button {:on-click #(swap! app-state assoc :show-auth-modal false)
@@ -540,7 +540,7 @@
                       :min-width "300px"
                       :max-width "400px"}
               :on-click #(.stopPropagation %)}
-        [:h2 {:style {:margin-top 0}} (str "Login as " (or (:display-name login-persona) (:id login-persona)))]
+        [:h2 {:style {:margin-top 0}} (str "Login as " (or (:name login-persona) (:id login-persona)))]
         [:p {:style {:color "#666"}} "Enter your password:"]
         [:input {:type "password"
                  :value login-password
@@ -1053,7 +1053,7 @@
                                      {:params {:id name-val
                                                :email email-val
                                                :password password-val
-                                               :display_name (if (seq display-name-val) display-name-val name-val)}
+                                               :name (if (seq display-name-val) display-name-val name-val)}
                                       :format :json
                                       :handler (fn [_]
                                                  (when @name-ref (set! (.-value @name-ref) ""))
@@ -1067,7 +1067,7 @@
 
 (defn- persona-row [p]
   (let [editing? (r/atom false)
-        edit-display-name (r/atom (or (:display-name p) (:id p)))
+        edit-display-name (r/atom (or (:name p) (:id p)))
         edit-email (r/atom (:email p))
         error (r/atom nil)]
     (fn [p]
@@ -1109,7 +1109,7 @@
                                        :else
                                        (update-persona
                                         (:id p)
-                                        {:email new-email :display_name new-display-name}
+                                        {:email new-email :name new-display-name}
                                         (fn []
                                           (reset! editing? false)
                                           (reset! error nil)
@@ -1119,13 +1119,13 @@
                        :style {:padding "0.25rem 0.5rem" :cursor "pointer" :background "#4CAF50" :color "white" :border "none" :border-radius "4px"}}
               "Save"]
              [:button {:on-click #(do (reset! editing? false)
-                                      (reset! edit-display-name (or (:display-name p) (:id p)))
+                                      (reset! edit-display-name (or (:name p) (:id p)))
                                       (reset! edit-email (:email p))
                                       (reset! error nil))
                        :style {:padding "0.25rem 0.5rem" :cursor "pointer"}}
               "Cancel"]]]
            [:div {:style {:display "flex" :align-items "center" :gap "0.5rem"}}
-            [:strong {:style {:min-width "100px"}} (or (:display-name p) (:id p))]
+            [:strong {:style {:min-width "100px"}} (or (:name p) (:id p))]
             [:span {:style {:flex 1 :color "#666"}} (:email p)]
             (when (not= (:id p) "admin")
               [:button {:on-click #(reset! editing? true)

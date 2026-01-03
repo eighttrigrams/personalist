@@ -45,5 +45,6 @@ else
     echo "Starting with shadow-cljs release (no hot reload)..."
     npx shadow-cljs release app
   fi
+  export DEV=true
   clojure -X:xtdb
 fi
