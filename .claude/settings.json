@@ -2,9 +2,7 @@
   "permissions": {
     "allow": [
       "WebSearch",
-      "Bash(PORT=3017 clojure:*)",
-      "Bash(clj -M:test:*)",
-      "Bash(PORT=3017 timeout 20 clojure:*)",
+      "Bash(make test)",
       "WebFetch(domain:docs.xtdb.com)",
       "Bash(npm init:*)",
       "Bash(npm install:*)",
@@ -14,7 +12,7 @@
       "Write(src/**)",
       "Bash(fly logs:*)",
       "Bash(fly deploy:*)",
-      "Bash(fly volumes list:*)",
+      "Bash(make deploy)",
       "Bash(./scripts/stop.sh)",
       "Bash(./scripts/start.sh)",
       "Bash(./scripts/seed-db.sh)"
