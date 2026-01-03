@@ -38,9 +38,9 @@
                              :border-radius "4px"
                              :margin-bottom "0.5rem"
                              :transition "background 0.2s"}
-                     :on-mouse-over #(set! (.-background (.-style (.-target %))) "#e0e0e0")
-                     :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
-                [:div {:style {:display "flex" :justify-content "space-between" :align-items "center"}}
+                     :on-mouse-over #(set! (.-background (.-style (.-currentTarget %))) "#e0e0e0")
+                     :on-mouse-out #(set! (.-background (.-style (.-currentTarget %))) "#f5f5f5")}
+                [:div {:style {:display "flex" :justify-content "space-between" :align-items "center" :pointer-events "none"}}
                  [:strong (or (:name p) (:id p))]
                  [:span {:style {:color "#888" :font-size "0.85rem" :font-family "monospace"}} (:id p)]]]))]
           [:p {:style {:color "#666" :font-style "italic"}}
@@ -125,9 +125,9 @@
                               :border-radius "4px"
                               :margin-bottom "0.5rem"
                               :transition "background 0.2s"}
-                      :on-mouse-over #(set! (.-background (.-style (.-target %))) "#e0e0e0")
-                      :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
-                 [:div {:style {:display "flex" :justify-content "space-between" :align-items "center"}}
+                      :on-mouse-over #(set! (.-background (.-style (.-currentTarget %))) "#e0e0e0")
+                      :on-mouse-out #(set! (.-background (.-style (.-currentTarget %))) "#f5f5f5")}
+                 [:div {:style {:display "flex" :justify-content "space-between" :align-items "center" :pointer-events "none"}}
                   [:strong (or (:name p) (:id p))]
                   [:span {:style {:color "#888" :font-size "0.85rem" :font-family "monospace"}} (:id p)]]])]
              [:p {:style {:color "#666" :font-style "italic"}}
@@ -264,9 +264,9 @@
                              :border-radius "4px"
                              :margin-bottom "0.5rem"
                              :transition "background 0.2s"}
-                     :on-mouse-over #(set! (.-background (.-style (.-target %))) "#e0e0e0")
-                     :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
-                [:span (:name result)]])]
+                     :on-mouse-over #(set! (.-background (.-style (.-currentTarget %))) "#e0e0e0")
+                     :on-mouse-out #(set! (.-background (.-style (.-currentTarget %))) "#f5f5f5")}
+                [:span {:style {:pointer-events "none"}} (:name result)]])]
             (when (seq nav-search-query)
               [:p {:style {:color "#666" :font-style "italic"}} "No results found"])))
         [:button {:on-click #(swap! app-state assoc :show-search-modal false :nav-search-query "" :nav-search-results [] :search-valid-at nil)
@@ -327,9 +327,9 @@
                              :border-radius "4px"
                              :margin-bottom "0.5rem"
                              :transition "background 0.2s"}
-                     :on-mouse-over #(set! (.-background (.-style (.-target %))) "#e0e0e0")
-                     :on-mouse-out #(set! (.-background (.-style (.-target %))) "#f5f5f5")}
-                [:span (:name result)]]))])
+                     :on-mouse-over #(set! (.-background (.-style (.-currentTarget %))) "#e0e0e0")
+                     :on-mouse-out #(set! (.-background (.-style (.-currentTarget %))) "#f5f5f5")}
+                [:span {:style {:pointer-events "none"}} (:name result)]]))])
         [:button {:on-click #(swap! app-state assoc :show-add-relation-modal false :relation-search-query "" :relation-search-results [])
                   :style {:margin-top "1rem"
                           :padding "0.5rem 1rem"
