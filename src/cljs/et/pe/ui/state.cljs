@@ -298,10 +298,13 @@
                         (swap! app-state assoc :login-error "Invalid password"))})))
 
 (defn attempt-email-login []
-  (let [email (:login-email @app-state)
-        password (:login-password @app-state)]
+  (let [input (:login-email @app-state)
+        password (:login-password @app-state)
+        params (if (valid-email? input)
+                 {:email input :password password}
+                 {:id input :password password})]
     (POST (str api-base "/api/auth/login")
-      {:params {:email email :password password}
+      {:params params
        :format :json
        :response-format :json
        :keywords? true
