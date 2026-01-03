@@ -1,8 +1,8 @@
 (ns et.pe.ds.xtdb2
   (:require [xtdb.api :as xt]
             [xtdb.node :as xtn]
-            [clojure.string :as str])
-  (:import [java.util UUID]))
+            [clojure.string :as str]
+            [et.pe.urbit :as urbit]))
 
 (defn init-conn
   [{:keys [type path] :or {path "data/xtdb"}}]
@@ -91,6 +91,14 @@
         idx (.lastIndexOf s "/")]
     (keyword (subs s (inc idx)))))
 
+(defn- get-identity-by-composite-id
+  [conn composite-id]
+  (first (xt/q (:conn conn)
+               ['(fn [composite-id]
+                   (-> (from :identities [xt/id])
+                       (where (= xt/id composite-id))))
+                composite-id])))
+
 (defn list-identities
   [conn {persona-id :id :as _mind}]
   (map
@@ -104,15 +112,19 @@
 
 (defn add-identity
   [conn {persona-id :id :as _mind} nm text & [{:keys [valid-from id]}]]
-  (let [id (or id (keyword (str (UUID/randomUUID))))]
-    (xt/execute-tx (:conn conn)
-                   [[:put-docs (cond-> {:into :identities}
-                                 valid-from (assoc :valid-from valid-from))
-                     {:xt/id            (make-identity-id persona-id id)
-                      :identity/mind-id persona-id
-                      :identity/name    nm
-                      :identity/text    text}]])
-    id))
+  (let [id (or id (keyword (urbit/generate-name)))
+        composite-id (make-identity-id persona-id id)]
+    (if (get-identity-by-composite-id conn composite-id)
+      false
+      (do
+        (xt/execute-tx (:conn conn)
+                       [[:put-docs (cond-> {:into :identities}
+                                     valid-from (assoc :valid-from valid-from))
+                         {:xt/id            composite-id
+                          :identity/mind-id persona-id
+                          :identity/name    nm
+                          :identity/text    text}]])
+        id))))
 
 (defn update-identity
   [conn {persona-id :id :as _mind} id nm text & [{:keys [valid-from]}]]
@@ -155,18 +167,30 @@
 (defn- make-relation-id [persona-id source-id target-id]
   (keyword (str (name persona-id) "/rel-" (name source-id) "->" (name target-id))))
 
+(defn- get-relation-by-id
+  [conn relation-id]
+  (first (xt/q (:conn conn)
+               ['(fn [relation-id]
+                   (-> (from :relations [xt/id])
+                       (where (= xt/id relation-id))))
+                relation-id])))
+
 (defn add-relation
   [conn {persona-id :id :as _mind} source-id target-id & [{:keys [valid-from]}]]
   (let [relation-id (make-relation-id persona-id source-id target-id)
         source-composite (make-identity-id persona-id source-id)
         target-composite (make-identity-id persona-id target-id)]
-    (xt/execute-tx (:conn conn)
-                   [[:put-docs (cond-> {:into :relations}
-                                 valid-from (assoc :valid-from valid-from))
-                     {:xt/id             relation-id
-                      :relation/source   source-composite
-                      :relation/target   target-composite
-                      :relation/mind-id  persona-id}]])))
+    (if (get-relation-by-id conn relation-id)
+      false
+      (do
+        (xt/execute-tx (:conn conn)
+                       [[:put-docs (cond-> {:into :relations}
+                                     valid-from (assoc :valid-from valid-from))
+                         {:xt/id             relation-id
+                          :relation/source   source-composite
+                          :relation/target   target-composite
+                          :relation/mind-id  persona-id}]])
+        true))))
 
 (defn list-relations
   [conn {persona-id :id :as _mind} target-id & [{:keys [at]}]]

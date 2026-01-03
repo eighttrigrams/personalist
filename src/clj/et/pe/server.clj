@@ -108,7 +108,9 @@
                id (assoc :id (keyword id)))]
     (if persona
       (let [generated-id (ds/add-identity (ensure-conn) persona name text (when (seq opts) opts))]
-        {:status 201 :body {:success true :id (clojure.core/name generated-id)}})
+        (if (false? generated-id)
+          {:status 409 :body {:error "Identity with this ID already exists"}}
+          {:status 201 :body {:success true :id (clojure.core/name generated-id)}}))
       {:status 404 :body {:error "Persona not found"}})))
 
 (defn update-identity-handler [req]
@@ -165,9 +167,10 @@
         opts (when valid_from {:valid-from (Instant/parse valid_from)})
         persona (ds/get-persona-by-id (ensure-conn) persona-name)]
     (if persona
-      (do
-        (ds/add-relation (ensure-conn) persona (str->keyword source_id) identity-id opts)
-        {:status 201 :body {:success true}})
+      (let [result (ds/add-relation (ensure-conn) persona (str->keyword source_id) identity-id opts)]
+        (if (false? result)
+          {:status 409 :body {:error "Relation already exists"}}
+          {:status 201 :body {:success true}}))
       {:status 404 :body {:error "Persona not found"}})))
 
 (defn delete-relation-handler [req]
