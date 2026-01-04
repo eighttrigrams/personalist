@@ -266,7 +266,11 @@
                       (swap! app-state assoc
                              :current-user persona
                              :identities []
+                             :recent-identities []
+                             :recent-identities-offset 0
+                             :recent-identities-has-more false
                              :selected-identity nil)
+                      (fetch-recent-identities persona-id)
                       (GET (str api-base "/api/personas/" persona-id "/identities")
                         {:handler (fn [identities]
                                     (swap! app-state assoc :identities identities)
