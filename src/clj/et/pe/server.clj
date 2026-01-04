@@ -9,7 +9,6 @@
             [ring.middleware.json :refer [wrap-json-response wrap-json-body]]
             [ring.middleware.params :refer [wrap-params]]
             [ring.middleware.cors :refer [wrap-cors]]
-            [et.pe.middleware.rate-limit :refer [wrap-rate-limit]]
             [et.pe.server.handlers :as handlers]
             [nrepl.server :as nrepl]
             [taoensso.telemere :as tel])
@@ -160,7 +159,7 @@
   (fn [req]
     (if (shadow-mode?)
       (base-app req)
-      ((wrap-rate-limit base-app) req))))
+      ((handlers/wrap-rate-limit base-app) req))))
 
 (defn- run-server [port]
   (let [host (or (System/getenv "HOST") "127.0.0.1")]

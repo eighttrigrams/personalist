@@ -1,7 +1,9 @@
 (ns et.pe.server.handlers
   (:require [et.pe.ds :as ds]
             [et.pe.urbit :as urbit]
+            [et.pe.middleware.rate-limit :as rate-limit]
             [clojure.walk]
+            [clojure.tools.logging :as log]
             [buddy.hashers :as hashers]
             [buddy.sign.jwt :as jwt])
   (:import [java.time Instant ZonedDateTime]))
@@ -236,3 +238,44 @@
 
           :else
           (recur (inc attempts)))))))
+
+(defn- get-client-ip [request]
+  (or (get-in request [:headers "fly-client-ip"])
+      (get-in request [:headers "x-real-ip"])
+      (:remote-addr request)
+      "unknown"))
+
+(defn- parse-int-from-env-var [env-var default]
+  (if-let [s (System/getenv env-var)]
+    (try (Integer/parseInt s)
+         (catch Exception _e
+           (log/warn "Failed to parse int from" env-var "=" s "- using default" default)
+           default))
+    default))
+
+(defn wrap-rate-limit [handler]
+  (let [limiter (rate-limit/create-limiter)
+        global-max (parse-int-from-env-var "GLOBAL_RATE_LIMIT" 180)
+        ip-max (parse-int-from-env-var "PER_IP_RATE_LIMIT" 60)
+        window-ms 60000]
+    (fn [request]
+      (let [now-ms (System/currentTimeMillis)
+            client-ip (get-client-ip request)
+            ip-ok? (rate-limit/check-ip-allowed limiter client-ip ip-max window-ms now-ms)
+            global-ok? (when ip-ok?
+                         (rate-limit/check-global-allowed limiter global-max window-ms now-ms))]
+        (cond
+          (not ip-ok?)
+          (do
+            (when (rate-limit/should-warn-ip? limiter client-ip now-ms)
+              (log/warn "Rate limit exceeded for IP:" client-ip))
+            {:status 429 :headers {"Content-Length" "0"} :body ""})
+
+          (not global-ok?)
+          (do
+            (when (rate-limit/should-warn-global? limiter now-ms)
+              (log/warn "Global rate limit exceeded, triggered by IP:" client-ip))
+            {:status 429 :headers {"Content-Length" "0"} :body ""})
+
+          :else
+          (handler request))))))
