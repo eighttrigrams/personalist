@@ -79,11 +79,22 @@
           "\uD83D\uDD0D"])]]
      [:div {:style {:display "flex" :align-items "center" :gap "1rem"}}
       (when (and (not logged-in?) current-user)
-        [:<>
+        [:div {:style {:display "flex" :align-items "center" :gap "0.5rem"}}
          [:span (str "Persona: " (:name current-user))]
-         [:button {:on-click #(swap! app-state assoc :current-user nil :identities [] :selected-identity nil)
-                   :style {:padding "0.5rem 1rem" :cursor "pointer"}}
-          "Change"]])
+         [:span {:on-click #(do (swap! app-state assoc :current-user nil :identities [] :selected-identity nil)
+                                (.pushState js/history nil "" "/"))
+                 :style {:width "18px"
+                         :height "18px"
+                         :border-radius "50%"
+                         :background "#999"
+                         :color "white"
+                         :font-size "12px"
+                         :display "flex"
+                         :align-items "center"
+                         :justify-content "center"
+                         :cursor "pointer"
+                         :line-height "1"}}
+          "\u00D7"]])
       (when logged-in?
         [:<>
          [:span (str "Logged in: " (or (:name auth-user) (:id auth-user)))]
