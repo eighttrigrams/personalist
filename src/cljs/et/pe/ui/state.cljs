@@ -125,16 +125,42 @@
      :keywords? true
      :error-handler #(js/console.error "Error fetching recent identities" %)}))
 
-(defn fetch-identity-history [identity-id]
-  (let [{:keys [current-user]} @app-state]
-    (GET (str api-base "/api/personas/" (:id current-user) "/identities/" identity-id "/history")
-      {:handler (fn [res]
-                  (swap! app-state assoc :identity-history res)
-                  (when (seq res)
-                    (swap! app-state assoc :slider-value (dec (count res)))))
-       :response-format :json
-       :keywords? true
-       :error-handler #(js/console.error "Error fetching history" %)})))
+(defn- normalize-time [t]
+  (when t
+    (-> t
+        (str/replace #"Z$" "")
+        (str/replace #"\.\d+$" ""))))
+
+(defn- find-slider-index-for-time [history time-str]
+  (if (or (nil? time-str) (empty? history))
+    (dec (count history))
+    (let [norm-time (normalize-time time-str)
+          indexed (map-indexed vector history)
+          matching (filter (fn [[_ entry]]
+                            (<= (compare (normalize-time (:valid-from entry)) norm-time) 0))
+                          indexed)]
+      (if (seq matching)
+        (first (last matching))
+        0))))
+
+(declare update-url-with-time)
+
+(defn fetch-identity-history
+  ([identity-id] (fetch-identity-history identity-id nil))
+  ([identity-id url-time]
+   (let [{:keys [current-user]} @app-state]
+     (GET (str api-base "/api/personas/" (:id current-user) "/identities/" identity-id "/history")
+       {:handler (fn [res]
+                   (swap! app-state assoc :identity-history res)
+                   (when (seq res)
+                     (let [slider-idx (find-slider-index-for-time res url-time)
+                           selected-entry (get res slider-idx)]
+                       (swap! app-state assoc :slider-value slider-idx)
+                       (when (and (> (count res) 1) (nil? url-time))
+                         (update-url-with-time (:valid-from selected-entry))))))
+        :response-format :json
+        :keywords? true
+        :error-handler #(js/console.error "Error fetching history" %)}))))
 
 (defn fetch-identity-at [identity-id time-str]
   (let [{:keys [current-user]} @app-state]
@@ -158,26 +184,48 @@
         :keywords? true
         :error-handler #(js/console.error "Error fetching relations" %)}))))
 
-(defn update-url [persona-id identity-id editing?]
-  (let [path (if identity-id
-               (str "/" persona-id "/" identity-id (when editing? "?edit=true"))
-               (if persona-id
-                 (str "/" persona-id)
-                 "/"))]
-    (swap! app-state assoc :url-edit-mode editing?)
-    (.pushState js/history nil "" path)))
+(defn format-time-for-url [time-str]
+  (when time-str
+    (let [base (-> time-str
+                   (str/replace #"\.\d+Z?$" "")
+                   (str/replace #"Z$" ""))]
+      (str base "Z"))))
+
+(defn update-url
+  ([persona-id identity-id editing?]
+   (update-url persona-id identity-id editing? nil))
+  ([persona-id identity-id editing? time-str]
+   (let [params (cond-> []
+                  editing? (conj "edit=true")
+                  time-str (conj (str "time=" (js/encodeURIComponent (format-time-for-url time-str)))))
+         query (when (seq params) (str "?" (str/join "&" params)))
+         path (if identity-id
+                (str "/" persona-id "/" identity-id query)
+                (if persona-id
+                  (str "/" persona-id)
+                  "/"))]
+     (swap! app-state assoc :url-edit-mode editing?)
+     (.pushState js/history nil "" path))))
 
 (defn- can-edit? []
   (some? (:auth-user @app-state)))
+
+(defn update-url-with-time [time-str]
+  (let [{:keys [current-user selected-identity]} @app-state]
+    (when (and current-user selected-identity)
+      (update-url (:id current-user) (:identity selected-identity) (can-edit?) time-str))))
 
 (defn parse-url []
   (let [pathname (.-pathname js/window.location)
         search (.-search js/window.location)
         parts (vec (filter seq (str/split pathname #"/")))
-        editing? (str/includes? search "edit=true")]
+        editing? (str/includes? search "edit=true")
+        time-match (re-find #"time=([^&]+)" search)
+        time-param (when time-match (js/decodeURIComponent (second time-match)))]
     {:persona-id (first parts)
      :identity-id (second parts)
-     :editing? editing?}))
+     :editing? editing?
+     :time time-param}))
 
 (defn- restore-auth-from-storage [personas]
   (if-let [token (load-auth-token)]
@@ -191,7 +239,7 @@
         (swap! app-state assoc :auth-user persona)))))
 
 (defn load-from-url [on-complete]
-  (let [{:keys [persona-id identity-id editing?]} (parse-url)]
+  (let [{:keys [persona-id identity-id editing? time]} (parse-url)]
     (swap! app-state assoc :url-edit-mode editing?)
     (GET (str api-base "/api/personas")
       {:handler (fn [personas]
@@ -212,8 +260,10 @@
                                                :selected-identity identity
                                                :editing-name (:name identity)
                                                :editing-text (:text identity))
-                                        (fetch-identity-history identity-id)
-                                        (fetch-relations identity-id)))
+                                        (fetch-identity-history identity-id time)
+                                        (fetch-relations identity-id time)
+                                        (when time
+                                          (fetch-identity-at identity-id time))))
                                     (when on-complete (on-complete editing?)))
                          :response-format :json
                          :keywords? true
@@ -223,16 +273,20 @@
        :keywords? true
        :error-handler #(js/console.error "Error fetching personas" %)})))
 
-(defn select-identity [identity]
-  (let [{:keys [current-user]} @app-state]
-    (swap! app-state assoc
-           :selected-identity identity
-           :editing-name (:name identity)
-           :editing-text (:text identity)
-           :relations [])
-    (update-url (:id current-user) (:identity identity) (can-edit?))
-    (fetch-identity-history (:identity identity))
-    (fetch-relations (:identity identity))))
+(defn select-identity
+  ([identity] (select-identity identity nil))
+  ([identity time-str]
+   (let [{:keys [current-user]} @app-state]
+     (swap! app-state assoc
+            :selected-identity identity
+            :editing-name (:name identity)
+            :editing-text (:text identity)
+            :relations [])
+     (update-url (:id current-user) (:identity identity) (can-edit?) time-str)
+     (fetch-identity-history (:identity identity) time-str)
+     (fetch-relations (:identity identity) time-str)
+     (when time-str
+       (fetch-identity-at (:identity identity) time-str)))))
 
 (defn add-identity []
   (let [{:keys [current-user new-identity-name new-identity-text]} @app-state]

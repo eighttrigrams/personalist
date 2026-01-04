@@ -1,6 +1,7 @@
 (ns et.pe.ui.identity
   (:require [et.pe.ui.state :refer [app-state update-identity fetch-identity-at
-                                    fetch-relations delete-relation select-identity]]
+                                    fetch-relations delete-relation select-identity
+                                    update-url-with-time]]
             ["marked" :refer [marked]]))
 
 (defn time-slider []
@@ -26,7 +27,8 @@
                                    (let [entry (get identity-history (:slider-value @app-state))]
                                      (when entry
                                        (fetch-identity-at (:identity selected-identity) (:valid-from entry))
-                                       (fetch-relations (:identity selected-identity) (:valid-from entry)))))
+                                       (fetch-relations (:identity selected-identity) (:valid-from entry))
+                                       (update-url-with-time (:valid-from entry)))))
                     :style {:width "100%"}}])
          (when current-entry
            [:div {:style {:font-size "0.8rem" :color "#666" :margin-top "0.5rem"}}
@@ -70,8 +72,10 @@
          :dangerouslySetInnerHTML {:__html (marked (or text ""))}}])
 
 (defn relations-list []
-  (let [{:keys [relations identities auth-user]} @app-state
-        can-edit? (some? auth-user)]
+  (let [{:keys [relations identities auth-user identity-history slider-value]} @app-state
+        can-edit? (some? auth-user)
+        current-entry (get identity-history slider-value)
+        current-time (:valid-from current-entry)]
     [:div {:style {:margin-top "1.5rem" :padding-top "1rem" :border-top "1px solid #eee"}}
      [:h4 {:style {:margin 0 :margin-bottom "1rem"}} "Related Identities"]
      (if (seq relations)
@@ -88,7 +92,7 @@
                           :align-items "center"}}
              [:span {:on-click (fn []
                                  (when target-identity
-                                   (select-identity target-identity)))
+                                   (select-identity target-identity current-time)))
                      :style {:cursor "pointer"}}
               [:span (or (:name target-identity) (:target rel))]]
              (when can-edit?
