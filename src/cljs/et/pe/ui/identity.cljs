@@ -177,8 +177,50 @@
        [relations-list]])))
 
 (defn main-tab []
-  (let [{:keys [current-user selected-identity]} @app-state]
+  (let [{:keys [current-user selected-identity not-found-persona not-found-identity]} @app-state]
     (cond
+      not-found-persona
+      [:div {:style {:display "flex"
+                     :justify-content "center"
+                     :align-items "center"
+                     :min-height "calc(100vh - 60px)"
+                     :color "#666"}}
+       [:div {:style {:text-align "center"}}
+        [:h2 {:style {:color "#333" :margin-bottom "1rem"}} "Persona not found"]
+        [:p {:style {:font-size "1rem" :margin-bottom "1.5rem"}}
+         (str "The persona \"" not-found-persona "\" does not exist.")]
+        [:button {:on-click #(do (swap! app-state assoc :not-found-persona nil)
+                                 (.pushState js/history nil "" "/"))
+                  :style {:padding "0.75rem 1.5rem"
+                          :cursor "pointer"
+                          :background "#4CAF50"
+                          :color "white"
+                          :border "none"
+                          :border-radius "4px"
+                          :font-size "1rem"}}
+         "Go Home"]]]
+
+      not-found-identity
+      [:div {:style {:display "flex"
+                     :justify-content "center"
+                     :align-items "center"
+                     :min-height "calc(100vh - 60px)"
+                     :color "#666"}}
+       [:div {:style {:text-align "center"}}
+        [:h2 {:style {:color "#333" :margin-bottom "1rem"}} "Identity not found"]
+        [:p {:style {:font-size "1rem" :margin-bottom "1.5rem"}}
+         (str "The identity \"" not-found-identity "\" does not exist.")]
+        [:button {:on-click #(do (swap! app-state assoc :not-found-identity nil :selected-identity nil)
+                                 (.pushState js/history nil "" (str "/" (:id current-user))))
+                  :style {:padding "0.75rem 1.5rem"
+                          :cursor "pointer"
+                          :background "#4CAF50"
+                          :color "white"
+                          :border "none"
+                          :border-radius "4px"
+                          :font-size "1rem"}}
+         "Back to Persona"]]]
+
       (not current-user)
       [:div {:style {:display "flex"
                      :justify-content "center"

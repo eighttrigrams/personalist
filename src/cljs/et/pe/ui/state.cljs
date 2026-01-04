@@ -30,6 +30,8 @@
                             :nav-search-results []
                             :search-valid-at nil
                             :show-beta-modal false
+                            :not-found-persona nil
+                            :not-found-identity nil
                             :password-required false
                             :login-password ""
                             :login-email ""
@@ -256,38 +258,42 @@
 
 (defn load-from-url [on-complete]
   (let [{:keys [persona-id identity-id editing? time]} (parse-url)]
-    (swap! app-state assoc :url-edit-mode editing?)
+    (swap! app-state assoc :url-edit-mode editing? :not-found-persona nil :not-found-identity nil)
     (GET (str api-base "/api/personas")
       {:handler (fn [personas]
                   (swap! app-state assoc :personas personas)
                   (restore-auth-from-storage personas)
                   (when persona-id
-                    (when-let [persona (first (filter #(= (:id %) persona-id) personas))]
-                      (swap! app-state assoc
-                             :current-user persona
-                             :identities []
-                             :recent-identities []
-                             :recent-identities-offset 0
-                             :recent-identities-has-more false
-                             :selected-identity nil)
-                      (fetch-recent-identities persona-id)
-                      (GET (str api-base "/api/personas/" persona-id "/identities")
-                        {:handler (fn [identities]
-                                    (swap! app-state assoc :identities identities)
-                                    (when identity-id
-                                      (when-let [identity (first (filter #(= (:identity %) identity-id) identities))]
-                                        (swap! app-state assoc
-                                               :selected-identity identity
-                                               :editing-name (:name identity)
-                                               :editing-text (:text identity))
-                                        (fetch-identity-history identity-id time)
-                                        (fetch-relations identity-id time)
-                                        (when time
-                                          (fetch-identity-at identity-id time))))
-                                    (when on-complete (on-complete editing?)))
-                         :response-format :json
-                         :keywords? true
-                         :error-handler #(js/console.error "Error fetching identities" %)})))
+                    (if-let [persona (first (filter #(= (:id %) persona-id) personas))]
+                      (do
+                        (swap! app-state assoc
+                               :current-user persona
+                               :identities []
+                               :recent-identities []
+                               :recent-identities-offset 0
+                               :recent-identities-has-more false
+                               :selected-identity nil)
+                        (fetch-recent-identities persona-id)
+                        (GET (str api-base "/api/personas/" persona-id "/identities")
+                          {:handler (fn [identities]
+                                      (swap! app-state assoc :identities identities)
+                                      (when identity-id
+                                        (if-let [identity (first (filter #(= (:identity %) identity-id) identities))]
+                                          (do
+                                            (swap! app-state assoc
+                                                   :selected-identity identity
+                                                   :editing-name (:name identity)
+                                                   :editing-text (:text identity))
+                                            (fetch-identity-history identity-id time)
+                                            (fetch-relations identity-id time)
+                                            (when time
+                                              (fetch-identity-at identity-id time)))
+                                          (swap! app-state assoc :not-found-identity identity-id)))
+                                      (when on-complete (on-complete editing?)))
+                           :response-format :json
+                           :keywords? true
+                           :error-handler #(js/console.error "Error fetching identities" %)}))
+                      (swap! app-state assoc :not-found-persona persona-id)))
                   (when (and (not persona-id) on-complete) (on-complete editing?)))
        :response-format :json
        :keywords? true
@@ -301,7 +307,8 @@
             :selected-identity identity
             :editing-name (:name identity)
             :editing-text (:text identity)
-            :relations [])
+            :relations []
+            :not-found-identity nil)
      (update-url (:id current-user) (:identity identity) (can-edit?) time-str)
      (fetch-identity-history (:identity identity) time-str)
      (fetch-relations (:identity identity) time-str)
@@ -392,7 +399,9 @@
          :identities []
          :recent-identities []
          :selected-identity nil
-         :identity-history [])
+         :identity-history []
+         :not-found-persona nil
+         :not-found-identity nil)
   (update-url (:id persona) nil false)
   (fetch-identities (:id persona))
   (fetch-recent-identities (:id persona)))
