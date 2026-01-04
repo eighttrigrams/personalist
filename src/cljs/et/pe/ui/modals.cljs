@@ -111,7 +111,13 @@
             [:button {:on-click #(swap! app-state assoc :show-auth-modal false :login-email "" :login-password "" :login-error nil)
                       :style {:padding "0.5rem 1rem"
                               :cursor "pointer"}}
-             "Cancel"]]]
+             "Cancel"]]
+           [:p {:style {:color "#ccc"
+                        :font-size "0.75rem"
+                        :font-style "italic"
+                        :margin-top "1.5rem"
+                        :margin-bottom "0"}}
+            "Friend of the project? Ask your contact to set up an account for you."]]
           [:<>
            [:p {:style {:color "#666"}} "Select your persona to login:"]
            (if (seq personas)
