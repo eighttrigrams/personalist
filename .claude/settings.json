@@ -9,6 +9,7 @@
       "Bash(clj -M:test:xtdb:*)",
       "Bash(git pull)",
       "Bash(git status)",
+      "Bash(git add:*)",
       "Edit(src/**)",
       "Write(src/**)",
       "Bash(fly logs:*)",
