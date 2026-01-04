@@ -1,5 +1,5 @@
 (ns et.pe.ui.identity
-  (:require [et.pe.ui.state :refer [app-state update-identity fetch-identity-at
+  (:require [et.pe.ui.state :refer [app-state update-identity
                                     fetch-relations delete-relation select-identity
                                     update-url-with-time]]
             ["marked" :refer [marked]]))
@@ -22,11 +22,16 @@
                     :min 0
                     :max (dec history-count)
                     :value slider-value
-                    :on-change #(swap! app-state assoc :slider-value (js/parseInt (-> % .-target .-value)))
+                    :on-change (fn [e]
+                                 (let [new-val (js/parseInt (-> e .-target .-value))
+                                       entry (get identity-history new-val)]
+                                   (swap! app-state assoc
+                                          :slider-value new-val
+                                          :editing-name (:name entry)
+                                          :editing-text (:text entry))))
                     :on-mouse-up (fn [_]
                                    (let [entry (get identity-history (:slider-value @app-state))]
                                      (when entry
-                                       (fetch-identity-at (:identity selected-identity) (:valid-from entry))
                                        (fetch-relations (:identity selected-identity) (:valid-from entry))
                                        (update-url-with-time (:valid-from entry)))))
                     :style {:width "100%"}}])
