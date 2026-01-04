@@ -1,6 +1,6 @@
 (ns et.pe.ui.core
   (:require [reagent.dom.client :as rdc]
-            [et.pe.ui.state :refer [app-state fetch-personas check-password-required logout-user dismiss-notification load-from-url parse-url]]
+            [et.pe.ui.state :refer [app-state fetch-personas check-password-required logout-user dismiss-notification load-from-url parse-url fetch-recent-identities]]
             [et.pe.ui.modals :refer [login-modal auth-modal password-modal
                                      search-modal add-relation-modal
                                      add-identity-modal beta-modal]]
@@ -22,6 +22,7 @@
        [:h1 {:style {:margin 0 :cursor "pointer"}
              :on-click #(let [user (:current-user @app-state)]
                           (swap! app-state assoc :current-tab :main :selected-identity nil)
+                          (when user (fetch-recent-identities (:id user)))
                           (.pushState js/history nil "" (if user (str "/" (:id user)) "/")))}
         "Personalist"]
        [:span {:on-click #(swap! app-state assoc :show-beta-modal true)
@@ -82,6 +83,7 @@
         [:div {:style {:display "flex" :align-items "center" :gap "0.5rem"}}
          [:span {:style {:cursor "pointer"}
                  :on-click #(do (swap! app-state assoc :current-tab :main :selected-identity nil)
+                                (fetch-recent-identities (:id current-user))
                                 (.pushState js/history nil "" (str "/" (:id current-user))))}
           (str "Persona: " (:name current-user))]
          [:span {:on-click #(do (swap! app-state assoc :current-user nil :identities [] :selected-identity nil)
@@ -102,6 +104,7 @@
         [:<>
          [:span {:style {:cursor "pointer"}
                  :on-click #(do (swap! app-state assoc :current-tab :main :selected-identity nil)
+                                (fetch-recent-identities (:id auth-user))
                                 (.pushState js/history nil "" (str "/" (:id auth-user))))}
          (str "Logged in: " (or (:name auth-user) (:id auth-user)))]
          [:button {:on-click logout-user
