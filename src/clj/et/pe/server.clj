@@ -74,19 +74,19 @@
   (context "/api" []
     (GET "/personas" [] handlers/list-personas-handler)
     (POST "/personas" [] handlers/add-persona-handler)
-    (PUT "/personas/:name" [name] handlers/update-persona-handler)
+    (PUT "/personas/:name" [_name] handlers/update-persona-handler)
     (GET "/generate-id" [] handlers/generate-id-handler)
     (GET "/auth/required" [] (handlers/password-required-handler (prod-mode?)))
     (POST "/auth/login" [] (handlers/persona-login-handler (prod-mode?)))
-    (GET "/personas/:name/identities" [name] handlers/list-identities-handler)
-    (GET "/personas/:name/identities/recent" [name] handlers/list-recent-identities-handler)
-    (GET "/personas/:name/identities/search" [name] handlers/search-identities-handler)
-    (POST "/personas/:name/identities" [name] handlers/add-identity-handler)
-    (PUT "/personas/:name/identities/:id" [name id] handlers/update-identity-handler)
-    (GET "/personas/:name/identities/:id/at" [name id] handlers/get-identity-at-handler)
-    (GET "/personas/:name/identities/:id/history" [name id] handlers/get-identity-history-handler)
-    (GET "/personas/:name/identities/:id/relations" [name id] handlers/list-relations-handler)
-    (POST "/personas/:name/identities/:id/relations" [name id] handlers/add-relation-handler)
+    (GET "/personas/:name/identities" [_name] handlers/list-identities-handler)
+    (GET "/personas/:name/identities/recent" [_name] handlers/list-recent-identities-handler)
+    (GET "/personas/:name/identities/search" [_name] handlers/search-identities-handler)
+    (POST "/personas/:name/identities" [_name] handlers/add-identity-handler)
+    (PUT "/personas/:name/identities/:id" [_name _id] handlers/update-identity-handler)
+    (GET "/personas/:name/identities/:id/at" [_name _id] handlers/get-identity-at-handler)
+    (GET "/personas/:name/identities/:id/history" [_name _id] handlers/get-identity-history-handler)
+    (GET "/personas/:name/identities/:id/relations" [_name _id] handlers/list-relations-handler)
+    (POST "/personas/:name/identities/:id/relations" [_name _id] handlers/add-relation-handler)
     (DELETE "/personas/:name/relations/:source-id/:target-id" [name source-id target-id]
       (handlers/delete-relation-handler name source-id target-id))))
 
@@ -99,8 +99,8 @@
   api-routes
   (GET "/" [] serve-index)
   (route/resources "/")
-  (GET "/:persona-id" [persona-id] serve-index)
-  (GET "/:persona-id/:identity-id" [persona-id identity-id] serve-index)
+  (GET "/:persona-id" [_persona-id] serve-index)
+  (GET "/:persona-id/:identity-id" [_persona-id _identity-id] serve-index)
   (route/not-found {:status 404 :body {:error "Not found"}}))
 
 (defn- extract-token [req]
