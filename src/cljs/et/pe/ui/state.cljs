@@ -326,6 +326,7 @@
                                :new-identity-text ""
                                :show-add-identity-modal false)
                         (fetch-identities (:id current-user))
+                        (fetch-recent-identities (:id current-user))
                         (select-identity {:identity generated-id :name name-to-select :text text-to-select})))
            :error-handler (fn [err]
                         (js/console.error "Error adding identity" err)
@@ -340,6 +341,7 @@
        :headers (auth-headers)
        :handler (fn [_]
                   (fetch-identities (:id current-user))
+                  (fetch-recent-identities (:id current-user))
                   (fetch-identity-history identity-id))
        :error-handler (fn [err]
                         (js/console.error "Error updating identity" err)
