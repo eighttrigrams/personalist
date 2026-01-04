@@ -23,7 +23,7 @@ primary_region = "iad"
   destination = "/app/data"
 
 [[vm]]
-  memory = "512mb"
+  memory = "1gb"
   cpu_kind = "shared"
   cpus = 1
   count = 1
