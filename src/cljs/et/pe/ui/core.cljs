@@ -80,7 +80,10 @@
      [:div {:style {:display "flex" :align-items "center" :gap "1rem"}}
       (when (and (not logged-in?) current-user)
         [:div {:style {:display "flex" :align-items "center" :gap "0.5rem"}}
-         [:span (str "Persona: " (:name current-user))]
+         [:span {:style {:cursor "pointer"}
+                 :on-click #(do (swap! app-state assoc :current-tab :main :selected-identity nil)
+                                (.pushState js/history nil "" (str "/" (:id current-user))))}
+          (str "Persona: " (:name current-user))]
          [:span {:on-click #(do (swap! app-state assoc :current-user nil :identities [] :selected-identity nil)
                                 (.pushState js/history nil "" "/"))
                  :style {:width "18px"
@@ -97,7 +100,10 @@
           "\u00D7"]])
       (when logged-in?
         [:<>
-         [:span (str "Logged in: " (or (:name auth-user) (:id auth-user)))]
+         [:span {:style {:cursor "pointer"}
+                 :on-click #(do (swap! app-state assoc :current-tab :main :selected-identity nil)
+                                (.pushState js/history nil "" (str "/" (:id auth-user))))}
+         (str "Logged in: " (or (:name auth-user) (:id auth-user)))]
          [:button {:on-click logout-user
                    :style {:padding "0.5rem 1rem" :cursor "pointer"}}
           "Logout"]])
