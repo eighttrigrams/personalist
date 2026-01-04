@@ -4,7 +4,6 @@
       "WebSearch",
       "Bash(make test)",
       "WebFetch(domain:docs.xtdb.com)",
-      "Bash(npm init:*)",
       "Bash(npm install:*)",
       "Bash(clj -Stree:*)",
       "Bash(clj -M:test:xtdb:*)",
@@ -17,7 +16,11 @@
       "Bash(make deploy)",
       "Bash(./scripts/stop.sh)",
       "Bash(./scripts/start.sh)",
-      "Bash(./scripts/seed-db.sh)"
+      "Bash(./scripts/seed-db.sh)",
+      "Bash(make stop)",
+      "Bash(make start)",
+      "Bash(make backup)",
+      "Bash(make backup-replay)"
     ],
     "deny": [
       "Edit(scripts/**)",

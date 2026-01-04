@@ -1,3 +1,12 @@
+# Basic commands
+
+Starting and stopping the server.
+
+```bash
+$ make start
+$ make stop
+```
+
 # Reviewing changes
 
 Changes typically mean a set of modifications to source files which are results
