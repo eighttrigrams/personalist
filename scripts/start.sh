@@ -47,7 +47,5 @@ else
     npx shadow-cljs release app
   fi
   export DEV=true
-  export PER_IP_RATE_LIMIT=1000
-  export GLOBAL_RATE_LIMIT=1000
   clojure -X:xtdb
 fi

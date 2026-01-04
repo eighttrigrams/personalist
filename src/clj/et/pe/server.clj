@@ -48,6 +48,9 @@
 (defn- should-pre-seed? [cfg]
   (true? (:pre-seed? cfg)))
 
+(defn- shadow-mode? []
+  (true? (:shadow? @config)))
+
 (defn- run-seed-script []
   (let [seed-script (io/file "scripts/seed-db.sh")]
     (when (.exists seed-script)
@@ -143,7 +146,7 @@
          :headers {"Content-Type" "application/json"}
          :body "{\"error\":\"Internal server error\"}"}))))
 
-(def app
+(def base-app
   (-> app-routes
       (wrap-params)
       (wrap-json-body {:keywords? true})
@@ -151,8 +154,13 @@
       (wrap-json-response)
       (wrap-error-handling)
       (wrap-cors :access-control-allow-origin [#".*"]
-                 :access-control-allow-methods [:get :post :put :delete])
-      (wrap-rate-limit)))
+                 :access-control-allow-methods [:get :post :put :delete])))
+
+(def app
+  (fn [req]
+    (if (shadow-mode?)
+      (base-app req)
+      ((wrap-rate-limit base-app) req))))
 
 (defn- run-server [port]
   (let [host (or (System/getenv "HOST") "127.0.0.1")]
