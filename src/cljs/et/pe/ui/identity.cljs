@@ -1,7 +1,6 @@
 (ns et.pe.ui.identity
   (:require [et.pe.ui.state :refer [app-state update-identity fetch-identity-at
-                                    fetch-relations delete-relation select-identity
-                                    set-editing-mode]]
+                                    fetch-relations delete-relation select-identity]]
             ["marked" :refer [marked]]))
 
 (defn time-slider []
@@ -105,8 +104,8 @@
        [:p {:style {:color "#666" :font-style "italic" :margin 0}} "No linked identities yet"])]))
 
 (defn identity-editor []
-  (let [{:keys [selected-identity editing-name editing-text auth-user text-editor-mode]} @app-state
-        can-edit? (some? auth-user)]
+  (let [{:keys [selected-identity editing-name editing-text auth-user text-editor-mode url-edit-mode]} @app-state
+        can-edit? (and (some? auth-user) url-edit-mode)]
     (when selected-identity
       [:div {:style {:padding "2rem"
                      :max-width "800px"
@@ -129,8 +128,6 @@
           [:input {:type "text"
                    :value editing-name
                    :on-change #(swap! app-state assoc :editing-name (-> % .-target .-value))
-                   :on-focus #(set-editing-mode true)
-                   :on-blur #(set-editing-mode false)
                    :placeholder "Name"
                    :style {:width "100%"
                            :padding "0.75rem"
@@ -143,8 +140,6 @@
           (if (= text-editor-mode :edit)
             [:textarea {:value editing-text
                         :on-change #(swap! app-state assoc :editing-text (-> % .-target .-value))
-                        :on-focus #(set-editing-mode true)
-                        :on-blur #(set-editing-mode false)
                         :style {:width "100%"
                                 :height "200px"
                                 :padding "0.75rem"

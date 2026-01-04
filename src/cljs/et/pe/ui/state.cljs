@@ -36,9 +36,38 @@
                             :show-password-modal false
                             :auth-token nil
                             :notification nil
-                            :text-editor-mode :edit}))
+                            :text-editor-mode :edit
+                            :url-edit-mode false}))
 
 (def api-base "")
+
+(defn- save-auth-token [token]
+  (if token
+    (.setItem js/localStorage "auth-token" token)
+    (.removeItem js/localStorage "auth-token")))
+
+(defn- load-auth-token []
+  (.getItem js/localStorage "auth-token"))
+
+(defn- save-auth-persona [persona-id]
+  (if persona-id
+    (.setItem js/localStorage "auth-persona" persona-id)
+    (.removeItem js/localStorage "auth-persona")))
+
+(defn- load-auth-persona []
+  (.getItem js/localStorage "auth-persona"))
+
+(defn- extract-persona-from-token [token]
+  (when token
+    (try
+      (-> token
+          (str/split #"\.")
+          second
+          js/atob
+          js/JSON.parse
+          (js->clj :keywordize-keys true)
+          :persona)
+      (catch :default _ nil))))
 
 (defn valid-email? [email]
   (and (string? email)
@@ -135,12 +164,11 @@
                (if persona-id
                  (str "/" persona-id)
                  "/"))]
+    (swap! app-state assoc :url-edit-mode editing?)
     (.pushState js/history nil "" path)))
 
-(defn set-editing-mode [editing?]
-  (let [{:keys [current-user selected-identity]} @app-state]
-    (when (and current-user selected-identity)
-      (update-url (:id current-user) (:identity selected-identity) editing?))))
+(defn- can-edit? []
+  (some? (:auth-user @app-state)))
 
 (defn parse-url []
   (let [pathname (.-pathname js/window.location)
@@ -151,12 +179,25 @@
      :identity-id (second parts)
      :editing? editing?}))
 
+(defn- restore-auth-from-storage [personas]
+  (if-let [token (load-auth-token)]
+    (when-let [persona-id (extract-persona-from-token token)]
+      (when-let [persona (first (filter #(= (:id %) persona-id) personas))]
+        (swap! app-state assoc
+               :auth-token token
+               :auth-user persona)))
+    (when-let [persona-id (load-auth-persona)]
+      (when-let [persona (first (filter #(= (:id %) persona-id) personas))]
+        (swap! app-state assoc :auth-user persona)))))
+
 (defn load-from-url [on-complete]
   (let [{:keys [persona-id identity-id editing?]} (parse-url)]
-    (when persona-id
-      (GET (str api-base "/api/personas")
-        {:handler (fn [personas]
-                    (swap! app-state assoc :personas personas)
+    (swap! app-state assoc :url-edit-mode editing?)
+    (GET (str api-base "/api/personas")
+      {:handler (fn [personas]
+                  (swap! app-state assoc :personas personas)
+                  (restore-auth-from-storage personas)
+                  (when persona-id
                     (when-let [persona (first (filter #(= (:id %) persona-id) personas))]
                       (swap! app-state assoc
                              :current-user persona
@@ -177,9 +218,10 @@
                          :response-format :json
                          :keywords? true
                          :error-handler #(js/console.error "Error fetching identities" %)})))
-         :response-format :json
-         :keywords? true
-         :error-handler #(js/console.error "Error fetching personas" %)}))))
+                  (when (and (not persona-id) on-complete) (on-complete editing?)))
+       :response-format :json
+       :keywords? true
+       :error-handler #(js/console.error "Error fetching personas" %)})))
 
 (defn select-identity [identity]
   (let [{:keys [current-user]} @app-state]
@@ -188,7 +230,7 @@
            :editing-name (:name identity)
            :editing-text (:text identity)
            :relations [])
-    (update-url (:id current-user) (:identity identity) false)
+    (update-url (:id current-user) (:identity identity) (can-edit?))
     (fetch-identity-history (:identity identity))
     (fetch-relations (:identity identity))))
 
@@ -305,6 +347,7 @@
        :handler (fn [res]
                   (if (:success res)
                     (do
+                      (save-auth-token (:token res))
                       (swap! app-state assoc :auth-token (:token res))
                       (login-user persona))
                     (swap! app-state assoc :login-error "Invalid password")))
@@ -325,19 +368,14 @@
        :handler (fn [res]
                   (if (:success res)
                     (do
+                      (save-auth-token (:token res))
                       (swap! app-state assoc
                              :auth-token (:token res)
                              :show-auth-modal false
                              :login-email ""
                              :login-password ""
                              :login-error nil)
-                      (let [persona-id (-> res :token
-                                           (str/split #"\.")
-                                           second
-                                           js/atob
-                                           js/JSON.parse
-                                           (js->clj :keywordize-keys true)
-                                           :persona)]
+                      (let [persona-id (extract-persona-from-token (:token res))]
                         (login-user {:id persona-id})))
                     (swap! app-state assoc :login-error "Invalid credentials")))
        :error-handler (fn [_]
@@ -351,9 +389,13 @@
            :login-password ""
            :login-error nil
            :login-persona persona)
-    (login-user persona)))
+    (do
+      (save-auth-persona (:id persona))
+      (login-user persona))))
 
 (defn logout-user []
+  (save-auth-token nil)
+  (save-auth-persona nil)
   (swap! app-state assoc
          :auth-user nil
          :current-user nil
