@@ -20,8 +20,13 @@
      [:div {:style {:display "flex" :align-items "center" :gap "2rem"}}
       [:div {:style {:display "flex" :align-items "center" :gap "0.5rem"}}
        [:h1 {:style {:margin 0 :cursor "pointer"}
-             :on-click #(let [user (:current-user @app-state)]
-                          (swap! app-state assoc :current-tab :main :selected-identity nil)
+             :on-click #(let [user (or (:auth-user @app-state) (:current-user @app-state))]
+                          (swap! app-state assoc
+                                 :current-tab :main
+                                 :selected-identity nil
+                                 :not-found-persona nil
+                                 :not-found-identity nil
+                                 :current-user user)
                           (when user (fetch-recent-identities (:id user)))
                           (.pushState js/history nil "" (if user (str "/" (:id user)) "/")))}
         "Personalist"]
@@ -82,7 +87,11 @@
       (when (and (not logged-in?) current-user)
         [:div {:style {:display "flex" :align-items "center" :gap "0.5rem"}}
          [:span {:style {:cursor "pointer"}
-                 :on-click #(do (swap! app-state assoc :current-tab :main :selected-identity nil)
+                 :on-click #(do (swap! app-state assoc
+                                       :current-tab :main
+                                       :selected-identity nil
+                                       :not-found-persona nil
+                                       :not-found-identity nil)
                                 (fetch-recent-identities (:id current-user))
                                 (.pushState js/history nil "" (str "/" (:id current-user))))}
           (str "Persona: " (:name current-user))]
@@ -103,7 +112,12 @@
       (when logged-in?
         [:<>
          [:span {:style {:cursor "pointer"}
-                 :on-click #(do (swap! app-state assoc :current-tab :main :selected-identity nil)
+                 :on-click #(do (swap! app-state assoc
+                                       :current-tab :main
+                                       :selected-identity nil
+                                       :not-found-persona nil
+                                       :not-found-identity nil
+                                       :current-user auth-user)
                                 (fetch-recent-identities (:id auth-user))
                                 (.pushState js/history nil "" (str "/" (:id auth-user))))}
          (str "Logged in: " (or (:name auth-user) (:id auth-user)))]
