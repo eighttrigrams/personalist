@@ -192,7 +192,7 @@
     (str date-str "T23:59:59Z")))
 
 (defn- do-search [query valid-at]
-  (when (>= (count query) 1)
+  (when (or (>= (count query) 1) (seq valid-at))
     (search-identities query
                        (date-to-instant valid-at)
                        #(swap! app-state assoc :nav-search-results (take 5 %)))))
@@ -248,7 +248,8 @@
         (when search-valid-at
           [:div {:style {:margin-bottom "1rem" :padding "0.5rem" :background "#e3f2fd" :border-radius "4px" :font-size "0.9rem"}}
            [:span "Searching identities as of: " search-valid-at]])
-        (let [results-to-show (if (seq nav-search-query)
+        (let [has-date-filter? (some? search-valid-at)
+              results-to-show (if (or (seq nav-search-query) has-date-filter?)
                               nav-search-results
                               recent-identities)]
           (if (seq results-to-show)
@@ -256,7 +257,7 @@
              (for [result results-to-show]
                ^{:key (:identity result)}
                [:li {:on-click (fn []
-                                 (select-identity result)
+                                 (select-identity result (date-to-instant search-valid-at))
                                  (swap! app-state assoc :show-search-modal false :nav-search-query "" :nav-search-results [] :search-valid-at nil))
                      :style {:padding "0.75rem"
                              :cursor "pointer"
@@ -267,7 +268,7 @@
                      :on-mouse-over #(set! (.-background (.-style (.-currentTarget %))) "#e0e0e0")
                      :on-mouse-out #(set! (.-background (.-style (.-currentTarget %))) "#f5f5f5")}
                 [:span {:style {:pointer-events "none"}} (:name result)]])]
-            (when (seq nav-search-query)
+            (when (or (seq nav-search-query) has-date-filter?)
               [:p {:style {:color "#666" :font-style "italic"}} "No results found"])))
         [:button {:on-click #(swap! app-state assoc :show-search-modal false :nav-search-query "" :nav-search-results [] :search-valid-at nil)
                   :style {:margin-top "1rem"
