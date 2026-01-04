@@ -430,7 +430,14 @@
         [:div {:style {:font-size "3rem" :margin-bottom "1rem"}} "\uD83D\uDE80"]
         [:h2 {:style {:margin-top 0 :margin-bottom "1rem"}} "Personalist Beta"]
         [:p {:style {:color "#666" :margin-bottom "1.5rem"}}
-         "Welcome to the beta version of Personalist! We're building an integrated universe of personal encyclopedias."]
+         "Welcome to the beta version of Personalist! We're "
+         [:a {:href "https://github.com/eighttrigrams/personalist"
+              :target "_blank"
+              :style {:color "inherit"
+                      :text-decoration "underline"
+                      :cursor "pointer"}}
+          "building"]
+         " an integrated universe of personal encyclopedias."]
         [:a {:href "https://eighttrigrams.substack.com/p/personalist"
              :target "_blank"
              :style {:display "inline-block"
