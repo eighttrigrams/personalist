@@ -87,7 +87,8 @@
     (GET "/personas/:name/identities/:id/history" [name id] handlers/get-identity-history-handler)
     (GET "/personas/:name/identities/:id/relations" [name id] handlers/list-relations-handler)
     (POST "/personas/:name/identities/:id/relations" [name id] handlers/add-relation-handler)
-    (DELETE "/personas/:name/relations/:relation-id" [name relation-id] handlers/delete-relation-handler)))
+    (DELETE "/personas/:name/relations/:source-id/:target-id" [name source-id target-id]
+      (handlers/delete-relation-handler name source-id target-id))))
 
 (defn- serve-index [_]
   {:status 200

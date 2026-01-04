@@ -113,19 +113,53 @@
           t2 (Instant/parse "2020-06-01T00:00:00Z")
           t3 (Instant/parse "2020-12-01T00:00:00Z")
           source-id (ds/add-identity conn dan "source" "source text" {:valid-from t1})
-          target-id (ds/add-identity conn dan "target" "target text" {:valid-from t1})]
+          target-id (ds/add-identity conn dan "target" "target text" {:valid-from t1})
+          relation-id (str (name source-id) "/" (name target-id))]
       (ds/update-identity conn dan source-id "source v2" "source text v2" {:valid-from t2})
       (ds/add-relation conn dan source-id target-id {:valid-from t2})
       (ds/update-identity conn dan source-id "source v3" "source text v3" {:valid-from t3})
+      (ds/delete-relation conn dan relation-id {:valid-from t3})
       (testing "- querying before relation exists returns no relations"
         (is (= []
                (ds/list-relations conn dan source-id {:at (Instant/parse "2020-03-01T00:00:00Z")}))))
       (testing "- querying during relation period returns the relation"
-        (is (= [{:id (str (name source-id) "/" (name target-id))
+        (is (= [{:id relation-id
                  :target target-id}]
                (ds/list-relations conn dan source-id {:at (Instant/parse "2020-09-01T00:00:00Z")}))))
-      (testing "- querying after v3 still returns the relation"
-        (is (= [{:id (str (name source-id) "/" (name target-id))
-                 :target target-id}]
+      (testing "- querying after relation deleted returns no relations"
+        (is (= []
                (ds/list-relations conn dan source-id {:at (Instant/parse "2021-01-01T00:00:00Z")})))))))
+
+(deftest relations-delete-and-re-add
+  (testing-with-conn "relations can be deleted and re-added at different times"
+    (ds/add-persona conn :dan "d@et.n" nil nil)
+    (let [dan (ds/get-persona-by-id conn :dan)
+          t1 (Instant/parse "2020-01-01T00:00:00Z")
+          t2 (Instant/parse "2020-03-01T00:00:00Z")
+          t3 (Instant/parse "2020-06-01T00:00:00Z")
+          t4 (Instant/parse "2020-09-01T00:00:00Z")
+          t5 (Instant/parse "2020-12-01T00:00:00Z")
+          source-id (ds/add-identity conn dan "source" "v1" {:valid-from t1})
+          target-id (ds/add-identity conn dan "target" "target" {:valid-from t1})
+          relation-id (str (name source-id) "/" (name target-id))]
+      (ds/update-identity conn dan source-id "source" "v2" {:valid-from t2})
+      (ds/add-relation conn dan source-id target-id {:valid-from t2})
+      (ds/update-identity conn dan source-id "source" "v3" {:valid-from t3})
+      (ds/delete-relation conn dan relation-id {:valid-from t3})
+      (ds/update-identity conn dan source-id "source" "v4" {:valid-from t4})
+      (ds/add-relation conn dan source-id target-id {:valid-from t4})
+      (ds/update-identity conn dan source-id "source" "v5" {:valid-from t5})
+      (ds/delete-relation conn dan relation-id {:valid-from t5})
+      (testing "- v1: no relation"
+        (is (= [] (ds/list-relations conn dan source-id {:at (Instant/parse "2020-02-01T00:00:00Z")}))))
+      (testing "- v2: relation exists"
+        (is (= [{:id relation-id :target target-id}]
+               (ds/list-relations conn dan source-id {:at (Instant/parse "2020-04-01T00:00:00Z")}))))
+      (testing "- v3: no relation"
+        (is (= [] (ds/list-relations conn dan source-id {:at (Instant/parse "2020-07-01T00:00:00Z")}))))
+      (testing "- v4: relation exists again"
+        (is (= [{:id relation-id :target target-id}]
+               (ds/list-relations conn dan source-id {:at (Instant/parse "2020-10-01T00:00:00Z")}))))
+      (testing "- v5: no relation"
+        (is (= [] (ds/list-relations conn dan source-id {:at (Instant/parse "2021-01-01T00:00:00Z")})))))))
 

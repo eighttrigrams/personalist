@@ -236,10 +236,12 @@
           results)))
 
 (defn delete-relation
-  [conn {persona-id :id :as _persona} relation-id]
+  [conn {persona-id :id :as _persona} relation-id & [{:keys [valid-from]}]]
   (let [full-id (keyword (str (name persona-id) "/" relation-id))]
     (xt/execute-tx (:conn conn)
-                   [[:delete-docs :relations full-id]])))
+                   [(if valid-from
+                      [:delete-docs {:from :relations :valid-from valid-from} full-id]
+                      [:delete-docs :relations full-id])])))
 
 (defn search-identities
   [conn {persona-id :id :as _persona} query & [{:keys [at]}]]

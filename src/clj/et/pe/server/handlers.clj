@@ -170,10 +170,9 @@
           {:status 201 :body {:success true}}))
       {:status 404 :body {:error "Persona not found"}})))
 
-(defn delete-relation-handler [req]
-  (let [persona-name (str->keyword (get-in req [:params :name]))
-        relation-id (get-in req [:params :relation-id])
-        persona (ds/get-persona-by-id (ensure-conn) persona-name)]
+(defn delete-relation-handler [persona-name source-id target-id]
+  (let [persona (ds/get-persona-by-id (ensure-conn) (str->keyword persona-name))
+        relation-id (str source-id "/" target-id)]
     (if persona
       (do
         (ds/delete-relation (ensure-conn) persona relation-id)
