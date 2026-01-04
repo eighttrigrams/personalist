@@ -20,9 +20,9 @@
      [:div {:style {:display "flex" :align-items "center" :gap "2rem"}}
       [:div {:style {:display "flex" :align-items "center" :gap "0.5rem"}}
        [:h1 {:style {:margin 0 :cursor "pointer"}
-             :on-click #(do
+             :on-click #(let [user (:current-user @app-state)]
                           (swap! app-state assoc :current-tab :main :selected-identity nil)
-                          (.pushState js/history nil "" "/"))}
+                          (.pushState js/history nil "" (if user (str "/" (:id user)) "/")))}
         "Personalist"]
        [:span {:on-click #(swap! app-state assoc :show-beta-modal true)
                :style {:background "linear-gradient(135deg, #ff6b6b, #feca57, #48dbfb)"
