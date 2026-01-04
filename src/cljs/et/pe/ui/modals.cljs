@@ -5,7 +5,8 @@
                                     add-relation add-identity]]))
 
 (defn login-modal []
-  (let [{:keys [personas show-login-modal]} @app-state]
+  (let [{:keys [personas show-login-modal]} @app-state
+        explorable-personas (remove #(= (:id %) "admin") personas)]
     (when show-login-modal
       [:div {:style {:position "fixed"
                      :top 0
@@ -26,9 +27,9 @@
               :on-click #(.stopPropagation %)}
         [:h2 {:style {:margin-top 0}} "Select Persona"]
         [:p {:style {:color "#666"}} "Choose a persona and explore their worldview:"]
-        (if (seq personas)
+        (if (seq explorable-personas)
           [:ul {:style {:list-style "none" :padding 0 :margin 0}}
-           (for [p personas]
+           (for [p explorable-personas]
              ^{:key (:id p)}
              [:li {:on-click #(select-persona p)
                    :style {:padding "0.75rem"

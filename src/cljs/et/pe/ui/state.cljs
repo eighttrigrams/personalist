@@ -265,10 +265,12 @@
         :keywords? true
         :error-handler #(js/console.error "Error searching identities" %)}))))
 
-(defn select-persona [persona]
+(defn- find-persona-by-id [persona-id]
+  (first (filter #(= (:id %) (if (keyword? persona-id) (name persona-id) persona-id)) (:personas @app-state))))
+
+(defn- enter-persona [persona]
   (swap! app-state assoc
          :current-user persona
-         :show-login-modal false
          :identities []
          :recent-identities []
          :selected-identity nil
@@ -277,21 +279,20 @@
   (fetch-identities (:id persona))
   (fetch-recent-identities (:id persona)))
 
+(defn select-persona [persona]
+  (swap! app-state assoc :show-login-modal false)
+  (enter-persona persona))
+
 (defn login-user [persona]
-  (swap! app-state assoc
-         :auth-user persona
-         :current-user persona
-         :show-auth-modal false
-         :show-password-modal false
-         :login-password ""
-         :login-error nil
-         :login-persona nil
-         :identities []
-         :recent-identities []
-         :selected-identity nil
-         :identity-history [])
-  (fetch-identities (:id persona))
-  (fetch-recent-identities (:id persona)))
+  (let [full-persona (or (find-persona-by-id (:id persona)) persona)]
+    (swap! app-state assoc
+           :auth-user full-persona
+           :show-auth-modal false
+           :show-password-modal false
+           :login-password ""
+           :login-error nil
+           :login-persona nil)
+    (enter-persona full-persona)))
 
 (defn attempt-login []
   (let [password (:login-password @app-state)
