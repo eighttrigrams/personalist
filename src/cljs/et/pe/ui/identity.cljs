@@ -110,7 +110,7 @@
                                  :border-radius "4px"
                                  :font-size "0.8rem"}}
                 "X"])]))]
-       [:p {:style {:color "#666" :font-style "italic" :margin 0}} "No linked identities yet"])]))
+       [:p {:style {:color "#666" :font-style "italic" :margin 0}} "No Relations for this Identity at this point in time."])]))
 
 (defn identity-editor []
   (let [{:keys [selected-identity editing-name editing-text auth-user text-editor-mode url-edit-mode]} @app-state
