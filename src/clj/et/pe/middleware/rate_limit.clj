@@ -12,7 +12,7 @@
     (filterv #(> % cutoff) logs)))
 
 (defn- get-client-ip [request]
-  (or (get-in request [:headers "x-forwarded-for"])
+  (or (get-in request [:headers "fly-client-ip"])
       (get-in request [:headers "x-real-ip"])
       (:remote-addr request)
       "unknown"))
