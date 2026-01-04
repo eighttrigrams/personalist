@@ -133,12 +133,23 @@
          :body "{\"error\":\"Authentication required\"}"})
       (handler req))))
 
+(defn wrap-error-handling [handler]
+  (fn [request]
+    (try
+      (handler request)
+      (catch Exception e
+        (tel/log! :error ["Request failed:" (.getMessage e)])
+        {:status 500
+         :headers {"Content-Type" "application/json"}
+         :body "{\"error\":\"Internal server error\"}"}))))
+
 (def app
   (-> app-routes
       (wrap-params)
       (wrap-json-body {:keywords? true})
       (wrap-auth)
       (wrap-json-response)
+      (wrap-error-handling)
       (wrap-cors :access-control-allow-origin [#".*"]
                  :access-control-allow-methods [:get :post :put :delete])
       (wrap-rate-limit)))
@@ -156,6 +167,14 @@
              (prod-mode?))
     (throw (ex-info "Cannot use :dangerously-skip-logins? in production mode" {}))))
 
+(defn- start-worker []
+  (future
+    (tel/log! :info "Worker starting...")
+    (loop []
+      (tel/log! :info "Hello from worker!")
+      (Thread/sleep 30000)
+      (recur))))
+
 (defn -main
   [& _args]
   (reset! config (load-config))
@@ -171,6 +190,8 @@
   (let [port (Integer/parseInt (or (System/getenv "PORT") "3017"))]
     (tel/log! :info ["Starting server on port" port])
     (run-server port)
+    (when (prod-mode?)
+      (start-worker))
     (when (should-pre-seed? @config)
       (future
         (Thread/sleep 2000)
