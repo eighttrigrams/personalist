@@ -8,7 +8,7 @@ COPY resources ./resources
 
 RUN clj -Sdeps '{:mvn/local-repo "./.m2/repository"}' -T:build uber
 
-FROM eclipse-temurin:21-jre-alpine AS runtime
+FROM eclipse-temurin:21-jre AS runtime
 
 WORKDIR /app
 
