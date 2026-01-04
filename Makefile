@@ -29,7 +29,11 @@ deploy:
 	fly deploy
 
 backup:
-	fly ssh console -C "tar -czf - /app/data/xtdb" > volume-backup.tar.gz
+	fly ssh console -C "tar -czf - /app/data/xtdb" > volume-backup.$$(date +%Y-%m-%d.%H-%M).tar.gz
+
+backup-replay:
+	@if [ -d data ]; then echo "Error: data/ directory already exists. Remove it first." && exit 1; fi
+	tar -xzf $$(ls -t volume-backup.*.tar.gz | head -1) --strip-components=1
 
 swap-config-bkp:
 	@mv config.edn config.edn.tmp && mv config.edn.bkp config.edn && mv config.edn.tmp config.edn.bkp
