@@ -1,7 +1,7 @@
 (ns et.pe.ui.identity
   (:require [et.pe.ui.state :refer [app-state update-identity
                                     fetch-relations delete-relation select-identity
-                                    update-url-with-time]]
+                                    update-url-with-time fetch-more-recent-identities]]
             ["marked" :refer [marked]]))
 
 (defn time-slider []
@@ -198,7 +198,9 @@
          "Select Persona"]]]
 
       (not selected-identity)
-      (let [recent-identities (:recent-identities @app-state)]
+      (let [recent-identities (:recent-identities @app-state)
+            offset (:recent-identities-offset @app-state)
+            has-more (:recent-identities-has-more @app-state)]
         [:div {:style {:display "flex"
                        :justify-content "center"
                        :align-items "flex-start"
@@ -227,7 +229,17 @@
                   (let [text (:text identity)]
                     (if (> (count text) 60)
                       (str (subs text 0 60) "...")
-                      text))]])]]
+                      text))]])]
+             (when has-more
+               [:button {:style {:background "transparent"
+                                 :border "none"
+                                 :color "#4a90d9"
+                                 :font-size "0.85rem"
+                                 :cursor "pointer"
+                                 :padding "0.5rem"
+                                 :margin-top "0.25rem"}
+                         :on-click #(fetch-more-recent-identities (:id current-user) (+ offset 5))}
+                "more"])]
             [:<>
              [:p {:style {:font-size "1.2rem" :margin-bottom "1rem"}} "No identity selected"]
              [:p {:style {:color "#999"}} "Use the search button to browse identities"]])]])

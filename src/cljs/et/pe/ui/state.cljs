@@ -11,6 +11,8 @@
                             :show-auth-modal false
                             :identities []
                             :recent-identities []
+                            :recent-identities-offset 0
+                            :recent-identities-has-more false
                             :selected-identity nil
                             :identity-history []
                             :editing-name ""
@@ -120,10 +122,24 @@
 (defn fetch-recent-identities [persona-name]
   (GET (str api-base "/api/personas/" persona-name "/identities/recent")
     {:handler (fn [res]
-                (swap! app-state assoc :recent-identities res))
+                (swap! app-state assoc
+                       :recent-identities (:items res)
+                       :recent-identities-offset 0
+                       :recent-identities-has-more (:has-more res)))
      :response-format :json
      :keywords? true
      :error-handler #(js/console.error "Error fetching recent identities" %)}))
+
+(defn fetch-more-recent-identities [persona-name offset]
+  (GET (str api-base "/api/personas/" persona-name "/identities/recent?offset=" offset)
+    {:handler (fn [res]
+                (swap! app-state assoc
+                       :recent-identities (:items res)
+                       :recent-identities-offset offset
+                       :recent-identities-has-more (:has-more res)))
+     :response-format :json
+     :keywords? true
+     :error-handler #(js/console.error "Error fetching more recent identities" %)}))
 
 (defn- normalize-time [t]
   (when t

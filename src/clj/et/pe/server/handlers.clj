@@ -93,9 +93,10 @@
 (defn list-recent-identities-handler [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         limit (or (some-> (get-in req [:query-params "limit"]) Integer/parseInt) 5)
+        offset (or (some-> (get-in req [:query-params "offset"]) Integer/parseInt) 0)
         persona (ds/get-persona-by-id (ensure-conn) persona-name)]
     (if persona
-      {:status 200 :body (serialize-response (ds/list-recent-identities (ensure-conn) persona limit))}
+      {:status 200 :body (serialize-response (ds/list-recent-identities (ensure-conn) persona limit offset))}
       {:status 404 :body {:error "Persona not found"}})))
 
 (defn add-identity-handler [req]

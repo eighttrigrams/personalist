@@ -114,7 +114,7 @@
   (.toEpochMilli (.toInstant zdt)))
 
 (defn list-recent-identities
-  [conn {persona-id :id :as _persona} limit]
+  [conn {persona-id :id :as _persona} limit offset]
   (let [results (xt/q (:conn conn)
                       ['(fn [persona-id]
                           (-> (from :identities {:bind [persona/id identity/name identity/text xt/id xt/valid-from]
@@ -126,10 +126,13 @@
         latest-per-id (map (fn [[_ versions]]
                              (apply max-key #(to-millis (:xt/valid-from %)) versions))
                            by-id)
-        sorted (take limit (reverse (sort-by #(to-millis (:xt/valid-from %)) latest-per-id)))]
-    (mapv (fn [{id :xt/id nm :identity/name text :identity/text valid-from :xt/valid-from}]
-            {:identity (extract-identity-id id) :name nm :text text :modified-at valid-from})
-          sorted)))
+        sorted (reverse (sort-by #(to-millis (:xt/valid-from %)) latest-per-id))
+        total (count sorted)
+        page (->> sorted (drop offset) (take limit))]
+    {:items (mapv (fn [{id :xt/id nm :identity/name text :identity/text valid-from :xt/valid-from}]
+                    {:identity (extract-identity-id id) :name nm :text text :modified-at valid-from})
+                  page)
+     :has-more (< (+ offset (count page)) total)}))
 
 (defn add-identity
   [conn {persona-id :id :as _persona} nm text & [{:keys [valid-from id]}]]
