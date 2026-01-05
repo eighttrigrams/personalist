@@ -10,12 +10,6 @@ start-prod:
 stop:
 	./scripts/stop.sh
 
-restart:
-	./scripts/restart.sh
-
-restart-prod:
-	./scripts/restart.sh prod
-
 seed:
 	./scripts/seed-db.sh
 
@@ -34,7 +28,3 @@ backup:
 backup-replay:
 	@if [ -d data ]; then echo "Error: data/ directory already exists. Remove it first." && exit 1; fi
 	tar -xzf $$(ls -t volume-backup.*.tar.gz | head -1) --strip-components=1
-
-swap-config-bkp:
-	@mv config.edn config.edn.tmp && mv config.edn.bkp config.edn && mv config.edn.tmp config.edn.bkp
-	@echo "Swapped config.edn <-> config.edn.bkp"
