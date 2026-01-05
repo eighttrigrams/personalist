@@ -111,7 +111,11 @@
           persona-id])))
 
 (defn- to-millis [zdt]
-  (.toEpochMilli (.toInstant zdt)))
+  (cond
+    (nil? zdt) 0
+    (instance? java.time.ZonedDateTime zdt) (.toEpochMilli (.toInstant zdt))
+    (instance? java.time.Instant zdt) (.toEpochMilli zdt)
+    :else (throw (ex-info "Unexpected type for to-millis" {:type (type zdt) :value zdt}))))
 
 (defn list-recent-identities
   [conn {persona-id :id :as _persona} limit offset]
