@@ -2,7 +2,8 @@
   (:require [xtdb.api :as xt]
             [xtdb.node :as xtn]
             [clojure.string :as str]
-            [et.pe.urbit :as urbit]))
+            [et.pe.urbit :as urbit]
+            [taoensso.telemere :as tel]))
 
 (defn init-conn
   [{:keys [type path] :or {path "data/xtdb"}}]
@@ -111,11 +112,29 @@
           persona-id])))
 
 (defn- to-millis [zdt]
-  (cond
-    (nil? zdt) 0
-    (instance? java.time.ZonedDateTime zdt) (.toEpochMilli (.toInstant zdt))
-    (instance? java.time.Instant zdt) (.toEpochMilli zdt)
-    :else (throw (ex-info "Unexpected type for to-millis" {:type (type zdt) :value zdt}))))
+  (let [dev-mode? (= "true" (System/getenv "DEV"))]
+    (cond
+      (nil? zdt)
+      (do
+        (tel/log! :warn ["to-millis received nil in" (if dev-mode? "dev" "prod") "mode"])
+        0)
+
+      (instance? java.time.ZonedDateTime zdt)
+      (do
+        (when-not dev-mode?
+          (tel/log! :info ["to-millis received ZonedDateTime in prod mode (expected in dev)"]))
+        (.toEpochMilli (.toInstant zdt)))
+
+      (instance? java.time.Instant zdt)
+      (do
+        (when dev-mode?
+          (tel/log! :info ["to-millis received Instant in dev mode (expected in prod?)"]))
+        (.toEpochMilli zdt))
+
+      :else
+      (do
+        (tel/log! :error ["to-millis received unexpected type:" (type zdt) "value:" zdt])
+        (throw (ex-info "Unexpected type for to-millis" {:type (type zdt) :value zdt}))))))
 
 (defn list-recent-identities
   [conn {persona-id :id :as _persona} limit offset]
