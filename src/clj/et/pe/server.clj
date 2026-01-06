@@ -40,9 +40,11 @@
       (do
         (tel/log! :info (str "Loading configuration from " (.getName config-file)))
         (edn/read-string (slurp config-file)))
-      (do
-        (tel/log! :info "config file not found, using default in-memory database with pre-seed")
-        {:db {:type :xtdb2-in-memory} :pre-seed? true}))))
+      (if (prod-mode?)
+        (throw (ex-info "Config file required in production mode" {:file (.getName config-file)}))
+        (do
+          (tel/log! :info "config file not found, using default in-memory database with pre-seed")
+          {:db {:type :xtdb2-in-memory} :pre-seed? true})))))
 
 (defn- should-pre-seed? [cfg]
   (true? (:pre-seed? cfg)))
