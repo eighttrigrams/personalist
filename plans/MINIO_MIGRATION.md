@@ -41,32 +41,83 @@ App → HTTP → MinIO → Regular I/O (no mmap in app process)
 
 ### Phase 2: Railway Setup (TODO)
 
-1. **Add MinIO service to Railway project**
-   - Use Railway template or Docker image
-   - Configure with persistent volume
-   - Set root credentials
+#### Step 1: Deploy MinIO Service
 
-2. **Configure environment variables in Railway app**
+1. **Add MinIO to Railway project**
+   - Go to Railway dashboard for your project
+   - Click "New Service" → "Template"
+   - Search for "MinIO" or use direct link: https://railway.app/template/SMKOEA
+   - Click "Deploy" to add MinIO service to your project
+
+2. **Configure MinIO environment variables**
+
+   Set these in the MinIO service:
+   ```
+   MINIO_ROOT_USER=admin
+   MINIO_ROOT_PASSWORD=<generate-secure-password>
+   MINIO_API_PORT=9000
+   MINIO_CONSOLE_PORT=9001
+   PORT=9001
+   ```
+
+3. **Add persistent volume to MinIO**
+   - In MinIO service settings → "Volumes"
+   - Add volume mounted at `/data` (MinIO's default data directory)
+   - Volume size: Start with 1GB, can increase later
+
+4. **Configure MinIO networking**
+   - Enable public networking on port 9000 (API access)
+   - Enable public networking on port 9001 (Console access)
+   - Note the internal service name (likely `minio`)
+
+#### Step 2: Create XTDB Bucket
+
+1. **Access MinIO Console**
+   - Open the MinIO console URL from Railway (port 9001)
+   - Login with MINIO_ROOT_USER and MINIO_ROOT_PASSWORD
+
+2. **Create bucket**
+   - Click "Create Bucket"
+   - Bucket name: `xtdb`
+   - Region: default
+   - Versioning: disabled (not needed for XTDB)
+
+#### Step 3: Configure Application
+
+1. **Add environment variables to personalist service**
    ```
    S3_ENDPOINT=http://minio:9000
    S3_BUCKET=xtdb
    S3_PREFIX=personalist/
-   S3_ACCESS_KEY=<minio-root-user>
-   S3_SECRET_KEY=<minio-root-password>
+   S3_ACCESS_KEY=admin
+   S3_SECRET_KEY=<same-as-MINIO_ROOT_PASSWORD>
    ```
 
-   Note: Production mode is auto-detected (no USE_S3 flag needed)
+   Note:
+   - Use internal service name `minio` for S3_ENDPOINT
+   - Production mode is auto-detected (Railway environment)
+   - Credentials match MinIO root user/password
 
-3. **Create S3 bucket in MinIO**
-   - Access MinIO console
-   - Create `xtdb` bucket
-   - Set appropriate permissions
+#### Step 4: Deploy and Test
 
-4. **Deploy and test**
-   - Deploy updated code
-   - Verify XTDB connects to MinIO
-   - Monitor for SIGSEGV crashes (should be eliminated)
-   - App will start with empty database (new project)
+1. **Deploy updated code**
+   - Push latest changes to trigger Railway deployment
+   - Or manually trigger redeploy in Railway dashboard
+
+2. **Verify startup**
+   - Check logs: `railway logs --service personalist`
+   - Look for "Loading configuration from config.prod.edn"
+   - Verify no connection errors to MinIO
+
+3. **Test XTDB operations**
+   - Access app and create a persona
+   - Create identities and relations
+   - Verify data persists after app restart
+
+4. **Monitor stability**
+   - Check for SIGSEGV crashes (should be eliminated)
+   - Monitor for 24+ hours to confirm stability
+   - App starts with empty database (new project)
 
 ## Configuration Files
 
