@@ -18,8 +18,8 @@
     (= type :xtdb2-s3)
     (do
       (tel/log! :info ["Using S3 XTDB - bucket:" s3-bucket "prefix:" s3-prefix])
-      (tel/log! :info "Log: local (/data/xtdb/log), Storage: S3 remote")
-      {:conn (xtn/start-node {:log [:local {:path "/data/xtdb/log"}]
+      (tel/log! :info "Log: local (/app/data/xtdb/log), Storage: S3 remote")
+      {:conn (xtn/start-node {:log [:local {:path "/app/data/xtdb/log"}]
                               :storage [:remote {:object-store [:s3 {:bucket s3-bucket
                                                                      :prefix s3-prefix}]}]
                               :disk-cache {:path "/tmp/xtdb/cache"}})})

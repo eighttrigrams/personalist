@@ -42,6 +42,14 @@ Link to or select a service. Use when Railway commands show "No service could be
 - Logs are streamed in real-time and can be piped to other commands
 - When grepping logs, use `2>&1` to include stderr: `railway logs --service personalist 2>&1 | grep "pattern"`
 
+### Restart vs Redeploy
+
+**Important distinction:**
+- **Restart**: Restarts the process in the same container. Container filesystem is preserved (including non-volume paths).
+- **Redeploy**: Creates a new container from the image. Only mounted volumes persist; everything else is reset.
+
+**Implication**: Any data stored outside the volume mount path (`/app/data`) will be lost on redeploy but retained on restart.
+
 ## Current Service Configuration
 
 - **Service Name**: personalist
