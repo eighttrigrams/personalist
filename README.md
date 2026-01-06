@@ -4,7 +4,7 @@ Personalist Encyclopedia
 
 Read about it here: [*Personalist - An integrated universe of personal encyclopedias [Whitepaper]*](https://eighttrigrams.substack.com/p/personalist)
 
-The app is publicly accessible under https://personalist.fly.dev.
+The app is publicly accessible under https://www.personalist.org.
 
 ## Quickstart and Demo
 
