@@ -2,9 +2,17 @@ FROM clojure:temurin-21-tools-deps-alpine AS builder
 
 WORKDIR /opt
 
+RUN apk add --no-cache nodejs npm
+
+COPY package.json package-lock.json ./
+RUN npm install
+
+COPY shadow-cljs.edn ./
 COPY deps.edn build.clj ./
 COPY src ./src
 COPY resources ./resources
+
+RUN npx shadow-cljs release app
 
 RUN clj -Sdeps '{:mvn/local-repo "./.m2/repository"}' -T:build uber
 
