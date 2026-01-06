@@ -70,7 +70,6 @@
       (when-let [secret-key (System/getenv "S3_SECRET_KEY")]
         (System/setProperty "aws.secretAccessKey" secret-key))
       (System/setProperty "aws.region" "us-east-1")
-      (System/setProperty "AWS_S3_FORCE_PATH_STYLE" "true")
       (merge db-config
              {:s3-endpoint (or (System/getenv "S3_ENDPOINT") "http://minio:9000")
               :s3-bucket (or (System/getenv "S3_BUCKET") "xtdb")
