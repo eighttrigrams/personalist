@@ -1,2 +1,2 @@
-{:db {:type :xtdb2-local :path "/app/data/xtdb"}
+{:db {:type :xtdb2-s3}
  :pre-seed? false}
