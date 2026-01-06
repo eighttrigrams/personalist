@@ -14,8 +14,7 @@
 
     (= type :xtdb2-s3)
     {:conn (xtn/start-node {:log [:local {:path "/tmp/xtdb/log"}]
-                            :storage [:remote {:object-store [:s3 {:endpoint s3-endpoint
-                                                                   :bucket s3-bucket
+                            :storage [:remote {:object-store [:s3 {:bucket s3-bucket
                                                                    :prefix s3-prefix}]}]
                             :disk-cache {:path "/tmp/xtdb/cache"}})}
 

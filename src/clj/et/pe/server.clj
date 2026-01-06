@@ -65,14 +65,14 @@
 (defn- enrich-db-config [db-config]
   (if (= (:type db-config) :xtdb2-s3)
     (do
-      (when-let [access-key (System/getenv "S3_ACCESS_KEY")]
+      (when-let [access-key (System/getenv "AWS_ACCESS_KEY_ID")]
         (System/setProperty "aws.accessKeyId" access-key))
-      (when-let [secret-key (System/getenv "S3_SECRET_KEY")]
+      (when-let [secret-key (System/getenv "AWS_SECRET_ACCESS_KEY")]
         (System/setProperty "aws.secretAccessKey" secret-key))
-      (System/setProperty "aws.region" "us-east-1")
+      (when-let [region (System/getenv "AWS_REGION")]
+        (System/setProperty "aws.region" region))
       (merge db-config
-             {:s3-endpoint (or (System/getenv "S3_ENDPOINT") "http://minio:9000")
-              :s3-bucket (or (System/getenv "S3_BUCKET") "xtdb")
+             {:s3-bucket (or (System/getenv "S3_BUCKET") "xtdb")
               :s3-prefix (or (System/getenv "S3_PREFIX") "personalist/")}))
     db-config))
 
