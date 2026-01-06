@@ -34,4 +34,6 @@ ENTRYPOINT ["java", \
             "--add-opens=java.base/java.nio=ALL-UNNAMED", \
             "-Dio.netty.tryReflectionSetAccessible=true", \
             "--enable-native-access=ALL-UNNAMED", \
+            "-Darrow.enable_unsafe_memory_access=false", \
+            "-Darrow.enable_null_check_for_get=true", \
             "-jar", "/app/app.jar"]
