@@ -8,20 +8,29 @@
 (defn init-conn
   [{:keys [type path s3-endpoint s3-bucket s3-prefix access-key secret-key]
     :or {path "data/xtdb"}}]
+  (tel/log! :info ["Initializing XTDB connection with type:" type])
   (cond
     (= type :xtdb2-in-memory)
-    {:conn (xtn/start-node)}
+    (do
+      (tel/log! :info "Using in-memory XTDB")
+      {:conn (xtn/start-node)})
 
     (= type :xtdb2-s3)
-    {:conn (xtn/start-node {:log [:remote {:object-store [:s3 {:bucket s3-bucket
-                                                               :prefix (str s3-prefix "log/")}]}]
-                            :storage [:remote {:object-store [:s3 {:bucket s3-bucket
-                                                                   :prefix (str s3-prefix "storage/")}]}]
-                            :disk-cache {:path "/tmp/xtdb/cache"}})}
+    (do
+      (tel/log! :info ["Using S3 XTDB - bucket:" s3-bucket "prefix:" s3-prefix])
+      (tel/log! :info "Log: S3 remote, Storage: S3 remote")
+      {:conn (xtn/start-node {:log [:remote {:object-store [:s3 {:bucket s3-bucket
+                                                                 :prefix (str s3-prefix "log/")}]}]
+                              :storage [:remote {:object-store [:s3 {:bucket s3-bucket
+                                                                     :prefix (str s3-prefix "storage/")}]}]
+                              :disk-cache {:path "/tmp/xtdb/cache"}})})
 
     :else
-    {:conn (xtn/start-node {:log [:local {:path (str path "/log")}]
-                            :storage [:local {:path (str path "/storage")}]})}))
+    (do
+      (tel/log! :info ["Using local XTDB - path:" path])
+      (tel/log! :info "Log: local, Storage: local")
+      {:conn (xtn/start-node {:log [:local {:path (str path "/log")}]
+                              :storage [:local {:path (str path "/storage")}]})})))
 
 (defn close-conn
   [{:keys [conn]}]
