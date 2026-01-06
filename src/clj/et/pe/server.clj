@@ -20,12 +20,11 @@
 
 (def prod-mode?*
   (delay
-    (let [on-fly? (some? (System/getenv "FLY_APP_NAME"))
-          on-railway? (some? (System/getenv "RAILWAY_ENVIRONMENT"))
+    (let [on-railway? (some? (System/getenv "RAILWAY_ENVIRONMENT"))
           dev-mode? (= "true" (System/getenv "DEV"))
           admin-pw (System/getenv "ADMIN_PASSWORD")]
       (cond
-        (or on-fly? on-railway? (not dev-mode?))
+        (or on-railway? (not dev-mode?))
         (do (when-not admin-pw
               (throw (ex-info "ADMIN_PASSWORD required in production" {})))
             true)
@@ -35,61 +34,6 @@
         false))))
 
 (defn prod-mode? [] @prod-mode?*)
-
-(defn- load-config []
-  (let [config-file (io/file (if (prod-mode?) "config.prod.edn" "config.edn"))]
-    (if (.exists config-file)
-      (do
-        (tel/log! :info (str "Loading configuration from " (.getName config-file)))
-        (edn/read-string (slurp config-file)))
-      (if (prod-mode?)
-        (throw (ex-info "Config file required in production mode" {:file (.getName config-file)}))
-        (do
-          (tel/log! :info "config file not found, using default in-memory database with pre-seed")
-          {:db {:type :xtdb2-in-memory} :pre-seed? true})))))
-
-(defn- should-pre-seed? [cfg]
-  (true? (:pre-seed? cfg)))
-
-(defn- shadow-mode? []
-  (true? (:shadow? @config)))
-
-(defn- run-seed-script []
-  (let [seed-script (io/file "scripts/seed-db.sh")]
-    (when (.exists seed-script)
-      (tel/log! :info "Running seed script...")
-      (let [process (.exec (Runtime/getRuntime) "bash scripts/seed-db.sh")
-            exit-code (.waitFor process)]
-        (if (zero? exit-code)
-          (tel/log! :info "Seed script completed successfully")
-          (tel/log! :error ["Seed script failed with exit code:" exit-code]))))))
-
-(defn- enrich-db-config [db-config]
-  (if (= (:type db-config) :xtdb2-s3)
-    (do
-      (when-let [access-key (System/getenv "AWS_ACCESS_KEY_ID")]
-        (System/setProperty "aws.accessKeyId" access-key))
-      (when-let [secret-key (System/getenv "AWS_SECRET_ACCESS_KEY")]
-        (System/setProperty "aws.secretAccessKey" secret-key))
-      (when-let [region (System/getenv "AWS_REGION")]
-        (System/setProperty "aws.region" region))
-      (merge db-config
-             {:s3-bucket (or (System/getenv "S3_BUCKET") "xtdb")
-              :s3-prefix (or (System/getenv "S3_PREFIX") "personalist/")}))
-    db-config))
-
-(defn ensure-conn []
-  (when (nil? @ds-conn)
-    (when (nil? @config)
-      (reset! config (load-config)))
-    (let [db-config (enrich-db-config (get @config :db {:type :xtdb2-in-memory}))]
-      (reset! ds-conn (ds/init-conn db-config)))
-    (handlers/set-conn! @ds-conn)
-    (handlers/set-config! @config))
-  @ds-conn)
-
-(defn- db-empty? []
-  (empty? (ds/list-personas (ensure-conn))))
 
 (defroutes api-routes
   (context "/api" []
@@ -174,6 +118,53 @@
       (wrap-cors :access-control-allow-origin [#".*"]
                  :access-control-allow-methods [:get :post :put :delete])))
 
+(defn- load-config []
+  (let [config-file (io/file (if (prod-mode?) "config.prod.edn" "config.edn"))]
+    (if-not (.exists config-file)
+      (throw (ex-info "Config file required" {:file (.getName config-file)}))
+      (do
+        (tel/log! :info (str "Loading configuration from " (.getName config-file)))
+        (edn/read-string (slurp config-file))))))
+
+(defn- should-pre-seed? [cfg]
+  (true? (:pre-seed? cfg)))
+
+(defn- shadow-mode? []
+  (true? (:shadow? @config)))
+
+(defn- run-seed-script []
+  (let [seed-script (io/file "scripts/seed-db.sh")]
+    (when (.exists seed-script)
+      (tel/log! :info "Running seed script...")
+      (let [process (.exec (Runtime/getRuntime) "bash scripts/seed-db.sh")
+            exit-code (.waitFor process)]
+        (if (zero? exit-code)
+          (tel/log! :info "Seed script completed successfully")
+          (tel/log! :error ["Seed script failed with exit code:" exit-code]))))))
+
+(defn- enrich-db-config [db-config]
+  db-config
+  #_(if (= (:type db-config) :xtdb2-s3)
+    (do
+      (when-let [access-key (System/getenv "AWS_ACCESS_KEY_ID")]
+        (System/setProperty "aws.accessKeyId" access-key))
+      (when-let [secret-key (System/getenv "AWS_SECRET_ACCESS_KEY")]
+        (System/setProperty "aws.secretAccessKey" secret-key)))
+    db-config))
+
+(defn ensure-conn []
+  (when (nil? @ds-conn)
+    (when (nil? @config)
+      (reset! config (load-config)))
+    (let [db-config (enrich-db-config (get @config :db {:type :xtdb2-in-memory}))]
+      (reset! ds-conn (ds/init-conn db-config)))
+    (handlers/set-conn! @ds-conn)
+    (handlers/set-config! @config))
+  @ds-conn)
+
+(defn- db-empty? []
+  (empty? (ds/list-personas (ensure-conn))))
+
 (def app
   (fn [req]
     (if (shadow-mode?)
@@ -203,9 +194,9 @@
 
 (defn -main
   [& _args]
+  (tel/log! :info ["Starting system in" (if (prod-mode?) "production" "development") "mode"])
   (reset! config (load-config))
   (handlers/set-config! @config)
-  (tel/log! :info ["Starting system in" (if (prod-mode?) "production" "development") "mode"])
   (ensure-valid-options @config)
 
   ;; Run S3 smoke check if using S3 storage
