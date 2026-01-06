@@ -195,11 +195,9 @@
 (defn -main
   [& _args]
   (tel/log! :info ["Starting system in" (if (prod-mode?) "production" "development") "mode"])
+  (ensure-valid-options @config)
   (reset! config (load-config))
   (handlers/set-config! @config)
-  (ensure-valid-options @config)
-
-  ;; Run S3 smoke check if using S3 storage
   (when (= :xtdb2-s3 (get-in @config [:db :type]))
     (let [db-config (enrich-db-config (get @config :db))
           check-result (et.pe.s3-check/s3-health-check
@@ -209,26 +207,26 @@
         (tel/log! :error ["S3 smoke check failed:" (:message check-result)])
         (throw (ex-info "S3 smoke check failed - cannot start application"
                         {:reason (:message check-result)})))))
-
   (ensure-conn)
-  (when-not (prod-mode?)
-    (let [nrepl-port (Integer/parseInt (or (System/getenv "NREPL_PORT") "7888"))]
-      (nrepl/start-server :port nrepl-port)
-      (spit ".nrepl-port" nrepl-port)
-      (tel/log! :info ["nREPL server started on port" nrepl-port])))
-  (let [port (Integer/parseInt (or (System/getenv "PORT") "3017"))]
+  (when (should-pre-seed? @config)
+    (future
+      (Thread/sleep 2000)
+      (if (db-empty?)
+        (do
+          (tel/log! :info "Pre-seed enabled and database empty, seeding...")
+          (run-seed-script))
+        (tel/log! :info "Pre-seed enabled but database has data, skipping seed"))))
+  ;; starting server
+  (let [port (get-in @config [:port])]
     (tel/log! :info ["Starting server on port" port])
     (run-server port)
+    (when-not (prod-mode?)
+      (let [nrepl-port (Integer/parseInt (or (System/getenv "NREPL_PORT") "7888"))]
+        (nrepl/start-server :port nrepl-port)
+        (spit ".nrepl-port" nrepl-port)
+        (tel/log! :info ["nREPL server started on port" nrepl-port])))
     (when (prod-mode?)
       (start-worker))
-    (when (should-pre-seed? @config)
-      (future
-        (Thread/sleep 2000)
-        (if (db-empty?)
-          (do
-            (tel/log! :info "Pre-seed enabled and database empty, seeding...")
-            (run-seed-script))
-          (tel/log! :info "Pre-seed enabled but database has data, skipping seed"))))
     @(promise)))
 
 (comment

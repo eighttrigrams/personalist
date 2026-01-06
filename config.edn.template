@@ -2,4 +2,5 @@
       :path "data/xtdb"}
  :pre-seed? false
  :shadow? true
- :dangerously-skip-logins? false}
+ :dangerously-skip-logins? false
+ :port 3017}

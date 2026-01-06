@@ -1,4 +1,4 @@
 {:db {:type :xtdb2-s3
       :s3-bucket "personalist"
       :s3-prefix "personalist/"}
- :pre-seed? false}
+ :port 8080}

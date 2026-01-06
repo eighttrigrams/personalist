@@ -5,7 +5,8 @@ if [ ! -f config.edn ]; then
   cat > config.edn << 'CONFIG'
 {:db {:type :xtdb2-in-memory}
  :pre-seed? true
- :dangerously-skip-logins? true}
+ :dangerously-skip-logins? true
+ :port 3017}
 CONFIG
   echo "Created config.edn"
 fi
