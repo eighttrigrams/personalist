@@ -205,6 +205,15 @@
       (throw (ex-info "S3 smoke check failed - cannot start application"
                       {:reason (:message check-result)})))))
 
+(defn- pre-seed [config]
+  (future
+    (Thread/sleep 2000)
+    (if (db-empty? config)
+      (do
+        (tel/log! :info "Pre-seed enabled and database empty, seeding...")
+        (run-seed-script))
+      (tel/log! :info "Pre-seed enabled but database has data, skipping seed"))))
+
 (defn -main
   [& _args]
   (tel/log! :info ["Starting system in" (if (prod-mode?) "production" "development") "mode"])
@@ -213,14 +222,7 @@
     (when (s3-needed? config) (s3-ok? config))
     (ensure-conn config)
     (handlers/set-config! config)
-    (when (should-pre-seed? config)
-      (future
-        (Thread/sleep 2000)
-        (if (db-empty? config)
-          (do
-            (tel/log! :info "Pre-seed enabled and database empty, seeding...")
-            (run-seed-script))
-          (tel/log! :info "Pre-seed enabled but database has data, skipping seed"))))
+    (when (should-pre-seed? config) (pre-seed config))
     ;; starting server
     (let [port (get-in config [:port])]
       (tel/log! :info ["Starting server on port" port])
