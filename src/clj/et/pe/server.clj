@@ -62,11 +62,22 @@
           (tel/log! :info "Seed script completed successfully")
           (tel/log! :error ["Seed script failed with exit code:" exit-code]))))))
 
+(defn- enrich-db-config [db-config]
+  (if (= (:type db-config) :xtdb2-s3)
+    (merge db-config
+           {:s3-endpoint (or (System/getenv "S3_ENDPOINT") "http://minio:9000")
+            :s3-bucket (or (System/getenv "S3_BUCKET") "xtdb")
+            :s3-prefix (or (System/getenv "S3_PREFIX") "personalist/")
+            :access-key (System/getenv "S3_ACCESS_KEY")
+            :secret-key (System/getenv "S3_SECRET_KEY")})
+    db-config))
+
 (defn ensure-conn []
   (when (nil? @ds-conn)
     (when (nil? @config)
       (reset! config (load-config)))
-    (reset! ds-conn (ds/init-conn (get @config :db {:type :xtdb2-in-memory})))
+    (let [db-config (enrich-db-config (get @config :db {:type :xtdb2-in-memory}))]
+      (reset! ds-conn (ds/init-conn db-config)))
     (handlers/set-conn! @ds-conn)
     (handlers/set-config! @config))
   @ds-conn)
