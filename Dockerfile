@@ -29,7 +29,7 @@ EXPOSE 8080
 ENTRYPOINT ["java", \
             "-Xms256m", \
             "-Xmx768m", \
-            "-XX:MaxMetaspaceSize=128m", \
+            "-XX:MaxMetaspaceSize=256m", \
             "-XX:+UseG1GC", \
             "-XX:MaxGCPauseMillis=200", \
             "-XX:TieredStopAtLevel=1", \
