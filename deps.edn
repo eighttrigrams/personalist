@@ -8,6 +8,7 @@
         org.clojure/data.json             {:mvn/version "2.5.1"}
        com.xtdb/xtdb-core                {:mvn/version "2.1.0"}
         com.xtdb/xtdb-api                 {:mvn/version "2.1.0"}
+        com.xtdb/xtdb-aws                 {:mvn/version "2.1.0"}
         ring/ring-core                    {:mvn/version "1.9.6"}
         ring/ring-json                    {:mvn/version "0.5.1"}
         info.sunng/ring-jetty9-adapter    {:mvn/version "0.38.0"}
