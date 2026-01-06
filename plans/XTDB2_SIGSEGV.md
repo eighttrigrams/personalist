@@ -110,7 +110,9 @@ File an issue at https://github.com/xtdb/xtdb with:
 - **Volume**: Mounted at `/app/data` (ext4 on virtual block device)
 - **Memory**: 1GB
 
-## Current Attempt (2026-01-06)
+## Attempted Solutions (2026-01-06)
+
+### Attempt 1: Arrow Memory Safety Flags (FAILED)
 
 Added JVM flags to disable Arrow's unsafe memory operations:
 
@@ -119,16 +121,28 @@ Added JVM flags to disable Arrow's unsafe memory operations:
 -Darrow.enable_null_check_for_get=true
 ```
 
-These flags tell Apache Arrow to:
-1. Avoid using `sun.misc.Unsafe` for unaligned memory access
-2. Enable additional null checks to prevent accessing invalid memory
+**Result:** Did NOT fix the problem. Crashes continued with same SIGSEGV in Arrow code.
+
+**Commit:** 4d6cfbe
+
+### Attempt 2: Disable C2 JIT Compiler (IN PROGRESS)
+
+Added flag to disable the C2 optimizing compiler, keeping only C1:
+
+```dockerfile
+-XX:TieredStopAtLevel=1
+```
+
+All SIGSEGV crashes occur in C2-compiled code (frames marked "c2"). Disabling C2 should prevent these crashes, though performance will be reduced.
 
 **Status:** Deployed to Railway, monitoring for crashes.
 
+**Commit:** d559dd6
+
 **If this doesn't work, next steps:**
-1. Try disabling C2 JIT compilation: `-XX:TieredStopAtLevel=1`
-2. Try different Java distribution (Azul Zulu, GraalVM)
-3. Consider switching from XTDB2 to alternative database (Datomic, PostgreSQL + Datascript)
+1. Try different Java distribution (Azul Zulu, GraalVM, Amazon Corretto)
+2. Try upgrading/downgrading XTDB version
+3. Consider switching from XTDB2 to alternative database (Datomic, PostgreSQL + Datascript, SQLite)
 
 ## References
 
