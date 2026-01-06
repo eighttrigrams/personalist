@@ -13,9 +13,10 @@
     {:conn (xtn/start-node)}
 
     (= type :xtdb2-s3)
-    {:conn (xtn/start-node {:log [:local {:path "/tmp/xtdb/log"}]
+    {:conn (xtn/start-node {:log [:remote {:object-store [:s3 {:bucket s3-bucket
+                                                               :prefix (str s3-prefix "log/")}]}]
                             :storage [:remote {:object-store [:s3 {:bucket s3-bucket
-                                                                   :prefix s3-prefix}]}]
+                                                                   :prefix (str s3-prefix "storage/")}]}]
                             :disk-cache {:path "/tmp/xtdb/cache"}})}
 
     :else
