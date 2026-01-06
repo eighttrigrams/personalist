@@ -1,6 +1,7 @@
 (ns et.pe.server
   (:require [ring.adapter.jetty9 :as jetty]
             [et.pe.ds :as ds]
+            [et.pe.s3-check]
             [clojure.java.io :as io]
             [clojure.edn :as edn]
             [clojure.string :as str]
@@ -205,6 +206,18 @@
   (handlers/set-config! @config)
   (tel/log! :info ["Starting system in" (if (prod-mode?) "production" "development") "mode"])
   (ensure-valid-options @config)
+
+  ;; Run S3 smoke check if using S3 storage
+  (when (= :xtdb2-s3 (get-in @config [:db :type]))
+    (let [db-config (enrich-db-config (get @config :db))
+          check-result (et.pe.s3-check/s3-health-check
+                        (:s3-bucket db-config)
+                        (:s3-prefix db-config))]
+      (when-not (:success check-result)
+        (tel/log! :error ["S3 smoke check failed:" (:message check-result)])
+        (throw (ex-info "S3 smoke check failed - cannot start application"
+                        {:reason (:message check-result)})))))
+
   (ensure-conn)
   (when-not (prod-mode?)
     (let [nrepl-port (Integer/parseInt (or (System/getenv "NREPL_PORT") "7888"))]
