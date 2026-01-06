@@ -16,7 +16,8 @@
     {:conn (xtn/start-node {:log [:local {:path "/tmp/xtdb/log"}]
                             :storage [:remote {:object-store [:s3 {:endpoint s3-endpoint
                                                                    :bucket s3-bucket
-                                                                   :prefix s3-prefix}]}]})}
+                                                                   :prefix s3-prefix}]
+                                               :local-disk-cache "/tmp/xtdb/cache"}]})}
 
     :else
     {:conn (xtn/start-node {:log [:local {:path (str path "/log")}]
