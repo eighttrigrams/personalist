@@ -46,3 +46,7 @@ fly-railway-replay:
 	@cd tmp-backup/app/data/xtdb && tar -czf - . | railway run -- bash -c "cd /app/data/xtdb && tar -xzf -"
 	@rm -rf tmp-backup
 	@echo "Backup restored successfully. Restart the Railway service to load the data."
+
+railway-backup:
+	railway run -- tar -czf - /app/data/xtdb > railway-backup.$$(date +%Y-%m-%d.%H-%M).tar.gz
+	@echo "Backup saved to railway-backup.$$(date +%Y-%m-%d.%H-%M).tar.gz"
