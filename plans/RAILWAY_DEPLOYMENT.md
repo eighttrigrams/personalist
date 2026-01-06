@@ -1,5 +1,18 @@
 # Railway Deployment Guide
 
+**Status:** DEPLOYED & WORKING
+**Date Completed:** 2026-01-06
+**URL:** https://personalist-production.up.railway.app
+**Issues Resolved:**
+1. OOM errors - Fixed by adding JVM memory limits (commit 165848f)
+2. JavaScript not loading - Fixed by adding ClojureScript compilation to Dockerfile (commit ac85b5a)
+3. Backup restoration - Added `make fly-railway-replay` command
+
+**Remaining:** Restore production data from Fly.io backup
+
+---
+
+
 ## Why Railway?
 
 XTDB2 uses Apache Arrow which requires memory-mapped file I/O. This doesn't work on Fly.io's Firecracker microVMs but works fine on Railway's Docker-based infrastructure.

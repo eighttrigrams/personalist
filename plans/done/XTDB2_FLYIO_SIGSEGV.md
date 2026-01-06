@@ -1,3 +1,11 @@
+**Status:** RESOLVED
+**Date Completed:** 2026-01-06
+**Solution:** Migrated from Fly.io to Railway
+**What fixed it:** Fly.io uses Firecracker microVMs which are incompatible with Apache Arrow's memory-mapped file I/O. Railway uses traditional Docker containers which work correctly with XTDB2/Arrow.
+**Related commits:** ac85b5a (Add ClojureScript compilation), 165848f (Add JVM memory limits)
+
+---
+
 # XTDB2 SIGSEGV Crashes on Fly.io
 
 ## Problem Summary
