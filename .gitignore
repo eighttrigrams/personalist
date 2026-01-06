@@ -18,4 +18,4 @@ config.edn.*
 !config.edn.template
 .editor-layouts.json
 volume-backup.*.tar.gz
-.minio-credentials
+.s3-credentials
