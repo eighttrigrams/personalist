@@ -16,7 +16,6 @@
   (:gen-class))
 
 (defonce ds-conn (atom nil))
-(defonce config (atom nil))
 
 (def prod-mode?*
   (delay
@@ -129,8 +128,8 @@
 (defn- should-pre-seed? [cfg]
   (true? (:pre-seed? cfg)))
 
-(defn- shadow-mode? []
-  (true? (:shadow? @config)))
+(defn- shadow-mode? [config]
+  (true? (:shadow? config)))
 
 (defn- run-seed-script []
   (let [seed-script (io/file "scripts/seed-db.sh")]
@@ -152,29 +151,29 @@
         (System/setProperty "aws.secretAccessKey" secret-key)))
     db-config))
 
-(defn ensure-conn []
+(defn ensure-conn [config]
   (when (nil? @ds-conn)
-    (when (nil? @config)
+    (when (nil? config)
       (reset! config (load-config)))
-    (let [db-config (enrich-db-config (get @config :db {:type :xtdb2-in-memory}))]
+    (let [db-config (enrich-db-config (get config :db {:type :xtdb2-in-memory}))]
       (reset! ds-conn (ds/init-conn db-config)))
     (handlers/set-conn! @ds-conn)
-    (handlers/set-config! @config))
+    (handlers/set-config! config))
   @ds-conn)
 
-(defn- db-empty? []
-  (empty? (ds/list-personas (ensure-conn))))
+(defn- db-empty? [config]
+  (empty? (ds/list-personas (ensure-conn config))))
 
-(def app
+(defn app [config]
   (fn [req]
-    (if (shadow-mode?)
+    (if (shadow-mode? config)
       (base-app req)
       ((handlers/wrap-rate-limit base-app) req))))
 
-(defn- run-server [port]
+(defn- run-server [port config]
   (let [host (or (System/getenv "HOST") "127.0.0.1")]
     (tel/log! :info ["Binding to" host ":" port])
-    (jetty/run-jetty #'app {:port port :host host :join? false})))
+    (jetty/run-jetty (app config) {:port port :host host :join? false})))
 
 (defn- ensure-valid-options [config]
   (when (and (true? (:pre-seed? config))
@@ -192,9 +191,12 @@
       (Thread/sleep 30000)
       (recur))))
 
-(defn- s3-ok? []
+(defn- s3-needed? [config]
+  (= :xtdb2-s3 (get-in config [:db :type])))
+
+(defn- s3-ok? [config]
   ;; TODO check env vars present
-  (let [db-config (enrich-db-config (get @config :db))
+  (let [db-config (enrich-db-config (get config :db))
         check-result (et.pe.s3-check/s3-health-check
                       (:s3-bucket db-config)
                       (:s3-prefix db-config))]
@@ -206,34 +208,34 @@
 (defn -main
   [& _args]
   (tel/log! :info ["Starting system in" (if (prod-mode?) "production" "development") "mode"])
-  (ensure-valid-options @config)
-  (reset! config (load-config))
-  (handlers/set-config! @config)
-  (when (= :xtdb2-s3 (get-in @config [:db :type])) (s3-ok?))
-  (ensure-conn)
-  (when (should-pre-seed? @config)
-    (future
-      (Thread/sleep 2000)
-      (if (db-empty?)
-        (do
-          (tel/log! :info "Pre-seed enabled and database empty, seeding...")
-          (run-seed-script))
-        (tel/log! :info "Pre-seed enabled but database has data, skipping seed"))))
-  ;; starting server
-  (let [port (get-in @config [:port])]
-    (tel/log! :info ["Starting server on port" port])
-    (run-server port)
-    (when-not (prod-mode?)
-      (let [nrepl-port (Integer/parseInt (or (System/getenv "NREPL_PORT") "7888"))]
-        (nrepl/start-server :port nrepl-port)
-        (spit ".nrepl-port" nrepl-port)
-        (tel/log! :info ["nREPL server started on port" nrepl-port])))
-    (when (prod-mode?)
-      (start-worker))
-    @(promise)))
+  (let [config (load-config)]
+    (ensure-valid-options config)
+    (when (s3-needed? config) (s3-ok? config))
+    (ensure-conn config)
+    (handlers/set-config! config)
+    (when (should-pre-seed? config)
+      (future
+        (Thread/sleep 2000)
+        (if (db-empty? config)
+          (do
+            (tel/log! :info "Pre-seed enabled and database empty, seeding...")
+            (run-seed-script))
+          (tel/log! :info "Pre-seed enabled but database has data, skipping seed"))))
+    ;; starting server
+    (let [port (get-in config [:port])]
+      (tel/log! :info ["Starting server on port" port])
+      (run-server port config)
+      (when-not (prod-mode?)
+        (let [nrepl-port (Integer/parseInt (or (System/getenv "NREPL_PORT") "7888"))]
+          (nrepl/start-server :port nrepl-port)
+          (spit ".nrepl-port" nrepl-port)
+          (tel/log! :info ["nREPL server started on port" nrepl-port])))
+      (when (prod-mode?)
+        (start-worker))
+      @(promise))))
 
 (comment
   (reset! ds-conn nil)
-  (ensure-conn)
+  #_(ensure-conn)
   (ds/add-persona @ds-conn :dan "d@et.n" nil nil)
   (ds/list-personas @ds-conn))
