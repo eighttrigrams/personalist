@@ -36,7 +36,7 @@
                                      (.bucket bucket)
                                      (.key test-key)
                                      (.build)))
-            content (slurp (.response response))]
+            content (slurp response)]
 
         (tel/log! :info ["Successfully read test file from S3. Content:" content])
 
