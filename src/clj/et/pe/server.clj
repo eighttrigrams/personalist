@@ -192,21 +192,24 @@
       (Thread/sleep 30000)
       (recur))))
 
+(defn- s3-ok? []
+  ;; TODO check env vars present
+  (let [db-config (enrich-db-config (get @config :db))
+        check-result (et.pe.s3-check/s3-health-check
+                      (:s3-bucket db-config)
+                      (:s3-prefix db-config))]
+    (when-not (:success check-result)
+      (tel/log! :error ["S3 smoke check failed:" (:message check-result)])
+      (throw (ex-info "S3 smoke check failed - cannot start application"
+                      {:reason (:message check-result)})))))
+
 (defn -main
   [& _args]
   (tel/log! :info ["Starting system in" (if (prod-mode?) "production" "development") "mode"])
   (ensure-valid-options @config)
   (reset! config (load-config))
   (handlers/set-config! @config)
-  (when (= :xtdb2-s3 (get-in @config [:db :type]))
-    (let [db-config (enrich-db-config (get @config :db))
-          check-result (et.pe.s3-check/s3-health-check
-                        (:s3-bucket db-config)
-                        (:s3-prefix db-config))]
-      (when-not (:success check-result)
-        (tel/log! :error ["S3 smoke check failed:" (:message check-result)])
-        (throw (ex-info "S3 smoke check failed - cannot start application"
-                        {:reason (:message check-result)})))))
+  (when (= :xtdb2-s3 (get-in @config [:db :type])) (s3-ok?))
   (ensure-conn)
   (when (should-pre-seed? @config)
     (future
