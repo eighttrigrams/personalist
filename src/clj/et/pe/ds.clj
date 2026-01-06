@@ -116,19 +116,19 @@
     (cond
       (nil? zdt)
       (do
-        (tel/log! :warn ["to-millis received nil in" (if dev-mode? "dev" "prod") "mode"])
+        (tel/log! :error ["to-millis received nil in" (if dev-mode? "dev" "prod") "mode"])
         0)
 
       (instance? java.time.ZonedDateTime zdt)
       (do
         (when-not dev-mode?
-          (tel/log! :info ["to-millis received ZonedDateTime in prod mode (expected in dev)"]))
+          (tel/log! :warn ["to-millis received ZonedDateTime in prod mode (expected in dev)"]))
         (.toEpochMilli (.toInstant zdt)))
 
       (instance? java.time.Instant zdt)
       (do
         (when dev-mode?
-          (tel/log! :info ["to-millis received Instant in dev mode (expected in prod?)"]))
+          (tel/log! :warn ["to-millis received Instant in dev mode (expected in prod)"]))
         (.toEpochMilli zdt))
 
       :else
