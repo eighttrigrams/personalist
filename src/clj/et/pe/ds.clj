@@ -16,9 +16,7 @@
     {:conn (xtn/start-node {:log [:local {:path "/tmp/xtdb/log"}]
                             :storage [:remote {:object-store [:s3 {:endpoint s3-endpoint
                                                                    :bucket s3-bucket
-                                                                   :prefix s3-prefix
-                                                                   :credentials {:access-key-id access-key
-                                                                                :secret-access-key secret-key}}]}]})}
+                                                                   :prefix s3-prefix}]}]})}
 
     :else
     {:conn (xtn/start-node {:log [:local {:path (str path "/log")}]
