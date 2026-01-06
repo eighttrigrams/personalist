@@ -18,6 +18,11 @@ COPY config.prod.edn /app/config.edn
 EXPOSE 8080
 
 ENTRYPOINT ["java", \
+            "-Xms256m", \
+            "-Xmx768m", \
+            "-XX:MaxMetaspaceSize=128m", \
+            "-XX:+UseG1GC", \
+            "-XX:MaxGCPauseMillis=200", \
             "--add-opens=java.base/java.nio=ALL-UNNAMED", \
             "-Dio.netty.tryReflectionSetAccessible=true", \
             "--enable-native-access=ALL-UNNAMED", \
