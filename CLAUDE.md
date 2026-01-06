@@ -1,3 +1,9 @@
+# Planning and keeping track of work
+
+In the plans directory, use markdown files there.
+
+Put plans that are done into plans/done. When you do that, leave a note at the top in that file when you did that, what did the trick in fixing the problem, and maybe a linked commit.
+
 # Basic commands
 
 Starting and stopping the server.
