@@ -1,7 +1,9 @@
-**Status:** IN PROGRESS
+**Status:** RESOLVED - Migrating to MinIO
 **Date Started:** 2026-01-06
-**Current Attempt:** Added Arrow memory safety flags to Dockerfile
-**Related commits:** 4d6cfbe (Add Arrow memory safety flags)
+**Date Resolved:** 2026-01-06
+**Root Cause:** Memory-mapped files on network storage
+**Solution:** MinIO (S3-compatible object storage)
+**Related commits:** 4d6cfbe (Add Arrow memory safety flags - failed), d559dd6 (Disable C2 JIT - failed)
 
 ---
 
@@ -207,28 +209,13 @@ When Arrow memory-maps files on these volumes:
 3. OS sends SIGSEGV to process
 4. JVM crashes
 
-## Solution Options
+## Conclusion and Decision
 
-### 1. Use S3 + Kafka (Recommended by XTDB)
-- Object storage avoids mmap issues (HTTP-based access)
-- Kafka provides durable transaction log
-- Designed for XTDB v2 architecture
-- **Complexity**: Requires setting up MinIO/S3 + Kafka/Redpanda
+**Root Cause Confirmed:** Apache Arrow's memory-mapped file operations are incompatible with network-attached storage. Network I/O interruptions cause mmap() to fail, which the OS reports as SIGSEGV, crashing the JVM.
 
-### 2. Downgrade to XTDB 1.x
-- Doesn't use Apache Arrow
-- More mature for local storage
-- Misses XTDB v2 features (SQL, better performance)
+**Decision:** Migrate to MinIO (S3-compatible object storage) for XTDB data storage. MinIO uses HTTP-based access instead of memory-mapping, so I/O errors become catchable exceptions rather than fatal crashes. The storage process is separated from the application process, preventing crashes from propagating.
 
-### 3. Switch Databases
-- PostgreSQL: Mature, no Arrow/mmap issues
-- SQLite: Simple, single-file
-- Datomic: Similar temporal features, more mature
-
-### 4. Try Different Cloud Provider with Local SSDs
-- Providers with actual local SSDs (not network volumes)
-- More expensive but might avoid mmap issues
-- Still not guaranteed due to Arrow bugs
+**Implementation:** See [MINIO_MIGRATION.md](./MINIO_MIGRATION.md) for detailed migration plan.
 
 ## References
 

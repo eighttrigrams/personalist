@@ -1,3 +1,7 @@
-{:db {:type :xtdb2-on-disk
-      :path "/app/data/xtdb"}
+{:db {:type :xtdb2-s3
+      :s3-endpoint (or (System/getenv "S3_ENDPOINT") "http://minio:9000")
+      :s3-bucket (or (System/getenv "S3_BUCKET") "xtdb")
+      :s3-prefix (or (System/getenv "S3_PREFIX") "personalist/")
+      :access-key (System/getenv "S3_ACCESS_KEY")
+      :secret-key (System/getenv "S3_SECRET_KEY")}
  :pre-seed? false}

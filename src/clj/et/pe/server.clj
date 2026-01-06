@@ -35,13 +35,13 @@
 (defn prod-mode? [] @prod-mode?*)
 
 (defn- load-config []
-  (let [config-file (io/file "config.edn")]
+  (let [config-file (io/file (if (prod-mode?) "config.prod.edn" "config.edn"))]
     (if (.exists config-file)
       (do
-        (tel/log! :info "Loading configuration from config.edn")
+        (tel/log! :info (str "Loading configuration from " (.getName config-file)))
         (edn/read-string (slurp config-file)))
       (do
-        (tel/log! :info "config.edn not found, using default in-memory database with pre-seed")
+        (tel/log! :info "config file not found, using default in-memory database with pre-seed")
         {:db {:type :xtdb2-in-memory} :pre-seed? true}))))
 
 (defn- should-pre-seed? [cfg]

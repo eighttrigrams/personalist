@@ -21,7 +21,8 @@
       "Bash(make stop)",
       "Bash(make start)",
       "Bash(make backup)",
-      "Bash(make backup-replay)"
+      "Bash(make backup-replay)",
+      "Bash(railway logs:*)"
     ],
     "deny": [
       "Edit(scripts/**)",

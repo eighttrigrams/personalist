@@ -6,9 +6,21 @@
             [taoensso.telemere :as tel]))
 
 (defn init-conn
-  [{:keys [type path] :or {path "data/xtdb"}}]
-  (if (= type :xtdb2-in-memory)
+  [{:keys [type path s3-endpoint s3-bucket s3-prefix access-key secret-key]
+    :or {path "data/xtdb"}}]
+  (cond
+    (= type :xtdb2-in-memory)
     {:conn (xtn/start-node)}
+
+    (= type :xtdb2-s3)
+    {:conn (xtn/start-node {:log [:local {:path "/tmp/xtdb/log"}]
+                            :storage [:remote {:object-store [:s3 {:endpoint s3-endpoint
+                                                                   :bucket s3-bucket
+                                                                   :prefix s3-prefix
+                                                                   :credentials {:access-key-id access-key
+                                                                                :secret-access-key secret-key}}]}]})}
+
+    :else
     {:conn (xtn/start-node {:log [:local {:path (str path "/log")}]
                             :storage [:local {:path (str path "/storage")}]})}))
 
