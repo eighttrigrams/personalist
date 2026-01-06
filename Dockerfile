@@ -22,7 +22,7 @@ FROM eclipse-temurin:21-jre AS runtime
 WORKDIR /app
 
 COPY --from=builder /opt/target/personalist-0.0.1-standalone.jar /app/app.jar
-COPY --from=builder /opt/config.prod.edn /app/config.edn
+COPY --from=builder /opt/config.prod.edn /app/config.prod.edn
 
 EXPOSE 8080
 
