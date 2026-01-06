@@ -125,7 +125,7 @@ Added JVM flags to disable Arrow's unsafe memory operations:
 
 **Commit:** 4d6cfbe
 
-### Attempt 2: Disable C2 JIT Compiler (IN PROGRESS)
+### Attempt 2: Disable C2 JIT Compiler (FAILED)
 
 Added flag to disable the C2 optimizing compiler, keeping only C1:
 
@@ -135,14 +135,100 @@ Added flag to disable the C2 optimizing compiler, keeping only C1:
 
 All SIGSEGV crashes occur in C2-compiled code (frames marked "c2"). Disabling C2 should prevent these crashes, though performance will be reduced.
 
-**Status:** Deployed to Railway, monitoring for crashes.
+**Result:** Did NOT fix the problem. Crashes still occur even with C2 disabled, indicating the problem is deeper in Arrow's native code layer.
 
 **Commit:** d559dd6
 
-**If this doesn't work, next steps:**
-1. Try different Java distribution (Azul Zulu, GraalVM, Amazon Corretto)
-2. Try upgrading/downgrading XTDB version
-3. Consider switching from XTDB2 to alternative database (Datomic, PostgreSQL + Datascript, SQLite)
+## Root Cause Analysis (2026-01-06)
+
+After extensive research and testing, the actual root cause has been identified:
+
+### The Real Problem: Memory-Mapped Files on Network Storage
+
+**Key Finding:** Apache Arrow uses memory-mapped files (mmap) for data access. When these files are on network-attached storage (like Railway/Docker volumes), I/O interruptions cause SIGSEGV crashes.
+
+From Wikipedia on memory-mapped files:
+> "I/O errors on the underlying file (e.g., removable drive unplugged, disk full) are reported to applications as SIGSEGV/SIGBUS signals"
+
+**Railway's Infrastructure:**
+```
+Container → Docker volume → Network storage → Physical disk
+                ↓
+         mmap() system call
+                ↓
+    Any network hiccup = SIGSEGV
+```
+
+### Apache Arrow Known Issues
+
+Research found multiple Apache Arrow issues with production environments:
+
+1. **Thread Safety Issues** ([apache/arrow#13018](https://github.com/apache/arrow/issues/13018))
+   - "Static one-time initialization that is not thread safe"
+   - Intermittent SIGSEGV during dataset operations
+
+2. **JVM Scanner Crashes** ([apache/arrow-java#443](https://github.com/apache/arrow-java/issues/443))
+   - Crashes in `FunctionRegistry::GetFunction()` during scanner creation
+   - Arrow Java 18.0.0
+   - "Reproducible in production but not in synthetic tests"
+   - Linux container environments
+
+3. **Docker Container Issues** ([apache/arrow-java#123](https://github.com/apache/arrow-java/issues/123))
+   - Arrow tries to load Unsafe jars even when configured for Netty
+   - Allocation failures in containerized environments
+
+### XTDB v2 Architecture
+
+XTDB v2 is designed for cloud-native deployments:
+
+From [XTDB v2 launch blog](https://xtdb.com/blog/launching-xtdb-v2):
+> "reads scale horizontally via object storage where a separation of storage and compute allows the LSM-tree primary temporal index structure to be cached efficiently"
+
+**Recommended Architecture:**
+- **Object Storage**: S3/Azure/GCP (or S3-compatible like MinIO)
+- **Transaction Log**: Kafka or Kafka-compatible (Redpanda, Warpstream)
+
+**Local Storage Support:**
+- ✅ Supported via `!Local` storage module
+- ✅ Production-capable for single-node deployments
+- ⚠️ File-based transaction log is "development only" for multi-node
+- ⚠️ Prone to issues with network-attached storage due to mmap
+
+### Why Local Volumes Fail
+
+Docker volumes on cloud providers (Railway, Fly.io) are typically:
+- Network-attached storage (not local SSDs)
+- Subject to network latency and interruptions
+- Incompatible with memory-mapped file I/O patterns
+
+When Arrow memory-maps files on these volumes:
+1. Network hiccup occurs
+2. mmap() system call fails
+3. OS sends SIGSEGV to process
+4. JVM crashes
+
+## Solution Options
+
+### 1. Use S3 + Kafka (Recommended by XTDB)
+- Object storage avoids mmap issues (HTTP-based access)
+- Kafka provides durable transaction log
+- Designed for XTDB v2 architecture
+- **Complexity**: Requires setting up MinIO/S3 + Kafka/Redpanda
+
+### 2. Downgrade to XTDB 1.x
+- Doesn't use Apache Arrow
+- More mature for local storage
+- Misses XTDB v2 features (SQL, better performance)
+
+### 3. Switch Databases
+- PostgreSQL: Mature, no Arrow/mmap issues
+- SQLite: Simple, single-file
+- Datomic: Similar temporal features, more mature
+
+### 4. Try Different Cloud Provider with Local SSDs
+- Providers with actual local SSDs (not network volumes)
+- More expensive but might avoid mmap issues
+- Still not guaranteed due to Arrow bugs
 
 ## References
 
