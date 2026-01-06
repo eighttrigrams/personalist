@@ -15,7 +15,7 @@
                      (.region (Region/of (or (System/getenv "AWS_REGION") "eu-north-1")))
                      (.build))
           test-key (str prefix "health-check.txt")
-          test-content "XTDB S3 Health Check"
+          test-content "S3 Health Check"
           timestamp (str (System/currentTimeMillis))]
 
       ;; Write test file
