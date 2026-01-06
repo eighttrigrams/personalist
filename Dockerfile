@@ -31,6 +31,7 @@ ENTRYPOINT ["java", \
             "-XX:MaxMetaspaceSize=128m", \
             "-XX:+UseG1GC", \
             "-XX:MaxGCPauseMillis=200", \
+            "-XX:TieredStopAtLevel=1", \
             "--add-opens=java.base/java.nio=ALL-UNNAMED", \
             "-Dio.netty.tryReflectionSetAccessible=true", \
             "--enable-native-access=ALL-UNNAMED", \

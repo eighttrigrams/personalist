@@ -1,48 +1,45 @@
-**Status:** RESOLVED
-**Date Completed:** 2026-01-06
-**Solution:** Migrated from Fly.io to Railway
-**What fixed it:** Fly.io uses Firecracker microVMs which are incompatible with Apache Arrow's memory-mapped file I/O. Railway uses traditional Docker containers which work correctly with XTDB2/Arrow.
-**Related commits:** ac85b5a (Add ClojureScript compilation), 165848f (Add JVM memory limits)
+**Status:** IN PROGRESS
+**Date Started:** 2026-01-06
+**Current Attempt:** Added Arrow memory safety flags to Dockerfile
+**Related commits:** 4d6cfbe (Add Arrow memory safety flags)
 
 ---
 
-# XTDB2 SIGSEGV Crashes on Fly.io
+# XTDB2 SIGSEGV Crashes (Fly.io & Railway)
 
 ## Problem Summary
 
-XTDB2 crashes with SIGSEGV (segmentation fault) when running on Fly.io, even though the same code and data work correctly on local machines.
+XTDB2 crashes with SIGSEGV (segmentation fault) when running on **both Fly.io and Railway**, even though the same code and data work correctly on local machines. This indicates the issue is not specific to Firecracker VMs but rather a broader problem with Apache Arrow in containerized/cloud environments.
 
 ### Error Signature
 
+**On Fly.io:**
 ```
-# A fatal error has been detected by the Java Runtime Environment:
-#
-#  SIGSEGV (0xb) at pc=0x00007f7190239bf5, pid=650, tid=701
-#
 # Problematic frame:
 # J 7312 c1 org.apache.arrow.memory.ArrowBuf.getByte(J)B
 ```
 
-Or:
-
+**On Railway:**
 ```
 # Problematic frame:
-# J 7389 c1 org.apache.arrow.memory.util.MemoryUtil.getLong(J)J
+# J 7666 c2 jdk.internal.misc.Unsafe.getLongUnaligned
+# J 8380 c2 org.apache.arrow.memory.ArrowBuf.getInt(J)I
 ```
 
-The crash occurs in Apache Arrow's low-level memory access operations during `xtdb.storage.LocalStorage/getRecordBatch`.
+The crash occurs in Apache Arrow's low-level memory access operations, typically during database queries that read Arrow-formatted data.
 
 ## Root Cause Hypothesis
 
-**Apache Arrow's memory-mapped file I/O does not work reliably on Fly.io's Firecracker microVMs with mounted volumes.**
+**Apache Arrow's unsafe memory operations (unaligned memory access) are causing segmentation faults in containerized environments.**
 
 ### Evidence
 
 1. **Same data works locally** - Identical Arrow files work on macOS/Linux with normal filesystem
-2. **Crashes on Fly.io** - SIGSEGV on first query attempt after startup
+2. **Crashes on both Fly.io AND Railway** - Initially thought Fly.io's Firecracker was the issue, but Railway (using standard Docker) has the same crashes
 3. **Alpine vs Debian doesn't matter** - Tried both `eclipse-temurin:21-jre-alpine` and `eclipse-temurin:21-jre`, same crash
 4. **Memory increase doesn't help** - Increased from 512MB to 1GB, still crashes (not an OOM issue)
-5. **Clean database still has issues** - Even starting fresh, XTDB is slow to initialize
+5. **Crashes are intermittent** - App works for a while, then crashes on certain queries
+6. **Crashes in JIT-compiled code** - The problematic frames are in C2 (JIT) compiled Arrow code doing unaligned memory access
 
 ### Technical Background
 
@@ -112,6 +109,26 @@ File an issue at https://github.com/xtdb/xtdb with:
 - **Platform**: Fly.io (Firecracker microVM)
 - **Volume**: Mounted at `/app/data` (ext4 on virtual block device)
 - **Memory**: 1GB
+
+## Current Attempt (2026-01-06)
+
+Added JVM flags to disable Arrow's unsafe memory operations:
+
+```dockerfile
+-Darrow.enable_unsafe_memory_access=false
+-Darrow.enable_null_check_for_get=true
+```
+
+These flags tell Apache Arrow to:
+1. Avoid using `sun.misc.Unsafe` for unaligned memory access
+2. Enable additional null checks to prevent accessing invalid memory
+
+**Status:** Deployed to Railway, monitoring for crashes.
+
+**If this doesn't work, next steps:**
+1. Try disabling C2 JIT compilation: `-XX:TieredStopAtLevel=1`
+2. Try different Java distribution (Azul Zulu, GraalVM)
+3. Consider switching from XTDB2 to alternative database (Datomic, PostgreSQL + Datascript)
 
 ## References
 
