@@ -66,22 +66,7 @@ App → HTTP → MinIO → Regular I/O (no mmap in app process)
    - Deploy updated code
    - Verify XTDB connects to MinIO
    - Monitor for SIGSEGV crashes (should be eliminated)
-
-### Phase 3: Data Migration (TODO)
-
-1. **Export existing data** from local volume
-   ```clojure
-   ;; Script to export all docs from current XTDB
-   ```
-
-2. **Import into S3-backed XTDB**
-   ```clojure
-   ;; Script to import docs into new XTDB instance
-   ```
-
-3. **Verify data integrity**
-
-4. **Remove old volume**
+   - App will start with empty database (new project)
 
 ## Configuration Files
 
@@ -129,8 +114,8 @@ No changes needed to local development workflow.
 **Risk:** MinIO might also have mmap issues internally
 - **Mitigation:** MinIO is designed for object storage and handles I/O gracefully; crashes stay in MinIO process, not our app
 
-**Risk:** Data migration complexity
-- **Mitigation:** Small dataset; can re-seed if needed
+**Risk:** Starting with empty database
+- **Mitigation:** New project; no existing data to preserve
 
 ## Success Criteria
 
@@ -139,7 +124,6 @@ No changes needed to local development workflow.
 3. ⏳ Environment variables configured
 4. ⏳ App connects to MinIO successfully
 5. ⏳ No SIGSEGV crashes after 24 hours of testing
-6. ⏳ Data migrated successfully
 
 ## References
 
