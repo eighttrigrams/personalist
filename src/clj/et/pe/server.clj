@@ -21,10 +21,11 @@
 (def prod-mode?*
   (delay
     (let [on-fly? (some? (System/getenv "FLY_APP_NAME"))
+          on-railway? (some? (System/getenv "RAILWAY_ENVIRONMENT"))
           dev-mode? (= "true" (System/getenv "DEV"))
           admin-pw (System/getenv "ADMIN_PASSWORD")]
       (cond
-        (or on-fly? (not dev-mode?))
+        (or on-fly? on-railway? (not dev-mode?))
         (do (when-not admin-pw
               (throw (ex-info "ADMIN_PASSWORD required in production" {})))
             true)

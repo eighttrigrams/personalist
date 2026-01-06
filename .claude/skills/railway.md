@@ -60,11 +60,24 @@ Link to or select a service. Use when Railway commands show "No service could be
 
 ## Environment Variables (Production)
 
+### Application Variables
+- `ADMIN_PASSWORD`: Required for production mode
+- `HOST`: 0.0.0.0
+- `PORT`: 8080
+
+### AWS S3 Variables
 - `AWS_ACCESS_KEY_ID`: AWS credentials for S3 access
 - `AWS_SECRET_ACCESS_KEY`: AWS credentials for S3 access
 - `AWS_REGION`: eu-north-1
 - `S3_BUCKET`: personalist
 - `S3_PREFIX`: personalist/
-- `ADMIN_PASSWORD`: Required for production mode
-- `HOST`: 0.0.0.0
-- `PORT`: 8080
+
+### Railway-Provided Variables
+Railway automatically sets these variables:
+- `RAILWAY_ENVIRONMENT`: Current environment (e.g., "production")
+- `RAILWAY_SERVICE_NAME`: Service name (e.g., "personalist")
+- `RAILWAY_PROJECT_NAME`: Project name
+- `RAILWAY_VOLUME_MOUNT_PATH`: Volume mount path (e.g., "/app/data")
+- `RAILWAY_PUBLIC_DOMAIN`: Public domain for the service
+
+Use `RAILWAY_ENVIRONMENT` to detect if running on Railway (similar to `FLY_APP_NAME` for Fly.io).
