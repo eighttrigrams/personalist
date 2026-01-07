@@ -148,9 +148,6 @@
     (handlers/set-config! config))
   @ds-conn)
 
-(defn- db-empty? [config]
-  (empty? (ds/list-personas (ensure-conn config))))
-
 (defn app [config]
   (fn [req]
     (if (shadow-mode? config)
@@ -192,6 +189,9 @@
       (tel/log! :error ["S3 smoke check failed:" (:message check-result)])
       (throw (ex-info "S3 smoke check failed - cannot start application"
                       {:reason (:message check-result)})))))
+
+(defn- db-empty? [config]
+  (empty? (ds/list-personas (ensure-conn config))))
 
 (defn- pre-seed [config]
   (future
