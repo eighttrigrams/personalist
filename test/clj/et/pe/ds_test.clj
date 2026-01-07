@@ -18,9 +18,9 @@
     (f)))
 
 (defmacro testing-with-conn [string & body]
-  `(testing ~string (binding [conn (ds/init-conn {:type *conn-type*})]
-              ~@body
-              (ds/close-conn conn))))
+  `(testing ~string (binding [conn (ds/init-conn *conn-type* {})]
+                      ~@body
+                      (ds/close-conn conn))))
 
 (defmacro are= [& body]
   `(are [expected actual] (= expected actual) ~@body))

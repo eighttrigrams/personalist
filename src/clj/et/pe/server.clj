@@ -198,7 +198,7 @@
   (let [config (load-config)
         _ (ensure-valid-options config)
         _ (when (s3-needed? config) (s3-ok? config))
-        conn (ds/init-conn (:db config))]
+        conn (ds/init-conn (:type (:db config)) (:db config))]
     (handlers/set-config! config)
     (handlers/set-conn! conn)
     (when (should-pre-seed? config) (pre-seed conn))

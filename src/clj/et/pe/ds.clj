@@ -17,29 +17,32 @@
       (tel/log! :error ["Failed to get XTDB status:" (.getMessage e)]))))
 
 (defn init-conn
-  "Throws if invalid type passed. Must be one of :in-memory, :s3, :on-disk"
-  [{:keys [type path s3-bucket s3-prefix]
-    :or {path "data/xtdb"}}]
+  "Throws if invalid type passed. Must be one of :in-memory, :s3, :on-disk
+   Throws if insufficient parameters provided for given type."
+  [type {:keys [path s3-bucket s3-prefix]}]
   (tel/log! :info ["Initializing XTDB connection with type:" type])
   {:conn
-   (case type
-     :in-memory
-     (do
-       (tel/log! :info "Using in-memory XTDB")
-       (xtn/start-node))
-     :s3
-     (let [node-details {:log [:local {:path "/app/data/xtdb/log"}]
-                         :storage [:remote {:object-store [:s3 {:bucket s3-bucket
-                                                                :prefix s3-prefix}]}]
-                         :disk-cache {:path "/tmp/xtdb/cache"}}]
-       (tel/log! :info ["Using S3 XTDB2 - " node-details])
-       (xtn/start-node node-details))
-     :on-disk
-     (do
-       (tel/log! :info ["Using local XTDB - path:" path])
-       (tel/log! :info "Log: local, Storage: local")
-       (xtn/start-node {:log [:local {:path (str path "/log")}]
-                        :storage [:local {:path (str path "/storage")}]})))})
+   (xtn/start-node
+    (case type
+      :in-memory
+      (do
+        (tel/log! :info "Using in-memory XTDB")
+        {})
+      :s3
+      (let [_ (when-not (and s3-bucket s3-prefix) (throw (ex-info "Both s3-bucket and s3-prefix must be set for xtdb2 s3 mode" {})))
+            node-details {:log [:local {:path "/app/data/xtdb/log"}]
+                          :storage [:remote {:object-store [:s3 {:bucket s3-bucket
+                                                                 :prefix s3-prefix}]}]
+                          :disk-cache {:path "/tmp/xtdb/cache"}}]
+        (tel/log! :info ["Using S3 XTDB2 - " node-details])
+        node-details)
+      :on-disk
+      (do
+        (when-not path (throw (ex-info "for on-disk, path must be set" {})))
+        (tel/log! :info ["Using local XTDB - path:" path])
+        (tel/log! :info "Log: local, Storage: local")
+        {:log [:local {:path (str path "/log")}]
+         :storage [:local {:path (str path "/storage")}]})))})
 
 (defn close-conn
   [{:keys [conn]}]
