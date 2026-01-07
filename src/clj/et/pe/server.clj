@@ -113,7 +113,7 @@
                  :access-control-allow-methods [:get :post :put :delete])))
 
 (defn- load-config []
-  (let [config-file (io/file (if (prod-mode?) "config.prod.edn" "config.edn"))]
+  (let [config-file (io/file "config.edn")]
     (if-not (.exists config-file)
       (throw (ex-info "Config file required" {:file (.getName config-file)}))
       (do
