@@ -210,6 +210,7 @@
           (nrepl/start-server :port nrepl-port)
           (spit ".nrepl-port" nrepl-port)
           (tel/log! :info ["nREPL server started on port" nrepl-port])))
-      (when (prod-mode?)
-        (start-worker conn))
+      ;; Worker disabled due to OOM issues
+      #_(when (prod-mode?)
+          (start-worker conn))
       @(promise))))
