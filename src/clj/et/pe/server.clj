@@ -150,9 +150,9 @@
   (future
     (tel/log! :info "Starting worker.")
     (loop []
-      (Thread/sleep (* 2 60000))
-      (tel/log! :info "Worker tick - triggering compaction")
-      (ds/trigger-compaction conn)
+      (Thread/sleep (* 1 60000))
+      (tel/log! :info "Worker tick - checking XTDB status")
+      (ds/log-xtdb-status conn)
       (recur))))
 
 (defn- s3-needed? [config]

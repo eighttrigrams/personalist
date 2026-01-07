@@ -5,15 +5,16 @@
             [et.pe.urbit :as urbit]
             [taoensso.telemere :as tel]))
 
-(defn trigger-compaction
-  "Attempts to trigger XTDB compaction. This is experimental."
+(defn log-xtdb-status
+  "Logs XTDB node status including compaction information."
   [{:keys [conn]}]
   (try
-    (tel/log! :info "Attempting to trigger compaction...")
-    (xtn/start-compactor conn)
-    (tel/log! :info "Compaction triggered successfully")
+    (let [status (xt/status conn)
+          relevant-keys [:latest-completed-tx :latest-submitted-tx]
+          filtered-status (select-keys status relevant-keys)]
+      (tel/log! :info ["XTDB status:" filtered-status]))
     (catch Exception e
-      (tel/log! :error ["Failed to trigger compaction:" (.getMessage e)]))))
+      (tel/log! :error ["Failed to get XTDB status:" (.getMessage e)]))))
 
 (defn init-conn
   "Throws if invalid type passed. Must be one of :in-memory, :s3, :on-disk"
