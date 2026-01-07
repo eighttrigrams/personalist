@@ -17,22 +17,19 @@
 
 (defonce ds-conn (atom nil))
 
-(def prod-mode?*
-  (delay
-    (let [on-railway? (some? (System/getenv "RAILWAY_ENVIRONMENT"))
-          dev-mode? (= "true" (System/getenv "DEV"))
-          admin-pw (System/getenv "ADMIN_PASSWORD")]
-      (cond
-        (or on-railway? (not dev-mode?))
-        (do (when-not admin-pw
-              (throw (ex-info "ADMIN_PASSWORD required in production" {})))
-            true)
-        admin-pw
-        true
-        :else
-        false))))
-
-(defn prod-mode? [] @prod-mode?*)
+(defn prod-mode? [] (delay
+                      (let [on-railway? (some? (System/getenv "RAILWAY_ENVIRONMENT"))
+                            dev-mode? (= "true" (System/getenv "DEV"))
+                            admin-pw (System/getenv "ADMIN_PASSWORD")]
+                        (cond
+                          (or on-railway? (not dev-mode?))
+                          (do (when-not admin-pw
+                                (throw (ex-info "ADMIN_PASSWORD required in production" {})))
+                              true)
+                          admin-pw
+                          true
+                          :else
+                          false))))
 
 (defroutes api-routes
   (context "/api" []
