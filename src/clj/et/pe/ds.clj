@@ -30,10 +30,8 @@
      :s3
      (let [node-details {:log [:local {:path "/app/data/xtdb/log"}]
                          :storage [:remote {:object-store [:s3 {:bucket s3-bucket
-                                                                :prefix s3-prefix}]
-                                            :memory-cache {:max-size-bytes (* 128 1024 1024)}
-                                            :disk-cache {:path "/tmp/xtdb/cache"
-                                                        :max-size-bytes (* 512 1024 1024)}}]}]
+                                                                :prefix s3-prefix}]}]
+                         :disk-cache {:path "/tmp/xtdb/cache"}}]
        (tel/log! :info ["Using S3 XTDB2 - " node-details])
        (xtn/start-node node-details))
      :on-disk
