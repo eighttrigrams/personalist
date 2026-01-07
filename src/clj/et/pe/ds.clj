@@ -130,19 +130,15 @@
           persona-id])))
 
 (defn- to-millis [zdt]
-  (let [dev-mode? (= "true" (System/getenv "DEV"))]
-    (cond
-      (instance? java.time.ZonedDateTime zdt)
-      (.toEpochMilli (.toInstant zdt))
-      (instance? java.time.Instant zdt)
-      (do
-        (when dev-mode?
-          (tel/log! :warn ["to-millis received Instant in dev mode (expected in prod)"]))
-        (.toEpochMilli zdt))
-      :else
-      (do
-        (tel/log! :error ["to-millis received unexpected type:" (type zdt) "value:" zdt])
-        (throw (ex-info "Unexpected type for to-millis" {:type (type zdt) :value zdt}))))))
+  (cond
+    (instance? java.time.ZonedDateTime zdt)
+    (.toEpochMilli (.toInstant zdt))
+    (instance? java.time.Instant zdt)
+    (.toEpochMilli zdt)
+    :else
+    (do
+      (tel/log! :error ["to-millis received unexpected type:" (type zdt) "value:" zdt])
+      (throw (ex-info "Unexpected type for to-millis" {:type (type zdt) :value zdt})))))
 
 (defn list-recent-identities
   [conn {persona-id :id :as _persona} limit offset]
