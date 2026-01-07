@@ -15,8 +15,6 @@
             [taoensso.telemere :as tel])
   (:gen-class))
 
-(defonce ds-conn (atom nil))
-
 (defn prod-mode? [] (delay
                       (let [on-railway? (some? (System/getenv "RAILWAY_ENVIRONMENT"))
                             dev-mode? (= "true" (System/getenv "DEV"))
@@ -137,6 +135,8 @@
         (if (zero? exit-code)
           (tel/log! :info "Seed script completed successfully")
           (tel/log! :error ["Seed script failed with exit code:" exit-code]))))))
+
+(defonce ds-conn (atom nil))
 
 (defn ensure-conn [config]
   (when (nil? @ds-conn)
