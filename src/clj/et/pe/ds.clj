@@ -132,23 +132,13 @@
 (defn- to-millis [zdt]
   (let [dev-mode? (= "true" (System/getenv "DEV"))]
     (cond
-      (nil? zdt)
-      (do
-        (tel/log! :error ["to-millis received nil in" (if dev-mode? "dev" "prod") "mode"])
-        0)
-
       (instance? java.time.ZonedDateTime zdt)
-      (do
-        (when-not dev-mode?
-          (tel/log! :warn ["to-millis received ZonedDateTime in prod mode (expected in dev)"]))
-        (.toEpochMilli (.toInstant zdt)))
-
+      (.toEpochMilli (.toInstant zdt))
       (instance? java.time.Instant zdt)
       (do
         (when dev-mode?
           (tel/log! :warn ["to-millis received Instant in dev mode (expected in prod)"]))
         (.toEpochMilli zdt))
-
       :else
       (do
         (tel/log! :error ["to-millis received unexpected type:" (type zdt) "value:" zdt])
