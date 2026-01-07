@@ -24,7 +24,7 @@
   {:conn
    (xtn/start-node
     (case type
-      :in-memory
+      :memory
       (do
         (tel/log! :info "Using in-memory XTDB")
         {})
@@ -36,7 +36,7 @@
                           :disk-cache {:path "/tmp/xtdb/cache"}}]
         (tel/log! :info ["Using S3 XTDB2 - " node-details])
         node-details)
-      :on-disk
+      :disk
       (do
         (when-not path (throw (ex-info "for on-disk, path must be set" {})))
         (tel/log! :info ["Using local XTDB - path:" path])

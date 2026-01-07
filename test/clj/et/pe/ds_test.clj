@@ -8,13 +8,13 @@
 (def ^:dynamic conn nil)
 
 (defn xtdb2-in-memory [f]
-  (binding [*conn-type* :in-memory]
+  (binding [*conn-type* :memory]
     (f)))
 
 (defn other-db-adapter [f]
   (binding [*conn-type* 
             ;; TODO put in other adapter
-            :in-memory]
+            :memory]
     (f)))
 
 (defmacro testing-with-conn [string & body]
