@@ -141,21 +141,11 @@
           (tel/log! :info "Seed script completed successfully")
           (tel/log! :error ["Seed script failed with exit code:" exit-code]))))))
 
-(defn- enrich-db-config [db-config]
-  db-config
-  #_(if (= (:type db-config) :xtdb2-s3)
-    (do
-      (when-let [access-key (System/getenv "AWS_ACCESS_KEY_ID")]
-        (System/setProperty "aws.accessKeyId" access-key))
-      (when-let [secret-key (System/getenv "AWS_SECRET_ACCESS_KEY")]
-        (System/setProperty "aws.secretAccessKey" secret-key)))
-    db-config))
-
 (defn ensure-conn [config]
   (when (nil? @ds-conn)
     (when (nil? config)
       (reset! config (load-config)))
-    (let [db-config (enrich-db-config (get config :db {:type :xtdb2-in-memory}))]
+    (let [db-config (get config :db)]
       (reset! ds-conn (ds/init-conn db-config)))
     (handlers/set-conn! @ds-conn)
     (handlers/set-config! config))
@@ -196,7 +186,7 @@
 
 (defn- s3-ok? [config]
   ;; TODO check env vars present
-  (let [db-config (enrich-db-config (get config :db))
+  (let [db-config (get config :db)
         check-result (et.pe.s3-check/s3-health-check
                       (:s3-bucket db-config)
                       (:s3-prefix db-config))]
@@ -217,9 +207,9 @@
 (defn -main
   [& _args]
   (tel/log! :info ["Starting system in" (if (prod-mode?) "production" "development") "mode"])
-  (let [config (load-config)]
-    (ensure-valid-options config)
-    (when (s3-needed? config) (s3-ok? config))
+  (let [config (load-config)
+        _ (ensure-valid-options config)
+        _ (when (s3-needed? config) (s3-ok? config))]
     (ensure-conn config)
     (handlers/set-config! config)
     (when (should-pre-seed? config) (pre-seed config))
