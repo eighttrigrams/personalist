@@ -157,7 +157,7 @@
       (recur))))
 
 (defn- s3-needed? [config]
-  (= :xtdb2-s3 (get-in config [:db :type])))
+  (= :s3 (get-in config [:db :type])))
 
 (defn- s3-ok? [config]
   ;; TODO check env vars present
