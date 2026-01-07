@@ -29,7 +29,7 @@ On first run, `config.edn` is auto-created with defaults. Modify it to customize
 
 - `:shadow? true` - enable hot reload for ClojureScript development
 - `:pre-seed? false` - disable demo data seeding
-- `:db {:type :xtdb2-on-disk :path "data/xtdb"}` - use persistent storage
+- `:db {:type :on-disk :path "data/xtdb"}` - use persistent storage
 
 See `config.edn.template` for examples.
 

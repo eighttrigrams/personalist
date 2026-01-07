@@ -6,24 +6,24 @@
             [taoensso.telemere :as tel]))
 
 (defn init-conn
+  "Throws if invalid type passed. Must be one of :in-memory, :s3, :on-disk"
   [{:keys [type path s3-bucket s3-prefix]
     :or {path "data/xtdb"}}]
   (tel/log! :info ["Initializing XTDB connection with type:" type])
   {:conn
    (case type
-     :xtdb2-in-memory
+     :in-memory
      (do
        (tel/log! :info "Using in-memory XTDB")
        (xtn/start-node))
-
-     :xtdb2-s3
+     :s3
      (let [node-details {:log [:local {:path "/app/data/xtdb/log"}]
                          :storage [:remote {:object-store [:s3 {:bucket s3-bucket
                                                                 :prefix s3-prefix}]}]
                          :disk-cache {:path "/tmp/xtdb/cache"}}]
        (tel/log! :info ["Using S3 XTDB2 - " node-details])
        (xtn/start-node node-details))
-     :xtdb2-on-disk
+     :on-disk
      (do
        (tel/log! :info ["Using local XTDB - path:" path])
        (tel/log! :info "Log: local, Storage: local")

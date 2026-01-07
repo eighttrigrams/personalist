@@ -59,7 +59,7 @@ For demos (optimized JS, no hot reload):
 
 For persistent storage:
 ```edn
-{:db {:type :xtdb2-on-disk
+{:db {:type :on-disk
       :path "data/xtdb"}
  :pre-seed? false}
 ```
@@ -82,7 +82,7 @@ Production mode is determined by `config.edn`:
 
 This means you can test production auth locally by using persistent storage without `:shadow?`:
 ```edn
-{:db {:type :xtdb2-on-disk
+{:db {:type :on-disk
       :path "data/xtdb"}
  :pre-seed? false}
 ```

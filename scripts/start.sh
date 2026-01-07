@@ -3,7 +3,7 @@
 if [ ! -f config.edn ]; then
   echo "No config.edn found. Creating default configuration..."
   cat > config.edn << 'CONFIG'
-{:db {:type :xtdb2-in-memory}
+{:db {:type :in-memory}
  :pre-seed? true
  :dangerously-skip-logins? true
  :port 3017}
@@ -15,7 +15,7 @@ PORT=${PORT:-3017}
 echo $PORT > .server.port
 
 if [ "$1" = "prod" ]; then
-  IN_MEMORY=$(clj -M -e "(-> \"config.edn\" slurp read-string :db :type (= :xtdb2-in-memory))")
+  IN_MEMORY=$(clj -M -e "(-> \"config.edn\" slurp read-string :db :type (= :in-memory))")
   if [ "$IN_MEMORY" = "true" ]; then
     echo "Error: Cannot start in production mode with in-memory database."
     echo "Please configure a persistent database in config.edn"
