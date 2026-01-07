@@ -166,6 +166,7 @@
     (jetty/run-jetty (app config) {:port port :host host :join? false})))
 
 (defn- ensure-valid-options [config]
+  (when-not (:port config) (throw (ex-info ":port must be configured" {})))
   (when (and (true? (:pre-seed? config))
              (prod-mode?))
     (throw (ex-info "Cannot use :pre-seed? in prod mode" {})))
@@ -178,7 +179,7 @@
     (tel/log! :info "Worker starting...")
     (loop []
       (tel/log! :info "Hello from worker!")
-      (Thread/sleep 30000)
+      (Thread/sleep (* 10 60000))
       (recur))))
 
 (defn- s3-needed? [config]
