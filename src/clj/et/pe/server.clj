@@ -146,12 +146,13 @@
              (prod-mode?))
     (throw (ex-info "Cannot use :dangerously-skip-logins? in production mode" {}))))
 
-(defn- start-worker []
+(defn- start-worker [conn]
   (future
-    (tel/log! :info "Worker starting...")
+    (tel/log! :info "Starting worker.")
     (loop []
-      (tel/log! :info "Hello from worker!")
-      (Thread/sleep (* 10 60000))
+      (Thread/sleep (* 2 60000))
+      (tel/log! :info "Worker tick - triggering compaction")
+      (ds/trigger-compaction conn)
       (recur))))
 
 (defn- s3-needed? [config]
@@ -210,5 +211,5 @@
           (spit ".nrepl-port" nrepl-port)
           (tel/log! :info ["nREPL server started on port" nrepl-port])))
       (when (prod-mode?)
-        (start-worker))
+        (start-worker conn))
       @(promise))))

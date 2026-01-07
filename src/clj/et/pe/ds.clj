@@ -5,6 +5,16 @@
             [et.pe.urbit :as urbit]
             [taoensso.telemere :as tel]))
 
+(defn trigger-compaction
+  "Attempts to trigger XTDB compaction. This is experimental."
+  [{:keys [conn]}]
+  (try
+    (tel/log! :info "Attempting to trigger compaction...")
+    (xtn/start-compactor conn)
+    (tel/log! :info "Compaction triggered successfully")
+    (catch Exception e
+      (tel/log! :error ["Failed to trigger compaction:" (.getMessage e)]))))
+
 (defn init-conn
   "Throws if invalid type passed. Must be one of :in-memory, :s3, :on-disk"
   [{:keys [type path s3-bucket s3-prefix]
