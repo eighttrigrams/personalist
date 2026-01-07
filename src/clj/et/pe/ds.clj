@@ -16,26 +16,29 @@
     (catch Exception e
       (tel/log! :error ["Failed to get XTDB status:" (.getMessage e)]))))
 
+(defn- init-conn' [type {:keys [log-path storage-path s3-bucket s3-prefix]}]
+  (case type
+    :memory
+    {}
+    :s3
+    (let [_ (when-not (and s3-bucket s3-prefix log-path) (throw (ex-info "Both s3-bucket and s3-prefix, as well as log-path must be set for xtdb2 s3 mode" {})))
+          node-details {:log [:local {:path log-path}]
+                        :storage [:remote {:object-store [:s3 {:bucket s3-bucket
+                                                               :prefix s3-prefix}]}]
+                        :disk-cache {:path "/tmp/xtdb/cache"}}]
+      node-details)
+    :disk
+    (do
+      (when-not (and log-path storage-path) (throw (ex-info "for on-disk, log-path and storage-path must be set" {})))
+      {:log [:local {:path log-path}]
+       :storage [:local {:path storage-path}]})))
+
 (defn init-conn
   "Throws if invalid type passed. Must be one of :in-memory, :s3, :on-disk
    Throws if insufficient parameters provided for given type."
-  [type {:keys [log-path storage-path s3-bucket s3-prefix]}]
+  [type opts]
   (tel/log! :info ["Initializing XTDB connection with type:" type])
-  (let [opts (case type
-               :memory
-               {}
-               :s3
-               (let [_ (when-not (and s3-bucket s3-prefix log-path) (throw (ex-info "Both s3-bucket and s3-prefix, as well as log-path must be set for xtdb2 s3 mode" {})))
-                     node-details {:log [:local {:path log-path}]
-                                   :storage [:remote {:object-store [:s3 {:bucket s3-bucket
-                                                                          :prefix s3-prefix}]}]
-                                   :disk-cache {:path "/tmp/xtdb/cache"}}]
-                 node-details)
-               :disk
-               (do
-                 (when-not (and log-path storage-path) (throw (ex-info "for on-disk, log-path and storage-path must be set" {})))
-                 {:log [:local {:path log-path}]
-                  :storage [:local {:path storage-path}]}))]
+  (let [opts (init-conn' type opts)]
     (tel/log! :info ["Initializing XTDB with opts:" opts])
     {:conn (xtn/start-node opts)}))
 
