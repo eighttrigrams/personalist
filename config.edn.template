@@ -1,5 +1,6 @@
 {:db {:type :disk ; alternative - :memory
-      :path "data/xtdb"}
+      :log-path "data/xtdb/log"
+      :storage-path "data/xtdb/storage"}
  :pre-seed? false
  :shadow? true
  :dangerously-skip-logins? false
