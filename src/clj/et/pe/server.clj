@@ -46,6 +46,7 @@
     (GET "/personas/:name/identities/:id/history" [_name _id] handlers/get-identity-history-handler)
     (GET "/personas/:name/identities/:id/relations" [_name _id] handlers/list-relations-handler)
     (POST "/personas/:name/identities/:id/relations" [_name _id] handlers/add-relation-handler)
+    (GET "/personas/:name/identities/:id" [_name _id] handlers/get-identity-handler)
     (DELETE "/personas/:name/relations/:source-id/:target-id" [name source-id target-id]
       (handlers/delete-relation-handler name source-id target-id))))
 

@@ -140,6 +140,20 @@
                  (return identity/name identity/text xt/id)))
           persona-id])))
 
+(defn get-identity
+  [conn {persona-id :id :as _persona} identity-id]
+  (let [composite-id (make-identity-id persona-id identity-id)
+        result (first (xt/q (:conn conn)
+                            ['(fn [composite-id]
+                                (-> (from :identities [xt/id identity/name identity/text])
+                                    (where (= xt/id composite-id))
+                                    (return identity/name identity/text xt/id)))
+                             composite-id]))]
+    (when result
+      {:identity (extract-identity-id (:xt/id result))
+       :name (:identity/name result)
+       :text (:identity/text result)})))
+
 (defn- to-millis [zdt]
   (cond
     (instance? java.time.ZonedDateTime zdt)

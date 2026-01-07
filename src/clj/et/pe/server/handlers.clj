@@ -99,6 +99,16 @@
       {:status 200 :body (serialize-response (ds/list-recent-identities (ensure-conn) persona limit offset))}
       {:status 404 :body {:error "Persona not found"}})))
 
+(defn get-identity-handler [req]
+  (let [persona-name (str->keyword (get-in req [:params :name]))
+        identity-id (str->keyword (get-in req [:params :id]))
+        persona (ds/get-persona-by-id (ensure-conn) persona-name)]
+    (if persona
+      (if-let [identity (ds/get-identity (ensure-conn) persona identity-id)]
+        {:status 200 :body (serialize-response identity)}
+        {:status 404 :body {:error "Identity not found"}})
+      {:status 404 :body {:error "Persona not found"}})))
+
 (defn add-identity-handler [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         {:keys [id name text valid_from]} (:body req)

@@ -274,25 +274,25 @@
                                :recent-identities-has-more false
                                :selected-identity nil)
                         (fetch-recent-identities persona-id)
-                        (GET (str api-base "/api/personas/" persona-id "/identities")
-                          {:handler (fn [identities]
-                                      (swap! app-state assoc :identities identities)
-                                      (when identity-id
-                                        (if-let [identity (first (filter #(= (:identity %) identity-id) identities))]
-                                          (do
-                                            (swap! app-state assoc
-                                                   :selected-identity identity
-                                                   :editing-name (:name identity)
-                                                   :editing-text (:text identity))
-                                            (fetch-identity-history identity-id time)
-                                            (fetch-relations identity-id time)
-                                            (when time
-                                              (fetch-identity-at identity-id time)))
-                                          (swap! app-state assoc :not-found-identity identity-id)))
-                                      (when on-complete (on-complete editing?)))
-                           :response-format :json
-                           :keywords? true
-                           :error-handler #(js/console.error "Error fetching identities" %)}))
+                        (when identity-id
+                          (GET (str api-base "/api/personas/" persona-id "/identities/" (name identity-id))
+                            {:handler (fn [identity]
+                                        (swap! app-state assoc
+                                               :selected-identity identity
+                                               :editing-name (:name identity)
+                                               :editing-text (:text identity))
+                                        (fetch-identity-history identity-id time)
+                                        (fetch-relations identity-id time)
+                                        (when time
+                                          (fetch-identity-at identity-id time))
+                                        (when on-complete (on-complete editing?)))
+                             :response-format :json
+                             :keywords? true
+                             :error-handler (fn [err]
+                                              (swap! app-state assoc :not-found-identity identity-id)
+                                              (js/console.error "Error fetching identity" err)
+                                              (when on-complete (on-complete editing?)))}))
+                        (when (and (not identity-id) on-complete) (on-complete editing?)))
                       (swap! app-state assoc :not-found-persona persona-id)))
                   (when (and (not persona-id) on-complete) (on-complete editing?)))
        :response-format :json
