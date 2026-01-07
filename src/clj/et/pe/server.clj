@@ -126,16 +126,6 @@
 (defn- shadow-mode? [config]
   (true? (:shadow? config)))
 
-(defn- run-seed-script []
-  (let [seed-script (io/file "scripts/seed-db.sh")]
-    (when (.exists seed-script)
-      (tel/log! :info "Running seed script...")
-      (let [process (.exec (Runtime/getRuntime) "bash scripts/seed-db.sh")
-            exit-code (.waitFor process)]
-        (if (zero? exit-code)
-          (tel/log! :info "Seed script completed successfully")
-          (tel/log! :error ["Seed script failed with exit code:" exit-code]))))))
-
 (defonce ds-conn (atom nil))
 
 (defn ensure-conn [config]
@@ -189,6 +179,16 @@
       (tel/log! :error ["S3 smoke check failed:" (:message check-result)])
       (throw (ex-info "S3 smoke check failed - cannot start application"
                       {:reason (:message check-result)})))))
+
+(defn- run-seed-script []
+  (let [seed-script (io/file "scripts/seed-db.sh")]
+    (when (.exists seed-script)
+      (tel/log! :info "Running seed script...")
+      (let [process (.exec (Runtime/getRuntime) "bash scripts/seed-db.sh")
+            exit-code (.waitFor process)]
+        (if (zero? exit-code)
+          (tel/log! :info "Seed script completed successfully")
+          (tel/log! :error ["Seed script failed with exit code:" exit-code]))))))
 
 (defn- db-empty? [config]
   (empty? (ds/list-personas (ensure-conn config))))
