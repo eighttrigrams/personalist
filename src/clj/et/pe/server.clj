@@ -126,18 +126,6 @@
 (defn- shadow-mode? [config]
   (true? (:shadow? config)))
 
-(defonce ds-conn (atom nil))
-
-(defn ensure-conn [config]
-  (when (nil? @ds-conn)
-    (when (nil? config)
-      (reset! config (load-config)))
-    (let [db-config (get config :db)]
-      (reset! ds-conn (ds/init-conn db-config)))
-    (handlers/set-conn! @ds-conn)
-    (handlers/set-config! config))
-  @ds-conn)
-
 (defn app [config]
   (fn [req]
     (if (shadow-mode? config)
@@ -190,13 +178,13 @@
           (tel/log! :info "Seed script completed successfully")
           (tel/log! :error ["Seed script failed with exit code:" exit-code]))))))
 
-(defn- db-empty? [config]
-  (empty? (ds/list-personas (ensure-conn config))))
+(defn- db-empty? [conn]
+  (empty? (ds/list-personas conn)))
 
-(defn- pre-seed [config]
+(defn- pre-seed [conn]
   (future
     (Thread/sleep 2000)
-    (if (db-empty? config)
+    (if (db-empty? conn)
       (do
         (tel/log! :info "Pre-seed enabled and database empty, seeding...")
         (run-seed-script))
@@ -207,10 +195,11 @@
   (tel/log! :info ["Starting system in" (if (prod-mode?) "production" "development") "mode"])
   (let [config (load-config)
         _ (ensure-valid-options config)
-        _ (when (s3-needed? config) (s3-ok? config))]
-    (ensure-conn config)
+        _ (when (s3-needed? config) (s3-ok? config))
+        conn (ds/init-conn (:db config))]
     (handlers/set-config! config)
-    (when (should-pre-seed? config) (pre-seed config))
+    (handlers/set-conn! conn)
+    (when (should-pre-seed? config) (pre-seed conn))
     ;; starting server
     (let [port (get-in config [:port])]
       (tel/log! :info ["Starting server on port" port])
@@ -223,9 +212,3 @@
       (when (prod-mode?)
         (start-worker))
       @(promise))))
-
-(comment
-  (reset! ds-conn nil)
-  #_(ensure-conn)
-  (ds/add-persona @ds-conn :dan "d@et.n" nil nil)
-  (ds/list-personas @ds-conn))
