@@ -132,12 +132,12 @@
 (defn list-identities
   [conn {persona-id :id :as _persona}]
   (map
-   (fn [{id :xt/id nm :identity/name text :identity/text}] {:identity (extract-identity-id id) :name nm :text text})
+   (fn [{id :xt/id nm :identity/name}] {:identity (extract-identity-id id) :name nm})
    (xt/q (:conn conn)
          ['(fn [persona-id]
-             (-> (from :identities [persona/id identity/name identity/text xt/id])
+             (-> (from :identities [persona/id identity/name xt/id])
                  (where (= persona/id persona-id))
-                 (return identity/name identity/text xt/id)))
+                 (return identity/name xt/id)))
           persona-id])))
 
 (defn get-identity
@@ -170,17 +170,17 @@
   (let [fetch-limit (inc limit)
         results (xt/q (:conn conn)
                       ['(fn [persona-id fetch-limit offset]
-                          (-> (from :identities [persona/id identity/name identity/text xt/id xt/valid-from])
+                          (-> (from :identities [persona/id identity/name xt/id xt/valid-from])
                               (where (= persona/id persona-id))
                               (order-by {:val xt/valid-from, :dir :desc})
                               (offset offset)
                               (limit fetch-limit)
-                              (return identity/name identity/text xt/id xt/valid-from)))
+                              (return identity/name xt/id xt/valid-from)))
                        persona-id fetch-limit offset])
         has-more (> (count results) limit)
         page (take limit results)]
-    {:items (mapv (fn [{id :xt/id nm :identity/name text :identity/text valid-from :xt/valid-from}]
-                    {:identity (extract-identity-id id) :name nm :text text :modified-at valid-from})
+    {:items (mapv (fn [{id :xt/id nm :identity/name valid-from :xt/valid-from}]
+                    {:identity (extract-identity-id id) :name nm :modified-at valid-from})
                   page)
      :has-more has-more}))
 
