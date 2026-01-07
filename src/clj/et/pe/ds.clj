@@ -137,7 +137,6 @@
          ['(fn [persona-id]
              (-> (from :identities [persona/id identity/name identity/text xt/id])
                  (where (= persona/id persona-id))
-                 (limit 100)
                  (return identity/name identity/text xt/id)))
           persona-id])))
 
@@ -155,20 +154,23 @@
 (defn list-recent-identities
   [conn {persona-id :id :as _persona} limit offset]
   (let [results (xt/q (:conn conn)
-                      ['(fn [persona-id limit offset]
-                          (-> (from :identities [persona/id identity/name identity/text xt/id xt/valid-from])
+                      ['(fn [persona-id]
+                          (-> (from :identities {:bind [persona/id identity/name identity/text xt/id xt/valid-from]
+                                                 :for-valid-time :all-time})
                               (where (= persona/id persona-id))
-                              (order-by [[xt/valid-from :desc]])
-                              (offset offset)
-                              (limit (inc limit))
                               (return identity/name identity/text xt/id xt/valid-from)))
-                       persona-id limit offset])
-        has-more (> (count results) limit)
-        page (take limit results)]
+                       persona-id])
+        by-id (group-by :xt/id results)
+        latest-per-id (map (fn [[_ versions]]
+                             (apply max-key #(to-millis (:xt/valid-from %)) versions))
+                           by-id)
+        sorted (reverse (sort-by #(to-millis (:xt/valid-from %)) latest-per-id))
+        total (count sorted)
+        page (->> sorted (drop offset) (take limit))]
     {:items (mapv (fn [{id :xt/id nm :identity/name text :identity/text valid-from :xt/valid-from}]
                     {:identity (extract-identity-id id) :name nm :text text :modified-at valid-from})
                   page)
-     :has-more has-more}))
+     :has-more (< (+ offset (count page)) total)}))
 
 (defn add-identity
   [conn {persona-id :id :as _persona} nm text & [{:keys [valid-from id]}]]
