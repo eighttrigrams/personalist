@@ -142,7 +142,7 @@
 
 (defn- latest-versions-subquery [persona-id]
   {:select [:composite_id [[:max :valid_from] :max_valid]]
-   :from [:identity_versions]
+   :from [:identities]
    :where [:= :persona_id (kw->str persona-id)]
    :group-by [:composite_id]})
 
@@ -150,7 +150,7 @@
   [conn {persona-id :id :as _persona}]
   (let [results (jdbc/execute! (:conn conn)
                                (sql/format {:select [:iv.identity_id :iv.name :iv.text]
-                                            :from [[:identity_versions :iv]]
+                                            :from [[:identities :iv]]
                                             :join [[(latest-versions-subquery persona-id) :latest]
                                                    [:and
                                                     [:= :iv.composite_id :latest.composite_id]
@@ -168,7 +168,7 @@
   (let [composite-id (make-composite-id persona-id identity-id)
         result (jdbc/execute-one! (:conn conn)
                                   (sql/format {:select [:identity_id :name :text]
-                                               :from [:identity_versions]
+                                               :from [:identities]
                                                :where [:= :composite_id composite-id]
                                                :order-by [[:valid_from :desc]]
                                                :limit 1})
@@ -183,7 +183,7 @@
   (let [fetch-limit (inc limit)
         results (jdbc/execute! (:conn conn)
                                (sql/format {:select [:iv.identity_id :iv.name :iv.valid_from]
-                                            :from [[:identity_versions :iv]]
+                                            :from [[:identities :iv]]
                                             :join [[(latest-versions-subquery persona-id) :latest]
                                                    [:and
                                                     [:= :iv.composite_id :latest.composite_id]
@@ -211,7 +211,7 @@
       false
       (do
         (jdbc/execute! (:conn conn)
-                       (sql/format {:insert-into :identity_versions
+                       (sql/format {:insert-into :identities
                                     :values [{:composite_id composite-id
                                               :persona_id (kw->str persona-id)
                                               :identity_id (kw->str id)
@@ -225,7 +225,7 @@
   (let [composite-id (make-composite-id persona-id id)
         valid-from-epoch (instant->epoch valid-from)]
     (jdbc/execute! (:conn conn)
-                   (sql/format {:insert-into :identity_versions
+                   (sql/format {:insert-into :identities
                                 :values [{:composite_id composite-id
                                           :persona_id (kw->str persona-id)
                                           :identity_id (kw->str id)
@@ -239,7 +239,7 @@
         time-epoch (instant->epoch time-point)
         result (jdbc/execute-one! (:conn conn)
                                   (sql/format {:select [:identity_id :name :text]
-                                               :from [:identity_versions]
+                                               :from [:identities]
                                                :where [:and
                                                        [:= :composite_id composite-id]
                                                        [:<= :valid_from time-epoch]]
@@ -256,7 +256,7 @@
   (let [composite-id (make-composite-id persona-id id)
         results (jdbc/execute! (:conn conn)
                                (sql/format {:select [:identity_id :name :text :valid_from]
-                                            :from [:identity_versions]
+                                            :from [:identities]
                                             :where [:= :composite_id composite-id]
                                             :order-by [[:valid_from :asc]]})
                                {:builder-fn rs/as-unqualified-lower-maps})]
@@ -354,7 +354,7 @@
                   (let [time-epoch (instant->epoch at)
                         all-composites (jdbc/execute! (:conn conn)
                                                       (sql/format {:select-distinct [:composite_id]
-                                                                   :from [:identity_versions]
+                                                                   :from [:identities]
                                                                    :where [:and
                                                                            [:= :persona_id (kw->str persona-id)]
                                                                            [:<= :valid_from time-epoch]]})
@@ -362,7 +362,7 @@
                     (for [{:keys [composite_id]} all-composites
                           :let [version (jdbc/execute-one! (:conn conn)
                                                            (sql/format {:select [:identity_id :name :text]
-                                                                        :from [:identity_versions]
+                                                                        :from [:identities]
                                                                         :where [:and
                                                                                 [:= :composite_id composite_id]
                                                                                 [:<= :valid_from time-epoch]]
@@ -373,7 +373,7 @@
                       version))
                   (jdbc/execute! (:conn conn)
                                  (sql/format {:select [:iv.identity_id :iv.name :iv.text]
-                                              :from [[:identity_versions :iv]]
+                                              :from [[:identities :iv]]
                                               :join [[(latest-versions-subquery persona-id) :latest]
                                                      [:and
                                                       [:= :iv.composite_id :latest.composite_id]

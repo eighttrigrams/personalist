@@ -5,7 +5,7 @@
          name TEXT NOT NULL,
          password_hash TEXT
        )"
-      "CREATE TABLE IF NOT EXISTS identity_versions (
+      "CREATE TABLE IF NOT EXISTS identities (
          id INTEGER PRIMARY KEY AUTOINCREMENT,
          composite_id TEXT NOT NULL,
          persona_id TEXT NOT NULL,
@@ -14,8 +14,8 @@
          text TEXT,
          valid_from INTEGER NOT NULL
        )"
-      "CREATE INDEX IF NOT EXISTS idx_identity_versions_composite ON identity_versions(composite_id, valid_from DESC)"
-      "CREATE INDEX IF NOT EXISTS idx_identity_versions_persona ON identity_versions(persona_id, valid_from DESC)"
+      "CREATE INDEX IF NOT EXISTS idx_identities_composite ON identities(composite_id, valid_from DESC)"
+      "CREATE INDEX IF NOT EXISTS idx_identities_persona ON identities(persona_id, valid_from DESC)"
       "CREATE TABLE IF NOT EXISTS relations (
          id INTEGER PRIMARY KEY AUTOINCREMENT,
          relation_id TEXT NOT NULL,
@@ -28,8 +28,8 @@
       "CREATE INDEX IF NOT EXISTS idx_relations_lookup ON relations(persona_id, source_id, valid_from)"]
  :down ["DROP INDEX IF EXISTS idx_relations_lookup"
         "DROP TABLE IF EXISTS relations"
-        "DROP INDEX IF EXISTS idx_identity_versions_persona"
-        "DROP INDEX IF EXISTS idx_identity_versions_composite"
-        "DROP TABLE IF EXISTS identity_versions"
+        "DROP INDEX IF EXISTS idx_identities_persona"
+        "DROP INDEX IF EXISTS idx_identities_composite"
+        "DROP TABLE IF EXISTS identities"
         "DROP TABLE IF EXISTS personas"]
  :transactions false}
