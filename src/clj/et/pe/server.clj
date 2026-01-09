@@ -122,10 +122,10 @@
         (edn/read-string (slurp config-file))))))
 
 (defn- should-pre-seed? [cfg]
-  (true? (:pre-seed? cfg)))
+  (true? (get-in cfg [:devel :pre-seed?])))
 
 (defn- shadow-mode? [config]
-  (true? (:shadow? config)))
+  (true? (get-in config [:devel :shadow?])))
 
 (defn app [config]
   (fn [req]
@@ -140,12 +140,12 @@
 
 (defn- ensure-valid-options [config]
   (when-not (:port config) (throw (ex-info ":port must be configured" {})))
-  (when (and (true? (:pre-seed? config))
+  (when (and (get-in config [:devel :pre-seed?])
              (prod-mode?))
-    (throw (ex-info "Cannot use :pre-seed? in prod mode" {})))
-  (when (and (true? (:dangerously-skip-logins? config))
+    (throw (ex-info "Cannot use :devel :pre-seed? in prod mode" {})))
+  (when (and (get-in config [:devel :dangerously-skip-logins?])
              (prod-mode?))
-    (throw (ex-info "Cannot use :dangerously-skip-logins? in production mode" {}))))
+    (throw (ex-info "Cannot use :devel :dangerously-skip-logins? in production mode" {}))))
 
 (defn- start-worker [conn]
   (future

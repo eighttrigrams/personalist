@@ -35,7 +35,7 @@
 
 (defn- allow-skip-logins?
   [prod-mode?]
-  (and (true? (:dangerously-skip-logins? @config))
+  (and (true? (get-in @config [:devel :dangerously-skip-logins?]))
        (not prod-mode?)))
 
 (defn- jwt-secret []
@@ -53,7 +53,7 @@
   (verify-token token))
 
 (defn- dangerously-skip-logins? []
-  (true? (:dangerously-skip-logins? @config)))
+  (true? (get-in @config [:devel :dangerously-skip-logins?])))
 
 (defn list-personas-handler [_req]
   (let [personas (ds/list-personas (ensure-conn))

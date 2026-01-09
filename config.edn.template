@@ -1,7 +1,9 @@
 {:db {:type :disk ; alternative - :memory
       :log-path "data/xtdb/log"
       :storage-path "data/xtdb/storage"}
- :pre-seed? false
- :shadow? true
- :dangerously-skip-logins? false
+ :devel {
+   :pre-seed? false
+   :shadow? true
+   :dangerously-skip-logins? false
+ }
  :port 3017}
