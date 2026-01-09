@@ -2,6 +2,7 @@
   (:require [ring.adapter.jetty9 :as jetty]
             [et.pe.ds :as ds]
             [et.pe.s3-check]
+            [et.pe.logging :as logging]
             [clojure.java.io :as io]
             [clojure.edn :as edn]
             [clojure.string :as str]
@@ -194,8 +195,9 @@
 
 (defn -main
   [& _args]
-  (tel/log! :info ["Starting system in" (if (prod-mode?) "production" "development") "mode"])
   (let [config (load-config)
+        _ (logging/init! (:logging config))
+        _ (tel/log! :info ["Starting system in" (if (prod-mode?) "production" "development") "mode"])
         _ (ensure-valid-options config)
         _ (when (s3-needed? config) (s3-ok? config))
         conn (ds/init-conn (:type (:db config)) (:db config))]
