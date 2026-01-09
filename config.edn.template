@@ -1,6 +1,8 @@
-{:db {:type :disk ; alternative - :memory
-      :log-path "data/xtdb/log"
-      :storage-path "data/xtdb/storage"}
+{:db {:type :xtdb2-on-disk ; alternative - :xtdb2-in-memory, :xtdb2-with-s3, :sqlite-in-memory, :sqlite-on-disk
+      ;; :path "data/personalist.db" - used with :sqlite-on-disk
+      ;; 
+      ;; :log-path "data/xtdb/log" - used with :xtdb2-with-s3
+      ;; :storage-path "data/xtdb/storage" - used with :xtdb2-with-s3}
  :devel {
    :pre-seed? false
    :shadow? true
