@@ -43,9 +43,9 @@ jobs:
             Please review this pull request and provide feedback on:
             - Code quality and best practices
             - Potential bugs or issues
-            - Performance considerations
-            - Security concerns
             - Test coverage
+
+            Everything but the abstract goes in a <details> section, such that things don't get supernoisy.
 
             Use the repository's CLAUDE.md for guidance on style and conventions. Be constructive and helpful in your feedback.
 
