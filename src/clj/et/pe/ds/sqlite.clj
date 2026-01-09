@@ -4,37 +4,9 @@
             [honey.sql :as sql]
             [clojure.string :as str]
             [et.pe.urbit :as urbit]
+            [et.pe.ds.migrations :as migrations]
             [taoensso.telemere :as tel])
   (:import [java.time Instant]))
-
-(defn- create-tables! [ds]
-  (jdbc/execute! ds ["CREATE TABLE IF NOT EXISTS personas (
-                       id TEXT PRIMARY KEY,
-                       email TEXT UNIQUE NOT NULL,
-                       name TEXT NOT NULL,
-                       password_hash TEXT
-                     )"])
-  (jdbc/execute! ds ["CREATE TABLE IF NOT EXISTS identity_versions (
-                       id INTEGER PRIMARY KEY AUTOINCREMENT,
-                       composite_id TEXT NOT NULL,
-                       persona_id TEXT NOT NULL,
-                       identity_id TEXT NOT NULL,
-                       name TEXT NOT NULL,
-                       text TEXT,
-                       valid_from INTEGER NOT NULL
-                     )"])
-  (jdbc/execute! ds ["CREATE INDEX IF NOT EXISTS idx_identity_versions_composite ON identity_versions(composite_id, valid_from DESC)"])
-  (jdbc/execute! ds ["CREATE INDEX IF NOT EXISTS idx_identity_versions_persona ON identity_versions(persona_id, valid_from DESC)"])
-  (jdbc/execute! ds ["CREATE TABLE IF NOT EXISTS relations (
-                       id INTEGER PRIMARY KEY AUTOINCREMENT,
-                       relation_id TEXT NOT NULL,
-                       persona_id TEXT NOT NULL,
-                       source_id TEXT NOT NULL,
-                       target_id TEXT NOT NULL,
-                       event_type TEXT NOT NULL,
-                       valid_from INTEGER NOT NULL
-                     )"])
-  (jdbc/execute! ds ["CREATE INDEX IF NOT EXISTS idx_relations_lookup ON relations(persona_id, source_id, valid_from)"]))
 
 (defn init-conn
   [type opts]
@@ -45,9 +17,10 @@
                   :sqlite-in-memory {:dbtype "sqlite" :dbname "file::memory:?cache=shared"}
                   :sqlite-on-disk {:dbtype "sqlite" :dbname (:path opts)})
         ds (jdbc/get-datasource db-spec)
-        persistent-conn (when (= type :sqlite-in-memory) (jdbc/get-connection ds))]
-    (create-tables! ds)
-    {:conn ds
+        persistent-conn (when (= type :sqlite-in-memory) (jdbc/get-connection ds))
+        conn-for-use (or persistent-conn ds)
+        _ (migrations/migrate! conn-for-use)]
+    {:conn conn-for-use
      :persistent-conn persistent-conn
      :type type}))
 
