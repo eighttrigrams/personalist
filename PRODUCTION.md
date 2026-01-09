@@ -115,3 +115,37 @@ This architecture eliminates SIGSEGV crashes by:
 - Using HTTP-based object storage instead of memory-mapped files
 - Separating storage process from application process
 - Avoiding direct mmap() calls on network-attached storage
+
+## Fly.io Deployment
+
+### Deploy
+```bash
+make fly-deploy
+```
+
+### Copy Local Database to Remote
+Since `fly sftp` cannot overwrite existing files, use a workaround:
+
+```bash
+# Upload with different name
+cp data/personalist.db data/personalist_upload.db
+fly sftp shell -a personalist <<< "put data/personalist_upload.db /app/data/personalist_upload.db"
+
+# Rename on remote (overwrites existing)
+fly ssh console -C "mv /app/data/personalist_upload.db /app/data/personalist.db"
+
+# Cleanup local temp file
+rm data/personalist_upload.db
+```
+
+### Machine Management
+```bash
+fly machine list
+fly machine stop <machine-id>
+fly machine start <machine-id>
+```
+
+### Backup from Remote
+```bash
+make fly-backup
+```
