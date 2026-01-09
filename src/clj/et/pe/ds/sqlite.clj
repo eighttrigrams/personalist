@@ -14,15 +14,6 @@
                        name TEXT NOT NULL,
                        password_hash TEXT
                      )"])
-  (jdbc/execute! ds ["CREATE TABLE IF NOT EXISTS identities (
-                       composite_id TEXT PRIMARY KEY,
-                       persona_id TEXT NOT NULL,
-                       identity_id TEXT NOT NULL,
-                       name TEXT NOT NULL,
-                       text TEXT,
-                       valid_from INTEGER NOT NULL,
-                       FOREIGN KEY (persona_id) REFERENCES personas(id)
-                     )"])
   (jdbc/execute! ds ["CREATE TABLE IF NOT EXISTS identity_versions (
                        id INTEGER PRIMARY KEY AUTOINCREMENT,
                        composite_id TEXT NOT NULL,
@@ -32,7 +23,8 @@
                        text TEXT,
                        valid_from INTEGER NOT NULL
                      )"])
-  (jdbc/execute! ds ["CREATE INDEX IF NOT EXISTS idx_identity_versions_composite ON identity_versions(composite_id, valid_from)"])
+  (jdbc/execute! ds ["CREATE INDEX IF NOT EXISTS idx_identity_versions_composite ON identity_versions(composite_id, valid_from DESC)"])
+  (jdbc/execute! ds ["CREATE INDEX IF NOT EXISTS idx_identity_versions_persona ON identity_versions(persona_id, valid_from DESC)"])
   (jdbc/execute! ds ["CREATE TABLE IF NOT EXISTS relations (
                        relation_id TEXT PRIMARY KEY,
                        persona_id TEXT NOT NULL,
@@ -186,12 +178,22 @@
 (defn- make-composite-id [persona-id identity-id]
   (str (kw->str persona-id) "/" (kw->str identity-id)))
 
+(defn- latest-versions-subquery [persona-id]
+  {:select [:composite_id [[:max :valid_from] :max_valid]]
+   :from [:identity_versions]
+   :where [:= :persona_id (kw->str persona-id)]
+   :group-by [:composite_id]})
+
 (defn list-identities
   [conn {persona-id :id :as _persona}]
   (let [results (jdbc/execute! (:conn conn)
-                               (sql/format {:select [:identity_id :name :text]
-                                            :from [:identities]
-                                            :where [:= :persona_id (kw->str persona-id)]})
+                               (sql/format {:select [:iv.identity_id :iv.name :iv.text]
+                                            :from [[:identity_versions :iv]]
+                                            :join [[(latest-versions-subquery persona-id) :latest]
+                                                   [:and
+                                                    [:= :iv.composite_id :latest.composite_id]
+                                                    [:= :iv.valid_from :latest.max_valid]]]
+                                            :where [:= :iv.persona_id (kw->str persona-id)]})
                                {:builder-fn rs/as-unqualified-lower-maps})]
     (map (fn [r]
            {:identity (str->kw (:identity_id r))
@@ -204,8 +206,10 @@
   (let [composite-id (make-composite-id persona-id identity-id)
         result (jdbc/execute-one! (:conn conn)
                                   (sql/format {:select [:identity_id :name :text]
-                                               :from [:identities]
-                                               :where [:= :composite_id composite-id]})
+                                               :from [:identity_versions]
+                                               :where [:= :composite_id composite-id]
+                                               :order-by [[:valid_from :desc]]
+                                               :limit 1})
                                   {:builder-fn rs/as-unqualified-lower-maps})]
     (when result
       {:identity (str->kw (:identity_id result))
@@ -216,12 +220,16 @@
   [conn {persona-id :id :as _persona} limit offset]
   (let [fetch-limit (inc limit)
         results (jdbc/execute! (:conn conn)
-                               (sql/format {:select [:identity_id :name :valid_from]
-                                            :from [:identities]
-                                            :where [:= :persona_id (kw->str persona-id)]
-                                            :order-by [[:valid_from :desc]]
-                                            :offset offset
-                                            :limit fetch-limit})
+                               (sql/format {:select [:iv.identity_id :iv.name :iv.valid_from]
+                                            :from [[:identity_versions :iv]]
+                                            :join [[(latest-versions-subquery persona-id) :latest]
+                                                   [:and
+                                                    [:= :iv.composite_id :latest.composite_id]
+                                                    [:= :iv.valid_from :latest.max_valid]]]
+                                            :where [:= :iv.persona_id (kw->str persona-id)]
+                                            :order-by [[:iv.valid_from :desc]]
+                                            :limit fetch-limit
+                                            :offset offset})
                                {:builder-fn rs/as-unqualified-lower-maps})
         has-more (> (count results) limit)
         page (take limit results)]
@@ -241,14 +249,6 @@
       false
       (do
         (jdbc/execute! (:conn conn)
-                       (sql/format {:insert-into :identities
-                                    :values [{:composite_id composite-id
-                                              :persona_id (kw->str persona-id)
-                                              :identity_id (kw->str id)
-                                              :name nm
-                                              :text text
-                                              :valid_from valid-from-epoch}]}))
-        (jdbc/execute! (:conn conn)
                        (sql/format {:insert-into :identity_versions
                                     :values [{:composite_id composite-id
                                               :persona_id (kw->str persona-id)
@@ -262,12 +262,6 @@
   [conn {persona-id :id :as _persona} id nm text & [{:keys [valid-from]}]]
   (let [composite-id (make-composite-id persona-id id)
         valid-from-epoch (instant->epoch valid-from)]
-    (jdbc/execute! (:conn conn)
-                   (sql/format {:update :identities
-                                :set {:name nm
-                                      :text text
-                                      :valid_from valid-from-epoch}
-                                :where [:= :composite_id composite-id]}))
     (jdbc/execute! (:conn conn)
                    (sql/format {:insert-into :identity_versions
                                 :values [{:composite_id composite-id
@@ -430,9 +424,13 @@
                           :when version]
                       version))
                   (jdbc/execute! (:conn conn)
-                                 (sql/format {:select [:identity_id :name :text]
-                                              :from [:identities]
-                                              :where [:= :persona_id (kw->str persona-id)]})
+                                 (sql/format {:select [:iv.identity_id :iv.name :iv.text]
+                                              :from [[:identity_versions :iv]]
+                                              :join [[(latest-versions-subquery persona-id) :latest]
+                                                     [:and
+                                                      [:= :iv.composite_id :latest.composite_id]
+                                                      [:= :iv.valid_from :latest.max_valid]]]
+                                              :where [:= :iv.persona_id (kw->str persona-id)]})
                                  {:builder-fn rs/as-unqualified-lower-maps}))]
     (->> results
          (filter (fn [r]
