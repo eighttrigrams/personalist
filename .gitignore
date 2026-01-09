@@ -19,3 +19,4 @@ config.edn.*
 .editor-layouts.json
 volume-backup.*.tar.gz
 .s3-credentials
+personalist.db

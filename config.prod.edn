@@ -1,4 +1,4 @@
-{:db {:type :s3
+{:db {:type :xtdb2-with-s3
       :s3-bucket "personalist"
       :s3-prefix "personalist/"
       :log-path "/app/data/xtdb/log"}
