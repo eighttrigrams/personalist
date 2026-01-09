@@ -1,321 +1,93 @@
 (ns et.pe.ds
-  (:require [xtdb.api :as xt]
-            [xtdb.node :as xtn]
-            [clojure.string :as str]
-            [et.pe.urbit :as urbit]
-            [taoensso.telemere :as tel]))
+  (:require [et.pe.ds.xtdb2 :as xtdb2]
+            [et.pe.ds.sqlite :as sqlite]))
 
-(defn log-xtdb-status
-  "Logs XTDB node status including compaction information."
-  [{:keys [conn]}]
-  (try
-    (let [status (xt/status conn)
-          relevant-keys [:latest-completed-tx :latest-submitted-tx]
-          filtered-status (select-keys status relevant-keys)]
-      (tel/log! :info ["XTDB status:" filtered-status]))
-    (catch Exception e
-      (tel/log! :error ["Failed to get XTDB status:" (.getMessage e)]))))
-
-(defn- init-conn' [type {:keys [log-path storage-path s3-bucket s3-prefix]}]
-  (case type
-    :memory
-    {}
-    :s3
-    (let [_ (when-not (and s3-bucket s3-prefix log-path) (throw (ex-info "Both s3-bucket and s3-prefix, as well as log-path must be set for xtdb2 s3 mode" {})))
-          node-details {:log [:local {:path log-path}]
-                        :storage [:remote {:object-store [:s3 {:bucket s3-bucket
-                                                               :prefix s3-prefix}]}]
-                        :disk-cache {:path "/tmp/xtdb/cache"}}]
-      node-details)
-    :disk
-    (do
-      (when-not (and log-path storage-path) (throw (ex-info "for on-disk, log-path and storage-path must be set" {})))
-      {:log [:local {:path log-path}]
-       :storage [:local {:path storage-path}]})))
-
-(defn init-conn
-  "Throws if invalid type passed. Must be one of :in-memory, :s3, :on-disk
-   Throws if insufficient parameters provided for given type."
-  [type opts]
-  (tel/log! :info ["Initializing XTDB connection with type:" type])
-  (let [opts (init-conn' type opts)]
-    (tel/log! :info ["Initializing XTDB with opts:" opts])
-    {:conn (xtn/start-node opts)}))
-
-(defn close-conn
-  [{:keys [conn]}]
-  (.close conn))
-
-(defn- convert-persona [{id :xt/id email :persona/email persona-name :persona/name :as persona}]
-  (when-not (nil? persona)
-    {:id id :email email :name (or persona-name (clojure.core/name id))}))
-
-(defn get-persona-by-id-or-email
-  [conn id email]
-  (map convert-persona (xt/q (:conn conn)
-                             ['(fn [id email]
-                                 (-> (from :personas [xt/id persona/email persona/name])
-                                     (where (or (= xt/id id)
-                                                (= persona/email email)))))
-                              id email])))
-
-(defn get-persona-by-id
-  [conn id]
-  (convert-persona (first (xt/q (:conn conn)
-                                ['(fn [id]
-                                    (-> (from :personas [xt/id persona/email persona/name])
-                                        (where (= xt/id id))))
-                                 id]))))
-
-(defn get-persona-by-email
-  [conn email]
-  (convert-persona
-   (first (xt/q (:conn conn)
-                ['(fn [email]
-                    (-> (from :personas [xt/id persona/email persona/name])
-                        (where (= persona/email email))))
-                 email]))))
-
-(defn add-persona
-  [conn id email password-hash persona-name]
-  (if (seq (get-persona-by-id-or-email conn id email))
-    false
-    (xt/execute-tx (:conn conn) [[:put-docs :personas (cond-> {:xt/id         id
-                                                               :persona/email email
-                                                               :persona/name  (or persona-name (clojure.core/name id))}
-                                                        password-hash (assoc :persona/password-hash password-hash))]])))
-
-(defn update-persona
-  [conn id {:keys [email name]}]
-  (let [current (get-persona-by-id conn id)]
-    (if-not current
-      nil
-      (let [new-email (or email (:email current))
-            existing (when email (get-persona-by-email conn email))]
-        (if (and existing (not= (:id existing) id))
-          {:error :email-exists}
-          (do
-            (xt/execute-tx (:conn conn) [[:put-docs :personas {:xt/id                id
-                                                               :persona/email        new-email
-                                                               :persona/name (or name (:name current))
-                                                               :persona/password-hash (:persona/password-hash current)}]])
-            {:success true}))))))
-
-(defn get-persona-password-hash
-  [conn id]
-  (let [result (first (xt/q (:conn conn)
-                            ['(fn [id]
-                                (-> (from :personas [xt/id persona/password-hash])
-                                    (where (= xt/id id))))
-                             id]))]
-    (:persona/password-hash result)))
-
-(defn list-personas
-  [conn]
-  (map convert-persona (xt/q (:conn conn) '(from :personas [xt/id persona/email persona/name]))))
-
-(defn- make-identity-id [persona-id id]
-  (keyword (str (name persona-id) "/" (name id))))
-
-(defn- extract-identity-id [composite-id]
-  (let [s (name composite-id)
-        idx (.lastIndexOf s "/")]
-    (keyword (subs s (inc idx)))))
-
-(defn- get-identity-by-composite-id
-  [conn composite-id]
-  (first (xt/q (:conn conn)
-               ['(fn [composite-id]
-                   (-> (from :identities [xt/id])
-                       (where (= xt/id composite-id))))
-                composite-id])))
-
-(defn list-identities
-  [conn {persona-id :id :as _persona}]
-  (map
-   (fn [{id :xt/id nm :identity/name}] {:identity (extract-identity-id id) :name nm})
-   (xt/q (:conn conn)
-         ['(fn [persona-id]
-             (-> (from :identities [persona/id identity/name xt/id])
-                 (where (= persona/id persona-id))
-                 (return identity/name xt/id)))
-          persona-id])))
-
-(defn get-identity
-  [conn {persona-id :id :as _persona} identity-id]
-  (let [composite-id (make-identity-id persona-id identity-id)
-        result (first (xt/q (:conn conn)
-                            ['(fn [composite-id]
-                                (-> (from :identities [xt/id identity/name identity/text])
-                                    (where (= xt/id composite-id))
-                                    (return identity/name identity/text xt/id)))
-                             composite-id]))]
-    (when result
-      {:identity (extract-identity-id (:xt/id result))
-       :name (:identity/name result)
-       :text (:identity/text result)})))
-
-(defn- to-millis [zdt]
+(defn- db-category [type]
   (cond
-    (instance? java.time.ZonedDateTime zdt)
-    (.toEpochMilli (.toInstant zdt))
-    (instance? java.time.Instant zdt)
-    (.toEpochMilli zdt)
-    :else
-    (do
-      (tel/log! :error ["to-millis received unexpected type:" (type zdt) "value:" zdt])
-      (throw (ex-info "Unexpected type for to-millis" {:type (type zdt) :value zdt})))))
+    (#{:xtdb2-in-memory :xtdb2-on-disk :xtdb2-with-s3} type) :xtdb2
+    (#{:sqlite-in-memory :sqlite-on-disk} type) :sqlite))
 
-(defn list-recent-identities
-  [conn {persona-id :id :as _persona} limit offset]
-  (let [fetch-limit (inc limit)
-        results (xt/q (:conn conn)
-                      ['(fn [persona-id fetch-limit offset]
-                          (-> (from :identities [persona/id identity/name xt/id xt/valid-from])
-                              (where (= persona/id persona-id))
-                              (order-by {:val xt/valid-from, :dir :desc})
-                              (offset offset)
-                              (limit fetch-limit)
-                              (return identity/name xt/id xt/valid-from)))
-                       persona-id fetch-limit offset])
-        has-more (> (count results) limit)
-        page (take limit results)]
-    {:items (mapv (fn [{id :xt/id nm :identity/name valid-from :xt/valid-from}]
-                    {:identity (extract-identity-id id) :name nm :modified-at valid-from})
-                  page)
-     :has-more has-more}))
+(defmulti init-conn (fn [type _opts] (db-category type)))
+(defmulti close-conn (fn [conn] (db-category (:type conn))))
+(defmulti log-xtdb-status (fn [conn] (db-category (:type conn))))
+(defmulti get-persona-by-id (fn [conn _id] (db-category (:type conn))))
+(defmulti get-persona-by-email (fn [conn _email] (db-category (:type conn))))
+(defmulti get-persona-by-id-or-email (fn [conn _id _email] (db-category (:type conn))))
+(defmulti add-persona (fn [conn _id _email _password-hash _persona-name] (db-category (:type conn))))
+(defmulti update-persona (fn [conn _id _updates] (db-category (:type conn))))
+(defmulti get-persona-password-hash (fn [conn _id] (db-category (:type conn))))
+(defmulti list-personas (fn [conn] (db-category (:type conn))))
+(defmulti list-identities (fn [conn _persona] (db-category (:type conn))))
+(defmulti get-identity (fn [conn _persona _identity-id] (db-category (:type conn))))
+(defmulti list-recent-identities (fn [conn _persona _limit _offset] (db-category (:type conn))))
+(defmulti add-identity (fn [conn _persona _nm _text & _opts] (db-category (:type conn))))
+(defmulti update-identity (fn [conn _persona _id _nm _text & _opts] (db-category (:type conn))))
+(defmulti get-identity-at (fn [conn _persona _id _time-point] (db-category (:type conn))))
+(defmulti get-identity-history (fn [conn _persona _id] (db-category (:type conn))))
+(defmulti add-relation (fn [conn _persona _source-id _target-id & _opts] (db-category (:type conn))))
+(defmulti list-relations (fn [conn _persona _source-id & _opts] (db-category (:type conn))))
+(defmulti delete-relation (fn [conn _persona _relation-id & _opts] (db-category (:type conn))))
+(defmulti search-identities (fn [conn _persona _query & _opts] (db-category (:type conn))))
 
-(defn add-identity
-  [conn {persona-id :id :as _persona} nm text & [{:keys [valid-from id]}]]
-  (let [id (or id (keyword (urbit/generate-name)))
-        composite-id (make-identity-id persona-id id)]
-    (if (get-identity-by-composite-id conn composite-id)
-      false
-      (do
-        (xt/execute-tx (:conn conn)
-                       [[:put-docs (cond-> {:into :identities}
-                                     valid-from (assoc :valid-from valid-from))
-                         {:xt/id            composite-id
-                          :persona/id persona-id
-                          :identity/name    nm
-                          :identity/text    text}]])
-        id))))
+(defmethod init-conn :xtdb2 [type opts] (xtdb2/init-conn type opts))
+(defmethod init-conn :sqlite [type opts] (sqlite/init-conn type opts))
 
-(defn update-identity
-  [conn {persona-id :id :as _persona} id nm text & [{:keys [valid-from]}]]
-  (xt/execute-tx (:conn conn)
-                 [[:put-docs (cond-> {:into :identities}
-                               valid-from (assoc :valid-from valid-from))
-                   {:xt/id            (make-identity-id persona-id id)
-                    :persona/id persona-id
-                    :identity/name    nm
-                    :identity/text    text}]]))
+(defmethod close-conn :xtdb2 [conn] (xtdb2/close-conn conn))
+(defmethod close-conn :sqlite [conn] (sqlite/close-conn conn))
 
-(defn get-identity-at
-  [conn {persona-id :id :as _persona} id time-point]
-  (let [composite-id (make-identity-id persona-id id)
-        result (first (xt/q (:conn conn)
-                            ['(fn [composite-id time-point]
-                                (-> (from :identities {:bind [persona/id identity/name identity/text xt/id]
-                                                       :for-valid-time (at time-point)})
-                                    (where (= xt/id composite-id))
-                                    (return identity/name identity/text xt/id)))
-                             composite-id time-point]))]
-    (when result
-      {:identity id :name (:identity/name result) :text (:identity/text result)})))
+(defmethod log-xtdb-status :xtdb2 [conn] (xtdb2/log-xtdb-status conn))
+(defmethod log-xtdb-status :sqlite [_conn] nil)
 
-(defn get-identity-history
-  [conn {persona-id :id :as _persona} id]
-  (let [composite-id (make-identity-id persona-id id)
-        results (xt/q (:conn conn)
-                      ['(fn [composite-id]
-                          (-> (from :identities {:bind [persona/id identity/name identity/text xt/id xt/valid-from]
-                                                 :for-valid-time :all-time})
-                              (where (= xt/id composite-id))
-                              (order-by xt/valid-from)
-                              (return identity/name identity/text xt/id xt/valid-from)))
-                       composite-id])]
-    (mapv (fn [{:keys [identity/name identity/text xt/valid-from]}]
-            {:identity id :name name :text text :valid-from valid-from})
-          results)))
+(defmethod get-persona-by-id :xtdb2 [conn id] (xtdb2/get-persona-by-id conn id))
+(defmethod get-persona-by-id :sqlite [conn id] (sqlite/get-persona-by-id conn id))
 
-(defn- make-relation-id [persona-id source-id target-id]
-  (keyword (str (name persona-id) "/" (name source-id) "/" (name target-id))))
+(defmethod get-persona-by-email :xtdb2 [conn email] (xtdb2/get-persona-by-email conn email))
+(defmethod get-persona-by-email :sqlite [conn email] (sqlite/get-persona-by-email conn email))
 
-(defn- get-relation-by-id
-  [conn relation-id]
-  (first (xt/q (:conn conn)
-               ['(fn [relation-id]
-                   (-> (from :relations [xt/id])
-                       (where (= xt/id relation-id))))
-                relation-id])))
+(defmethod get-persona-by-id-or-email :xtdb2 [conn id email] (xtdb2/get-persona-by-id-or-email conn id email))
+(defmethod get-persona-by-id-or-email :sqlite [conn id email] (sqlite/get-persona-by-id-or-email conn id email))
 
-(defn add-relation
-  [conn {persona-id :id :as _persona} source-id target-id & [{:keys [valid-from]}]]
-  (let [relation-id (make-relation-id persona-id source-id target-id)
-        source-composite (make-identity-id persona-id source-id)
-        target-composite (make-identity-id persona-id target-id)]
-    (if (get-relation-by-id conn relation-id)
-      false
-      (do
-        (xt/execute-tx (:conn conn)
-                       [[:put-docs (cond-> {:into :relations}
-                                     valid-from (assoc :valid-from valid-from))
-                         {:xt/id             relation-id
-                          :relation/source   source-composite
-                          :relation/target   target-composite
-                          :persona/id  persona-id}]])
-        true))))
+(defmethod add-persona :xtdb2 [conn id email password-hash persona-name] (xtdb2/add-persona conn id email password-hash persona-name))
+(defmethod add-persona :sqlite [conn id email password-hash persona-name] (sqlite/add-persona conn id email password-hash persona-name))
 
-(defn list-relations
-  [conn {persona-id :id :as _persona} source-id & [{:keys [at]}]]
-  (let [source-composite (make-identity-id persona-id source-id)
-        results (if at
-                  (xt/q (:conn conn)
-                        ['(fn [source-composite time-point]
-                            (-> (from :relations {:bind [xt/id relation/source relation/target persona/id]
-                                                  :for-valid-time (at time-point)})
-                                (where (= relation/source source-composite))
-                                (return xt/id relation/source relation/target)))
-                         source-composite at])
-                  (xt/q (:conn conn)
-                        ['(fn [source-composite]
-                            (-> (from :relations [xt/id relation/source relation/target persona/id])
-                                (where (= relation/source source-composite))
-                                (return xt/id relation/source relation/target)))
-                         source-composite]))]
-    (mapv (fn [{:keys [xt/id relation/target]}]
-            {:id (name id)
-             :target (extract-identity-id target)})
-          results)))
+(defmethod update-persona :xtdb2 [conn id updates] (xtdb2/update-persona conn id updates))
+(defmethod update-persona :sqlite [conn id updates] (sqlite/update-persona conn id updates))
 
-(defn delete-relation
-  [conn {persona-id :id :as _persona} relation-id & [{:keys [valid-from]}]]
-  (let [full-id (keyword (str (name persona-id) "/" relation-id))]
-    (xt/execute-tx (:conn conn)
-                   [(if valid-from
-                      [:delete-docs {:from :relations :valid-from valid-from} full-id]
-                      [:delete-docs :relations full-id])])))
+(defmethod get-persona-password-hash :xtdb2 [conn id] (xtdb2/get-persona-password-hash conn id))
+(defmethod get-persona-password-hash :sqlite [conn id] (sqlite/get-persona-password-hash conn id))
 
-(defn search-identities
-  [conn {persona-id :id :as _persona} query & [{:keys [at]}]]
-  (let [results (if at
-                  (xt/q (:conn conn)
-                        ['(fn [persona-id time-point]
-                            (-> (from :identities {:bind [persona/id identity/name identity/text xt/id]
-                                                   :for-valid-time (at time-point)})
-                                (where (= persona/id persona-id))
-                                (return identity/name identity/text xt/id)))
-                         persona-id at])
-                  (xt/q (:conn conn)
-                        ['(fn [persona-id]
-                            (-> (from :identities [persona/id identity/name identity/text xt/id])
-                                (where (= persona/id persona-id))
-                                (return identity/name identity/text xt/id)))
-                         persona-id]))
-        query-lower (str/lower-case (or query ""))]
-    (->> results
-         (filter (fn [{:keys [identity/name]}]
-                   (str/includes? (str/lower-case (or name "")) query-lower)))
-         (mapv (fn [{id :xt/id nm :identity/name text :identity/text}]
-                 {:identity (extract-identity-id id) :name nm :text text})))))
+(defmethod list-personas :xtdb2 [conn] (xtdb2/list-personas conn))
+(defmethod list-personas :sqlite [conn] (sqlite/list-personas conn))
+
+(defmethod list-identities :xtdb2 [conn persona] (xtdb2/list-identities conn persona))
+(defmethod list-identities :sqlite [conn persona] (sqlite/list-identities conn persona))
+
+(defmethod get-identity :xtdb2 [conn persona identity-id] (xtdb2/get-identity conn persona identity-id))
+(defmethod get-identity :sqlite [conn persona identity-id] (sqlite/get-identity conn persona identity-id))
+
+(defmethod list-recent-identities :xtdb2 [conn persona limit offset] (xtdb2/list-recent-identities conn persona limit offset))
+(defmethod list-recent-identities :sqlite [conn persona limit offset] (sqlite/list-recent-identities conn persona limit offset))
+
+(defmethod add-identity :xtdb2 [conn persona nm text & [opts]] (xtdb2/add-identity conn persona nm text opts))
+(defmethod add-identity :sqlite [conn persona nm text & [opts]] (sqlite/add-identity conn persona nm text opts))
+
+(defmethod update-identity :xtdb2 [conn persona id nm text & [opts]] (xtdb2/update-identity conn persona id nm text opts))
+(defmethod update-identity :sqlite [conn persona id nm text & [opts]] (sqlite/update-identity conn persona id nm text opts))
+
+(defmethod get-identity-at :xtdb2 [conn persona id time-point] (xtdb2/get-identity-at conn persona id time-point))
+(defmethod get-identity-at :sqlite [conn persona id time-point] (sqlite/get-identity-at conn persona id time-point))
+
+(defmethod get-identity-history :xtdb2 [conn persona id] (xtdb2/get-identity-history conn persona id))
+(defmethod get-identity-history :sqlite [conn persona id] (sqlite/get-identity-history conn persona id))
+
+(defmethod add-relation :xtdb2 [conn persona source-id target-id & [opts]] (xtdb2/add-relation conn persona source-id target-id opts))
+(defmethod add-relation :sqlite [conn persona source-id target-id & [opts]] (sqlite/add-relation conn persona source-id target-id opts))
+
+(defmethod list-relations :xtdb2 [conn persona source-id & [opts]] (xtdb2/list-relations conn persona source-id opts))
+(defmethod list-relations :sqlite [conn persona source-id & [opts]] (sqlite/list-relations conn persona source-id opts))
+
+(defmethod delete-relation :xtdb2 [conn persona relation-id & [opts]] (xtdb2/delete-relation conn persona relation-id opts))
+(defmethod delete-relation :sqlite [conn persona relation-id & [opts]] (sqlite/delete-relation conn persona relation-id opts))
+
+(defmethod search-identities :xtdb2 [conn persona query & [opts]] (xtdb2/search-identities conn persona query opts))
+(defmethod search-identities :sqlite [conn persona query & [opts]] (sqlite/search-identities conn persona query opts))

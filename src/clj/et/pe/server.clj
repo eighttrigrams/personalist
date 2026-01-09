@@ -122,10 +122,10 @@
         (edn/read-string (slurp config-file))))))
 
 (defn- should-pre-seed? [cfg]
-  (true? (:pre-seed? cfg)))
+  (true? (get-in cfg [:devel :pre-seed?])))
 
 (defn- shadow-mode? [config]
-  (true? (:shadow? config)))
+  (true? (get-in config [:devel :shadow?])))
 
 (defn app [config]
   (fn [req]
@@ -139,13 +139,13 @@
     (jetty/run-jetty (app config) {:port port :host host :join? false})))
 
 (defn- ensure-valid-options [config]
-  (when-not (:port config) (throw (ex-info ":port must be configured" {})))
-  (when (and (true? (:pre-seed? config))
+  (when-not (get-in config [:server :port]) (throw (ex-info ":server :port must be configured" {})))
+  (when (and (get-in config [:devel :pre-seed?])
              (prod-mode?))
-    (throw (ex-info "Cannot use :pre-seed? in prod mode" {})))
-  (when (and (true? (:dangerously-skip-logins? config))
+    (throw (ex-info "Cannot use :devel :pre-seed? in prod mode" {})))
+  (when (and (get-in config [:devel :dangerously-skip-logins?])
              (prod-mode?))
-    (throw (ex-info "Cannot use :dangerously-skip-logins? in production mode" {}))))
+    (throw (ex-info "Cannot use :devel :dangerously-skip-logins? in production mode" {}))))
 
 (defn- start-worker [conn]
   (future
@@ -157,7 +157,7 @@
       (recur))))
 
 (defn- s3-needed? [config]
-  (= :s3 (get-in config [:db :type])))
+  (= :xtdb2-with-s3 (get-in config [:db :type])))
 
 (defn- s3-ok? [config]
   ;; TODO check env vars present
@@ -203,7 +203,7 @@
     (handlers/set-conn! conn)
     (when (should-pre-seed? config) (pre-seed conn))
     ;; starting server
-    (let [port (get-in config [:port])]
+    (let [port (get-in config [:server :port])]
       (tel/log! :info ["Starting server on port" port])
       (run-server port config)
       (when-not (prod-mode?)

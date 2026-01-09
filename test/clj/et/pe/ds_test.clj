@@ -8,13 +8,11 @@
 (def ^:dynamic conn nil)
 
 (defn xtdb2-in-memory [f]
-  (binding [*conn-type* :memory]
+  (binding [*conn-type* :xtdb2-in-memory]
     (f)))
 
-(defn other-db-adapter [f]
-  (binding [*conn-type* 
-            ;; TODO put in other adapter
-            :memory]
+(defn sqlite-in-memory [f]
+  (binding [*conn-type* :sqlite-in-memory]
     (f)))
 
 (defmacro testing-with-conn [string & body]
@@ -28,7 +26,7 @@
 (defmacro sets-are= [& body]
   `(are [expected actual] (= (set expected) (set actual)) ~@body))
 
-(use-fixtures :once (juxt xtdb2-in-memory other-db-adapter))
+(use-fixtures :once (juxt xtdb2-in-memory sqlite-in-memory))
 
 (deftest personas
   (testing-with-conn "add personas"
@@ -124,7 +122,8 @@
                (ds/list-relations conn dan source-id {:at (Instant/parse "2020-03-01T00:00:00Z")}))))
       (testing "- querying during relation period returns the relation"
         (is (= [{:id relation-id
-                 :target target-id}]
+                 :target target-id
+                 :target-name "target"}]
                (ds/list-relations conn dan source-id {:at (Instant/parse "2020-09-01T00:00:00Z")}))))
       (testing "- querying after relation deleted returns no relations"
         (is (= []
@@ -153,13 +152,12 @@
       (testing "- v1: no relation"
         (is (= [] (ds/list-relations conn dan source-id {:at (Instant/parse "2020-02-01T00:00:00Z")}))))
       (testing "- v2: relation exists"
-        (is (= [{:id relation-id :target target-id}]
+        (is (= [{:id relation-id :target target-id :target-name "target"}]
                (ds/list-relations conn dan source-id {:at (Instant/parse "2020-04-01T00:00:00Z")}))))
       (testing "- v3: no relation"
         (is (= [] (ds/list-relations conn dan source-id {:at (Instant/parse "2020-07-01T00:00:00Z")}))))
       (testing "- v4: relation exists again"
-        (is (= [{:id relation-id :target target-id}]
+        (is (= [{:id relation-id :target target-id :target-name "target"}]
                (ds/list-relations conn dan source-id {:at (Instant/parse "2020-10-01T00:00:00Z")}))))
       (testing "- v5: no relation"
         (is (= [] (ds/list-relations conn dan source-id {:at (Instant/parse "2021-01-01T00:00:00Z")})))))))
-

@@ -22,8 +22,11 @@ build:
 fly-deploy:
 	fly deploy
 
+clean:
+	rm -rf data
+
 fly-backup:
-	fly ssh console -C "tar -czf - /app/data/xtdb" > volume-backup.$$(date +%Y-%m-%d.%H-%M).tar.gz
+	fly ssh console -C "tar -czf - /app/data" > volume-backup.$$(date +%Y-%m-%d.%H-%M).tar.gz
 
 fly-backup-replay:
 	@if [ -d data ]; then echo "Error: data/ directory already exists. Remove it first." && exit 1; fi

@@ -4,7 +4,7 @@
         com.taoensso/telemere-slf4j       {:mvn/version "1.2.0"}
         com.github.seancorfield/next.jdbc {:mvn/version "1.3.1070"}
         com.github.seancorfield/honeysql  {:mvn/version "2.6.1281"}
-        org.postgresql/postgresql         {:mvn/version "42.7.8"} 
+        org.xerial/sqlite-jdbc            {:mvn/version "3.47.1.0"} 
         org.clojure/data.json             {:mvn/version "2.5.1"}
        com.xtdb/xtdb-core                {:mvn/version "2.1.0"}
         com.xtdb/xtdb-api                 {:mvn/version "2.1.0"}
