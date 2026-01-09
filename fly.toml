@@ -1,0 +1,29 @@
+app = "personalist"
+primary_region = "iad"
+
+[env]
+  PORT = "8080"
+  HOST = "0.0.0.0"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+
+[[http_service.checks]]
+    grace_period = "60s"
+    interval = "15s"
+    timeout = "5s"
+    method = "GET"
+    path = "/"
+
+[mounts]
+  source = "personalist_data"
+  destination = "/app/data"
+
+[[vm]]
+  memory = "1gb"
+  cpu_kind = "shared"
+  cpus = 1
+  count = 1

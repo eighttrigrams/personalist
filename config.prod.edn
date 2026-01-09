@@ -1,5 +1,3 @@
-{:db {:type :xtdb2-with-s3
-      :s3-bucket "personalist"
-      :s3-prefix "personalist/"
-      :log-path "/app/data/xtdb/log"}
+{:db {:type :sqlite-on-disk
+      :path "/app/data/personalist.db"}
  :port 8080}
