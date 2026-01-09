@@ -139,7 +139,7 @@
     (jetty/run-jetty (app config) {:port port :host host :join? false})))
 
 (defn- ensure-valid-options [config]
-  (when-not (:port config) (throw (ex-info ":port must be configured" {})))
+  (when-not (get-in config [:server :port]) (throw (ex-info ":server :port must be configured" {})))
   (when (and (get-in config [:devel :pre-seed?])
              (prod-mode?))
     (throw (ex-info "Cannot use :devel :pre-seed? in prod mode" {})))
@@ -203,7 +203,7 @@
     (handlers/set-conn! conn)
     (when (should-pre-seed? config) (pre-seed conn))
     ;; starting server
-    (let [port (get-in config [:port])]
+    (let [port (get-in config [:server :port])]
       (tel/log! :info ["Starting server on port" port])
       (run-server port config)
       (when-not (prod-mode?)

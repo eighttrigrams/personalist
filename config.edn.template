@@ -6,4 +6,7 @@
    :shadow? true
    :dangerously-skip-logins? false
  }
- :port 3017}
+ :server {
+   :port 3017
+ }
+}
