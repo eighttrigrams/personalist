@@ -40,8 +40,8 @@ jobs:
 
             Everything of those concerns go in their own <details> section.
 
-            Be thorough but concise. Only report actual concerns, not hypotheticals.
+            Be thorough but concise. Only report actual concerns, not hypotheticals. Don't report on what I did. Only flag problems.
 
-            Use `gh pr review --comment` with your Bash tool to leave your review as a comment on the PR.
+            Use `gh pr comment` with your Bash tool to leave your review as a comment on the PR.
 
           claude_args: '--allowed-tools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"'
