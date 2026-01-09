@@ -173,7 +173,10 @@
                    (when (seq res)
                      (let [slider-idx (find-slider-index-for-time res url-time)
                            selected-entry (get res slider-idx)]
-                       (swap! app-state assoc :slider-value slider-idx)
+                       (swap! app-state assoc
+                              :slider-value slider-idx
+                              :editing-name (:name selected-entry)
+                              :editing-text (:text selected-entry))
                        (when (and (> (count res) 1) (nil? url-time))
                          (update-url-with-time (:valid-from selected-entry))))))
         :response-format :json

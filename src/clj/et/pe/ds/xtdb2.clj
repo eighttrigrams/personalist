@@ -287,8 +287,11 @@
                                 (return xt/id relation/source relation/target)))
                          source-composite]))]
     (mapv (fn [{:keys [xt/id relation/target]}]
-            {:id (clojure.core/name id)
-             :target (extract-identity-id target)})
+            (let [target-id (extract-identity-id target)
+                  target-identity (get-identity conn {:id persona-id} target-id)]
+              {:id (clojure.core/name id)
+               :target target-id
+               :target-name (:name target-identity)}))
           results)))
 
 (defn delete-relation

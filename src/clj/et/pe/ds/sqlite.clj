@@ -26,17 +26,6 @@
   (jdbc/execute! ds ["CREATE INDEX IF NOT EXISTS idx_identity_versions_composite ON identity_versions(composite_id, valid_from DESC)"])
   (jdbc/execute! ds ["CREATE INDEX IF NOT EXISTS idx_identity_versions_persona ON identity_versions(persona_id, valid_from DESC)"])
   (jdbc/execute! ds ["CREATE TABLE IF NOT EXISTS relations (
-                       relation_id TEXT PRIMARY KEY,
-                       persona_id TEXT NOT NULL,
-                       source_composite TEXT NOT NULL,
-                       target_composite TEXT NOT NULL,
-                       source_id TEXT NOT NULL,
-                       target_id TEXT NOT NULL,
-                       valid_from INTEGER NOT NULL,
-                       valid_to INTEGER,
-                       FOREIGN KEY (persona_id) REFERENCES personas(id)
-                     )"])
-  (jdbc/execute! ds ["CREATE TABLE IF NOT EXISTS relation_events (
                        id INTEGER PRIMARY KEY AUTOINCREMENT,
                        relation_id TEXT NOT NULL,
                        persona_id TEXT NOT NULL,
@@ -45,7 +34,7 @@
                        event_type TEXT NOT NULL,
                        valid_from INTEGER NOT NULL
                      )"])
-  (jdbc/execute! ds ["CREATE INDEX IF NOT EXISTS idx_relation_events_lookup ON relation_events(persona_id, source_id, valid_from)"]))
+  (jdbc/execute! ds ["CREATE INDEX IF NOT EXISTS idx_relations_lookup ON relations(persona_id, source_id, valid_from)"]))
 
 (defn init-conn
   [type opts]
@@ -308,34 +297,25 @@
 (defn- make-relation-id [persona-id source-id target-id]
   (str (kw->str persona-id) "/" (kw->str source-id) "/" (kw->str target-id)))
 
+(defn- relation-active? [conn relation-id]
+  (let [last-event (jdbc/execute-one! (:conn conn)
+                                      (sql/format {:select [:event_type]
+                                                   :from [:relations]
+                                                   :where [:= :relation_id relation-id]
+                                                   :order-by [[:valid_from :desc] [:id :desc]]
+                                                   :limit 1})
+                                      {:builder-fn rs/as-unqualified-lower-maps})]
+    (= "add" (:event_type last-event))))
+
 (defn add-relation
   [conn {persona-id :id :as _persona} source-id target-id & [{:keys [valid-from]}]]
   (let [relation-id (make-relation-id persona-id source-id target-id)
-        source-composite (make-composite-id persona-id source-id)
-        target-composite (make-composite-id persona-id target-id)
-        valid-from-epoch (instant->epoch valid-from)
-        existing (jdbc/execute-one! (:conn conn)
-                                    (sql/format {:select [:relation_id]
-                                                 :from [:relations]
-                                                 :where [:and
-                                                         [:= :relation_id relation-id]
-                                                         [:is :valid_to nil]]})
-                                    {:builder-fn rs/as-unqualified-lower-maps})]
-    (if existing
+        valid-from-epoch (instant->epoch valid-from)]
+    (if (relation-active? conn relation-id)
       false
       (do
         (jdbc/execute! (:conn conn)
                        (sql/format {:insert-into :relations
-                                    :values [{:relation_id relation-id
-                                              :persona_id (kw->str persona-id)
-                                              :source_composite source-composite
-                                              :target_composite target-composite
-                                              :source_id (kw->str source-id)
-                                              :target_id (kw->str target-id)
-                                              :valid_from valid-from-epoch
-                                              :valid_to nil}]}))
-        (jdbc/execute! (:conn conn)
-                       (sql/format {:insert-into :relation_events
                                     :values [{:relation_id relation-id
                                               :persona_id (kw->str persona-id)
                                               :source_id (kw->str source-id)
@@ -344,60 +324,55 @@
                                               :valid_from valid-from-epoch}]}))
         true))))
 
+(defn- get-active-relations [conn persona-id source-id time-epoch]
+  (let [where-clause (if time-epoch
+                       [:and
+                        [:= :persona_id (kw->str persona-id)]
+                        [:= :source_id (kw->str source-id)]
+                        [:<= :valid_from time-epoch]]
+                       [:and
+                        [:= :persona_id (kw->str persona-id)]
+                        [:= :source_id (kw->str source-id)]])
+        events (jdbc/execute! (:conn conn)
+                              (sql/format {:select [:relation_id :target_id :event_type :valid_from]
+                                           :from [:relations]
+                                           :where where-clause
+                                           :order-by [[:relation_id :asc] [:valid_from :asc] [:id :asc]]})
+                              {:builder-fn rs/as-unqualified-lower-maps})
+        by-relation (group-by :relation_id events)]
+    (for [[rel-id rel-events] by-relation
+          :let [last-event (last rel-events)
+                target-id (:target_id last-event)
+                target-identity (get-identity conn {:id persona-id} (str->kw target-id))]
+          :when (= "add" (:event_type last-event))]
+      {:id (subs rel-id (inc (.indexOf rel-id "/")))
+       :target (str->kw target-id)
+       :target-name (:name target-identity)})))
+
 (defn list-relations
   [conn {persona-id :id :as _persona} source-id & [{:keys [at]}]]
-  (if at
-    (let [time-epoch (instant->epoch at)
-          events (jdbc/execute! (:conn conn)
-                                (sql/format {:select [:relation_id :source_id :target_id :event_type :valid_from]
-                                             :from [:relation_events]
-                                             :where [:and
-                                                     [:= :persona_id (kw->str persona-id)]
-                                                     [:= :source_id (kw->str source-id)]
-                                                     [:<= :valid_from time-epoch]]
-                                             :order-by [[:relation_id :asc] [:valid_from :asc]]})
-                                {:builder-fn rs/as-unqualified-lower-maps})
-          by-relation (group-by :relation_id events)
-          active-relations (for [[rel-id rel-events] by-relation
-                                 :let [last-event (last rel-events)]
-                                 :when (= "add" (:event_type last-event))]
-                             {:id (subs rel-id (inc (.indexOf rel-id "/")))
-                              :target (str->kw (:target_id last-event))})]
-      (vec active-relations))
-    (let [results (jdbc/execute! (:conn conn)
-                                 (sql/format {:select [:relation_id :target_id]
-                                              :from [:relations]
-                                              :where [:and
-                                                      [:= :persona_id (kw->str persona-id)]
-                                                      [:= :source_id (kw->str source-id)]
-                                                      [:is :valid_to nil]]})
-                                 {:builder-fn rs/as-unqualified-lower-maps})]
-      (mapv (fn [r]
-              {:id (subs (:relation_id r) (inc (.indexOf (:relation_id r) "/")))
-               :target (str->kw (:target_id r))})
-            results))))
+  (vec (get-active-relations conn persona-id source-id (when at (instant->epoch at)))))
 
 (defn delete-relation
   [conn {persona-id :id :as _persona} relation-id & [{:keys [valid-from]}]]
   (let [full-id (str (kw->str persona-id) "/" relation-id)
-        valid-from-epoch (instant->epoch valid-from)
-        relation (jdbc/execute-one! (:conn conn)
-                                    (sql/format {:select [:source_id :target_id]
-                                                 :from [:relations]
-                                                 :where [:= :relation_id full-id]})
-                                    {:builder-fn rs/as-unqualified-lower-maps})]
-    (when relation
-      (jdbc/execute! (:conn conn)
-                     (sql/format {:delete-from :relations
-                                  :where [:= :relation_id full-id]}))
-      (jdbc/execute! (:conn conn)
-                     (sql/format {:insert-into :relation_events
-                                  :values [{:relation_id full-id
-                                            :persona_id (kw->str persona-id)
-                                            :source_id (:source_id relation)
-                                            :target_id (:target_id relation)
-                                            :event_type "delete"
-                                            :valid_from valid-from-epoch}]})))))
+        valid-from-epoch (instant->epoch valid-from)]
+    (when (relation-active? conn full-id)
+      (let [last-event (jdbc/execute-one! (:conn conn)
+                                          (sql/format {:select [:source_id :target_id]
+                                                       :from [:relations]
+                                                       :where [:= :relation_id full-id]
+                                                       :order-by [[:valid_from :desc] [:id :desc]]
+                                                       :limit 1})
+                                          {:builder-fn rs/as-unqualified-lower-maps})]
+        (jdbc/execute! (:conn conn)
+                       (sql/format {:insert-into :relations
+                                    :values [{:relation_id full-id
+                                              :persona_id (kw->str persona-id)
+                                              :source_id (:source_id last-event)
+                                              :target_id (:target_id last-event)
+                                              :event_type "delete"
+                                              :valid_from valid-from-epoch}]}))))))
 
 (defn search-identities
   [conn {persona-id :id :as _persona} query & [{:keys [at]}]]

@@ -77,7 +77,7 @@
          :dangerouslySetInnerHTML {:__html (marked (or text ""))}}])
 
 (defn relations-list []
-  (let [{:keys [relations identities auth-user identity-history slider-value]} @app-state
+  (let [{:keys [relations auth-user identity-history slider-value]} @app-state
         can-edit? (some? auth-user)
         current-entry (get identity-history slider-value)
         current-time (:valid-from current-entry)]
@@ -87,29 +87,27 @@
        [:ul {:style {:list-style "none" :padding 0 :margin 0}}
         (for [rel relations]
           ^{:key (:id rel)}
-          (let [target-identity (first (filter #(= (:identity %) (:target rel)) identities))]
-            [:li {:style {:padding "0.5rem"
-                          :background "#f5f5f5"
-                          :border-radius "4px"
-                          :margin-bottom "0.5rem"
-                          :display "flex"
-                          :justify-content "space-between"
-                          :align-items "center"}}
-             [:span {:on-click (fn []
-                                 (when target-identity
-                                   (select-identity target-identity current-time)))
-                     :style {:cursor "pointer"}}
-              [:span (or (:name target-identity) (:target rel))]]
-             (when can-edit?
-               [:button {:on-click #(delete-relation (:id rel))
-                         :style {:padding "0.25rem 0.5rem"
-                                 :cursor "pointer"
-                                 :background "#ff5252"
-                                 :color "white"
-                                 :border "none"
-                                 :border-radius "4px"
-                                 :font-size "0.8rem"}}
-                "X"])]))]
+          [:li {:style {:padding "0.5rem"
+                        :background "#f5f5f5"
+                        :border-radius "4px"
+                        :margin-bottom "0.5rem"
+                        :display "flex"
+                        :justify-content "space-between"
+                        :align-items "center"}}
+           [:span {:on-click (fn []
+                               (select-identity {:identity (:target rel) :name (:target-name rel)} current-time))
+                   :style {:cursor "pointer"}}
+            [:span (or (:target-name rel) (name (:target rel)))]]
+           (when can-edit?
+             [:button {:on-click #(delete-relation (:id rel))
+                       :style {:padding "0.25rem 0.5rem"
+                               :cursor "pointer"
+                               :background "#ff5252"
+                               :color "white"
+                               :border "none"
+                               :border-radius "4px"
+                               :font-size "0.8rem"}}
+              "X"])])]
        [:p {:style {:color "#666" :font-style "italic" :margin 0}} "No Relations for this Identity at this point in time."])]))
 
 (defn identity-editor []
