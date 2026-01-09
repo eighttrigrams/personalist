@@ -1,3 +1,4 @@
 {:db {:type :sqlite-on-disk
       :path "/app/data/personalist.db"}
+ :logging {:level :info}
  :server {:port 8080}}
