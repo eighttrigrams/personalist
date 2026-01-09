@@ -28,15 +28,19 @@ jobs:
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
 
-            Please review this pull request focusing specifically on:
+            Please review this pull request.
+
+            Focus ONLY on the difference against the `main` branch. Leave no comments on things we haven't changed in THIS PR.
+            
+            Four our review, focus specifically on:
             - Security vulnerabilities (injection attacks, XSS, CSRF, authentication/authorization issues)
             - Sensitive data exposure (secrets, credentials, PII)
             - Performance issues (N+1 queries, memory leaks, inefficient algorithms)
             - Resource exhaustion risks (unbounded loops, missing timeouts)
 
-            Be thorough but concise. Only report actual concerns, not hypotheticals.
+            Everything of those concerns go in their own <details> section.
 
-            Everything but a brief summary goes in a <details> section.
+            Be thorough but concise. Only report actual concerns, not hypotheticals.
 
             Use `gh pr review --comment` with your Bash tool to leave your review as a comment on the PR.
 
