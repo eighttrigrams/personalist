@@ -45,7 +45,7 @@ jobs:
             - Leave no comments on things we haven't changed in THIS PR.
 
             Provide feedback on:
-            - Code quality and best practices. Use your `clojure-pr-review` skill from the @.claude/skills/clojure-pr-review/SKILL.md file.
+            - Code quality and best practices. Use your `clojure-pr-review` skill from the @/home/runner/work/personalist/personalist/.claude/skills/clojure-pr-review/SKILL.md file.
             - Potential bugs or issues
             - Test coverage
 
