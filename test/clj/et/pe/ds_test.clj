@@ -161,3 +161,27 @@
                (ds/list-relations conn dan source-id {:at (Instant/parse "2020-10-01T00:00:00Z")}))))
       (testing "- v5: no relation"
         (is (= [] (ds/list-relations conn dan source-id {:at (Instant/parse "2021-01-01T00:00:00Z")})))))))
+
+(deftest search-identities-time-travel
+  (testing-with-conn "search identities with cutoff date returns versions at that time"
+    (ds/add-persona conn :dan "d@et.n" nil nil)
+    (let [dan (ds/get-persona-by-id conn :dan)
+          t1 (Instant/parse "2020-01-01T00:00:00Z")
+          t2 (Instant/parse "2020-06-01T00:00:00Z")
+          query-before (Instant/parse "2020-03-01T00:00:00Z")
+          query-after (Instant/parse "2020-09-01T00:00:00Z")
+          id1 (ds/add-identity conn dan "Alice" "original alice" {:valid-from t1})
+          id2 (ds/add-identity conn dan "Bob" "original bob" {:valid-from t1})]
+      (ds/update-identity conn dan id1 "Alice Updated" "updated alice" {:valid-from t2})
+      (testing "- search without cutoff returns current versions"
+        (let [results (ds/search-identities conn dan "Alice")]
+          (is (= 1 (count results)))
+          (is (= "Alice Updated" (:name (first results))))))
+      (testing "- search with cutoff before update returns original version"
+        (let [results (ds/search-identities conn dan "Alice" {:at query-before})]
+          (is (= 1 (count results)))
+          (is (= "Alice" (:name (first results))))))
+      (testing "- search with cutoff after update returns updated version"
+        (let [results (ds/search-identities conn dan "Alice" {:at query-after})]
+          (is (= 1 (count results)))
+          (is (= "Alice Updated" (:name (first results)))))))))
