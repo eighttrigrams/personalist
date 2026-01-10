@@ -40,18 +40,18 @@ jobs:
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
 
-            Please review this pull request.
-
-            Focus ONLY on the difference against the `main` branch. Leave no comments on things we haven't changed in THIS PR.
+            Please review this pull request. Follow these guidelines
+            - Focus ONLY on the difference against the `main` branch. You can take a couple of lines before and after lines changed into account too, here.
+            - Leave no comments on things we haven't changed in THIS PR.
 
             Provide feedback on:
             - Code quality and best practices. Use your `clojure-pr-review` skill.
             - Potential bugs or issues
             - Test coverage
 
-            Everything of those concerns go in their own <details> section.
+            Everything of those concerns to provide feedback on, goes in their own <details> section.
 
-            Use the repository's CLAUDE.md for guidance on style and conventions. 
+            Use the repository's CLAUDE.md for guidance on style and conventions.
 
             Use `gh pr comment` with your Bash tool to leave your review as a comment on the PR.
 

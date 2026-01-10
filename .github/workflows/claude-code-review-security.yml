@@ -42,6 +42,6 @@ jobs:
 
             Be thorough but concise. Only report actual concerns, not hypotheticals. Don't report on what I did. Only flag problems.
 
-            Use `gh pr comment` with your Bash tool to leave your review as a comment on the PR.
+            Use `gh pr comment` with your Bash tool to leave your review as a comment on the PR. Make sure in a title that this is a security and performance characteristics review
 
           claude_args: '--allowed-tools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"'

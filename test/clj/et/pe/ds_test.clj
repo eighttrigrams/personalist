@@ -171,7 +171,8 @@
           query-before (Instant/parse "2020-03-01T00:00:00Z")
           query-after (Instant/parse "2020-09-01T00:00:00Z")
           id1 (ds/add-identity conn dan "Alice" "original alice" {:valid-from t1})
-          id2 (ds/add-identity conn dan "Bob" "original bob" {:valid-from t1})]
+          id2 (ds/add-identity conn dan "Bob" "original bob" {:valid-from t1})
+          a 1]
       (ds/update-identity conn dan id1 "Alice Updated" "updated alice" {:valid-from t2})
       (testing "- search without cutoff returns current versions"
         (let [results (ds/search-identities conn dan "Alice")]
