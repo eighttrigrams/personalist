@@ -1,7 +1,6 @@
 (ns et.pe.server
   (:require [ring.adapter.jetty9 :as jetty]
             [et.pe.ds :as ds]
-            [et.pe.s3-check]
             [et.pe.logging :as logging]
             [clojure.java.io :as io]
             [clojure.edn :as edn]
@@ -148,29 +147,6 @@
              (prod-mode?))
     (throw (ex-info "Cannot use :devel :dangerously-skip-logins? in production mode" {}))))
 
-(defn- start-worker [conn]
-  (future
-    (tel/log! :info "Starting worker.")
-    (loop []
-      (Thread/sleep (* 1 60000))
-      (tel/log! :info "Worker tick - checking XTDB status")
-      (ds/log-xtdb-status conn)
-      (recur))))
-
-(defn- s3-needed? [config]
-  (= :xtdb2-with-s3 (get-in config [:db :type])))
-
-(defn- s3-ok? [config]
-  ;; TODO check env vars present
-  (let [db-config (get config :db)
-        check-result (et.pe.s3-check/s3-health-check
-                      (:s3-bucket db-config)
-                      (:s3-prefix db-config))]
-    (when-not (:success check-result)
-      (tel/log! :error ["S3 smoke check failed:" (:message check-result)])
-      (throw (ex-info "S3 smoke check failed - cannot start application"
-                      {:reason (:message check-result)})))))
-
 (defn- run-seed-script []
   (let [seed-script (io/file "scripts/seed-db.sh")]
     (when (.exists seed-script)
@@ -199,12 +175,10 @@
         _ (logging/init! (:logging config))
         _ (tel/log! :info ["Starting system in" (if (prod-mode?) "production" "development") "mode"])
         _ (ensure-valid-options config)
-        _ (when (s3-needed? config) (s3-ok? config))
         conn (ds/init-conn (:type (:db config)) (:db config))]
     (handlers/set-config! config)
     (handlers/set-conn! conn)
     (when (should-pre-seed? config) (pre-seed conn))
-    ;; starting server
     (let [port (get-in config [:server :port])]
       (tel/log! :info ["Starting server on port" port])
       (run-server port config)
@@ -213,7 +187,4 @@
           (nrepl/start-server :port nrepl-port)
           (spit ".nrepl-port" nrepl-port)
           (tel/log! :info ["nREPL server started on port" nrepl-port])))
-      ;; Worker disabled due to OOM issues
-      #_(when (prod-mode?)
-          (start-worker conn))
       @(promise))))

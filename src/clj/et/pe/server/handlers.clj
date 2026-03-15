@@ -3,9 +3,9 @@
             [et.pe.urbit :as urbit]
             [et.pe.middleware.rate-limit :as rate-limit]
             [clojure.walk]
-            [clojure.tools.logging :as log]
             [buddy.hashers :as hashers]
-            [buddy.sign.jwt :as jwt])
+            [buddy.sign.jwt :as jwt]
+            [taoensso.telemere :as tel])
   (:import [java.time Instant ZonedDateTime]))
 
 (defonce ds-conn (atom nil))
@@ -260,7 +260,7 @@
   (if-let [s (System/getenv env-var)]
     (try (Integer/parseInt s)
          (catch Exception _e
-           (log/warn "Failed to parse int from" env-var "=" s "- using default" default)
+           (tel/log! :warn ["Failed to parse int from" env-var "=" s "- using default" default])
            default))
     default))
 
@@ -279,13 +279,13 @@
           (not ip-ok?)
           (do
             (when (rate-limit/should-warn-ip? limiter client-ip now-ms)
-              (log/warn "Rate limit exceeded for IP:" client-ip))
+              (tel/log! :warn ["Rate limit exceeded for IP:" client-ip]))
             {:status 429 :headers {"Content-Length" "0"} :body ""})
 
           (not global-ok?)
           (do
             (when (rate-limit/should-warn-global? limiter now-ms)
-              (log/warn "Global rate limit exceeded, triggered by IP:" client-ip))
+              (tel/log! :warn ["Global rate limit exceeded, triggered by IP:" client-ip]))
             {:status 429 :headers {"Content-Length" "0"} :body ""})
 
           :else

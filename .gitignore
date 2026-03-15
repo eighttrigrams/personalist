@@ -18,6 +18,5 @@ config.edn.*
 !config.edn.template
 .editor-layouts.json
 volume-backup.*.tar.gz
-.s3-credentials
 logs
 PLAN.md

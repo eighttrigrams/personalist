@@ -9,8 +9,8 @@ The `:dangerously-skip-logins?` configuration option allows developers to login 
 In `config.edn`:
 
 ```clojure
-{:db {:type :xtdb2-in-memory}
- :dangerously-skip-logins? true}
+{:db {:type :sqlite-in-memory}
+ :devel {:dangerously-skip-logins? true}}
 ```
 
 ## Safety Guarantees

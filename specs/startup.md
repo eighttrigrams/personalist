@@ -20,7 +20,7 @@ Starts the application using the Clojure backend directly.
 Builds an uberjar and runs it directly with Java.
 
 - Builds the application using `clj -T:build uber`
-- Runs the standalone jar with JVM flags for Netty/XTDB compatibility
+- Runs the standalone jar
 - Intended for local testing of the production build before deployment
 
 ## Configuration (`config.edn`)
@@ -28,40 +28,56 @@ Builds an uberjar and runs it directly with Java.
 On first startup, if `config.edn` doesn't exist, it is auto-created with defaults:
 
 ```edn
-{:db {:type :xtdb2-in-memory}
- :pre-seed? true}
+{:db {:type :sqlite-in-memory}
+ :devel {
+   :pre-seed? true
+   :shadow? true
+   :dangerously-skip-logins? true
+ }
+ :server {
+   :port 3017
+ }
+}
 ```
 
-This means: use an in-memory database and seed it with demo data on startup.
+This means: use an in-memory SQLite database and seed it with demo data on startup.
 
 ### Configuration Options
 
 | Key | Description |
 |-----|-------------|
 | `:db` | Database configuration (`:type` and optionally `:path`) |
-| `:pre-seed?` | If `true`, seed database with demo data on startup |
-| `:shadow?` | If `true`, use shadow-cljs watch mode for hot reload |
+| `:devel :pre-seed?` | If `true`, seed database with demo data on startup |
+| `:devel :shadow?` | If `true`, use shadow-cljs watch mode for hot reload |
+| `:devel :dangerously-skip-logins?` | If `true`, skip password authentication |
 
 ### Example Configurations
 
 For development with hot reload:
 ```edn
-{:db {:type :xtdb2-in-memory}
- :pre-seed? true
- :shadow? true}
-```
-
-For demos (optimized JS, no hot reload):
-```edn
-{:db {:type :xtdb2-in-memory}
- :pre-seed? true}
+{:db {:type :sqlite-in-memory}
+ :devel {
+   :pre-seed? true
+   :shadow? true
+   :dangerously-skip-logins? true
+ }
+ :server {
+   :port 3017
+ }
+}
 ```
 
 For persistent storage:
 ```edn
-{:db {:type :on-disk
-      :path "data/xtdb"}
- :pre-seed? false}
+{:db {:type :sqlite-on-disk
+      :path "data/personalist.db"}
+ :devel {
+   :pre-seed? false
+ }
+ :server {
+   :port 3017
+ }
+}
 ```
 
 ## Production Environment Detection
@@ -74,18 +90,10 @@ Always runs in production mode. `ADMIN_PASSWORD` environment variable is require
 
 ### Locally
 
-Production mode is determined by `config.edn`:
+Production mode is determined by environment variables:
 
-- If `:shadow? true` → **not** production mode (dev environment)
-- If `:db {:type :xtdb2-in-memory}` → **not** production mode (data would be lost)
+- If `DEV=true` is set and no `ADMIN_PASSWORD` → **not** production mode
 - Otherwise → production mode
-
-This means you can test production auth locally by using persistent storage without `:shadow?`:
-```edn
-{:db {:type :on-disk
-      :path "data/xtdb"}
- :pre-seed? false}
-```
 
 ### Production Mode Behavior
 

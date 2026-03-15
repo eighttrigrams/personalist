@@ -8,7 +8,6 @@
     nil))
 
 (defn init! [{:keys [file level format]}]
-  (tel/set-ns-filter! {:disallow "xtdb.metrics" :allow "*"})
   (when level
     (tel/set-min-level! level))
   (let [output-fn (output-fn format)]

@@ -32,10 +32,4 @@ ENTRYPOINT ["java", \
             "-XX:MaxMetaspaceSize=256m", \
             "-XX:+UseG1GC", \
             "-XX:MaxGCPauseMillis=200", \
-            "-XX:TieredStopAtLevel=1", \
-            "--add-opens=java.base/java.nio=ALL-UNNAMED", \
-            "-Dio.netty.tryReflectionSetAccessible=true", \
-            "--enable-native-access=ALL-UNNAMED", \
-            "-Darrow.enable_unsafe_memory_access=false", \
-            "-Darrow.enable_null_check_for_get=true", \
             "-jar", "/app/app.jar"]

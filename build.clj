@@ -5,7 +5,7 @@
 (def version "0.0.1")
 (def class-dir "target/classes")
 (def basis (b/create-basis {:project "deps.edn"
-                            :aliases [:xtdb]}))
+                            :aliases [:run]}))
 (def uber-file (format "target/%s-%s-standalone.jar" (name lib) version))
 
 (defn clean [_]
@@ -19,9 +19,7 @@
                   :src-dirs ["src/clj"]
                   :class-dir class-dir
                   :ns-compile '[et.pe.server]
-                  :java-opts ["--add-opens=java.base/java.nio=ALL-UNNAMED"
-                              "-Dio.netty.tryReflectionSetAccessible=true"
-                              "--enable-native-access=ALL-UNNAMED"]})
+                  :java-opts []})
   (b/uber {:class-dir class-dir
            :uber-file uber-file
            :basis basis

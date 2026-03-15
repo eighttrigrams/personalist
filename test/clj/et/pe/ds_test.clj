@@ -7,10 +7,6 @@
 
 (def ^:dynamic conn nil)
 
-(defn xtdb2-in-memory [f]
-  (binding [*conn-type* :xtdb2-in-memory]
-    (f)))
-
 (defn sqlite-in-memory [f]
   (binding [*conn-type* :sqlite-in-memory]
     (f)))
@@ -26,7 +22,7 @@
 (defmacro sets-are= [& body]
   `(are [expected actual] (= (set expected) (set actual)) ~@body))
 
-(use-fixtures :once (juxt xtdb2-in-memory sqlite-in-memory))
+(use-fixtures :once sqlite-in-memory)
 
 (deftest personas
   (testing-with-conn "add personas"
