@@ -20,3 +20,4 @@ config.edn.*
 volume-backup.*.tar.gz
 .s3-credentials
 logs
+PLAN.md

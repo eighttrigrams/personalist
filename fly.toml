@@ -1,5 +1,5 @@
 app = "personalist"
-primary_region = "iad"
+primary_region = "cdg"
 
 [env]
   PORT = "8080"

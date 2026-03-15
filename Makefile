@@ -25,10 +25,10 @@ fly-deploy:
 clean:
 	rm -rf data
 
-fly-backup:
-	fly ssh console -C "tar -czf - /app/data" > volume-backup.$$(date +%Y-%m-%d.%H-%M).tar.gz
+backup:
+	fly ssh console -C "tar -czf - /app/data/personalist.db" > volume-backup.$$(date +%Y-%m-%d.%H-%M).tar.gz
 
-fly-backup-replay:
+backup-replay:
 	@if [ -d data ]; then echo "Error: data/ directory already exists. Remove it first." && exit 1; fi
 	tar -xzf $$(ls -t volume-backup.*.tar.gz | head -1) --strip-components=1
 

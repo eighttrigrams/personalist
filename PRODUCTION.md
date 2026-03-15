@@ -147,5 +147,5 @@ fly machine start <machine-id>
 
 ### Backup from Remote
 ```bash
-make fly-backup
+make backup
 ```
