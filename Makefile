@@ -19,7 +19,7 @@ test:
 build:
 	clj -T:build uber
 
-fly-deploy:
+deploy:
 	fly deploy
 
 clean:
@@ -31,6 +31,3 @@ backup:
 backup-replay:
 	@if [ -d data ]; then echo "Error: data/ directory already exists. Remove it first." && exit 1; fi
 	tar -xzf $$(ls -t volume-backup.*.tar.gz | head -1) --strip-components=1
-
-railway-deploy:
-	git push && railway up
