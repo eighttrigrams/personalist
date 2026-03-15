@@ -3,10 +3,8 @@
     "allow": [
       "WebSearch",
       "Bash(make test)",
-      "WebFetch(domain:docs.xtdb.com)",
       "Bash(npm install:*)",
       "Bash(clj -Stree:*)",
-      "Bash(clj -M:test:xtdb:*)",
       "Bash(git pull)",
       "Bash(git status)",
       "Bash(git add:*)",
@@ -22,7 +20,6 @@
       "Bash(make start)",
       "Bash(make backup)",
       "Bash(make backup-replay)",
-      "Bash(railway logs:*)",
       "Bash(gh issue view:*)",
       "mcp__playwright__browser_snapshot",
       "mcp__playwright__browser_click",
