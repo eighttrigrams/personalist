@@ -438,7 +438,7 @@
                       :cursor "pointer"}}
           "building"]
          " an integrated universe of personal encyclopedias."]
-        [:a {:href "https://eighttrigrams.substack.com/p/personalist"
+        [:a {:href "https://eighttrigrams.net/article/24/version/1"
              :target "_blank"
              :style {:display "inline-block"
                      :padding "0.75rem 1.5rem"
