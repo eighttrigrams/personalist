@@ -2,7 +2,7 @@
 
 Personalist Encyclopedia 
 
-Read about it here: [*Personalist - An integrated universe of personal encyclopedias [Whitepaper]*](https://eighttrigrams.substack.com/p/personalist)
+Read about it here: [*Personalist - An integrated universe of personal encyclopedias [Whitepaper]*](https://eighttrigrams.net/article/24/version/1)
 
 The app is publicly accessible under https://personalist.org.
 
