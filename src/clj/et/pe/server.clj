@@ -138,14 +138,17 @@
     (tel/log! :info ["Binding to" host ":" port])
     (jetty/run-jetty (app config) {:port port :host host :join? false})))
 
-(defn- ensure-valid-options [config]
-  (when-not (get-in config [:server :port]) (throw (ex-info ":server :port must be configured" {})))
+(defn- ensure-app-options [config]
   (when (and (get-in config [:devel :pre-seed?])
              (prod-mode?))
     (throw (ex-info "Cannot use :devel :pre-seed? in prod mode" {})))
   (when (and (get-in config [:devel :dangerously-skip-logins?])
              (prod-mode?))
     (throw (ex-info "Cannot use :devel :dangerously-skip-logins? in production mode" {}))))
+
+(defn- ensure-valid-options [config]
+  (when-not (get-in config [:server :port]) (throw (ex-info ":server :port must be configured" {})))
+  (ensure-app-options config))
 
 (defn- run-seed-script []
   (let [seed-script (io/file "scripts/seed-db.sh")]
@@ -168,6 +171,19 @@
         (tel/log! :info "Pre-seed enabled and database empty, seeding...")
         (run-seed-script))
       (tel/log! :info "Pre-seed enabled but database has data, skipping seed"))))
+
+(defn build-handler
+  "Initialise personalist (logging, db conn, handlers state) and return a ring
+   handler. Does not start jetty or nrepl. The caller owns the server lifecycle.
+   Intended for use by composing apps (e.g. plurama)."
+  [config]
+  (logging/init! (:logging config))
+  (ensure-app-options config)
+  (let [conn (ds/init-conn (:type (:db config)) (:db config))]
+    (handlers/set-config! config)
+    (handlers/set-conn! conn)
+    (when (should-pre-seed? config) (pre-seed conn))
+    (app config)))
 
 (defn -main
   [& _args]

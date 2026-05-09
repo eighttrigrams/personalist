@@ -11,7 +11,7 @@
 
 (defn- migration-config [connectable]
   {:datastore (ragtime-jdbc/sql-database (wrap-connectable connectable))
-   :migrations (ragtime-jdbc/load-resources "migrations")})
+   :migrations (ragtime-jdbc/load-resources "migrations/net/et/pe")})
 
 (defn migrate!
   [connectable]
