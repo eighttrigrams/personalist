@@ -1,4 +1,5 @@
-{:source-paths ["src/cljs"]
+{:http {:port 9631}
+ :source-paths ["src/cljs"]
  :dependencies [[reagent "1.2.0"]
                 [cljs-ajax "0.8.4"]]
  :builds {:app {:target :browser
