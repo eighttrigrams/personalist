@@ -11,6 +11,6 @@
    :format :human ; :human :edn :json
  }
  :server {
-   :port 3017
+   :port #long #or [#env PORT 3120]
  }
 }
