@@ -1,5 +1,6 @@
 (ns et.pe.ui.identity
-  (:require [et.pe.ui.state :refer [app-state update-identity
+  (:require [reagent.core :as r]
+            [et.pe.ui.state :refer [app-state update-identity
                                     fetch-relations delete-relation select-identity
                                     update-url-with-time fetch-more-recent-identities]]
             ["marked" :refer [marked]]))
@@ -74,7 +75,7 @@
                  :border-radius "4px"
                  :background "#fafafa"
                  :overflow "auto"}
-         :dangerouslySetInnerHTML {:__html (marked (or text ""))}}])
+         :dangerouslySetInnerHTML (r/unsafe-html (marked (or text "")))}])
 
 (defn relations-list []
   (let [{:keys [relations auth-user identity-history slider-value]} @app-state
@@ -171,7 +172,7 @@
                          :margin-bottom "0.5rem"}}
            editing-name]
           [:div {:style {:font-size "1rem"}
-                 :dangerouslySetInnerHTML {:__html (marked (or editing-text ""))}}]])
+                 :dangerouslySetInnerHTML (r/unsafe-html (marked (or editing-text "")))}]])
        [relations-list]])))
 
 (defn main-tab []

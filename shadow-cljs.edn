@@ -1,6 +1,6 @@
 {:http {:port #shadow/env ["SHADOW_PORT" :as :int :default 9802]}
  :source-paths ["src/cljs"]
- :dependencies [[reagent "1.2.0"]
+ :dependencies [[reagent "2.0.1"]
                 [cljs-ajax "0.8.4"]]
  :builds {:app {:target :browser
                 :output-dir "resources/public/js"
