@@ -224,6 +224,8 @@
 
 (defn ^:export init []
   (check-password-required)
+  ;; browser back/forward: re-sync the whole view from the (now changed) URL
+  (.addEventListener js/window "popstate" (fn [_] (load-from-url nil)))
   (let [{:keys [persona-id]} (parse-url)]
     (if persona-id
       (load-from-url nil)

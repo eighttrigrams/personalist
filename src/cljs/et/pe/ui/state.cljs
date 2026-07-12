@@ -185,7 +185,9 @@
                               :editing-name (:name selected-entry)
                               :editing-text (:text selected-entry))
                        (when (and (> (count res) 1) (nil? url-time))
-                         (update-url-with-time (:valid-from selected-entry))))))
+                         ;; canonicalise the URL to the latest version's time without
+                         ;; adding a back-button stop
+                         (update-url-with-time (:valid-from selected-entry) true)))))
         :response-format :json
         :keywords? true
         :error-handler #(js/console.error "Error fetching history" %)}))))
@@ -224,8 +226,10 @@
 
 (defn update-url
   ([persona-id identity-id editing?]
-   (update-url persona-id identity-id editing? nil))
+   (update-url persona-id identity-id editing? nil false))
   ([persona-id identity-id editing? time-str]
+   (update-url persona-id identity-id editing? time-str false))
+  ([persona-id identity-id editing? time-str replace?]
    (let [{:keys [fixed-mode? fixed-time]} @app-state
          ;; in fixed mode the whole session stays pinned to a single time-slice
          time-str (if fixed-mode? fixed-time time-str)
@@ -240,15 +244,21 @@
                   (str "/" persona-id)
                   "/"))]
      (swap! app-state assoc :url-edit-mode editing?)
-     (.pushState js/history nil "" path))))
+     ;; replace? rewrites the current entry instead of pushing a new one, so the
+     ;; canonical (time-pinned) URL doesn't leave a spurious back-button stop
+     (if replace?
+       (.replaceState js/history nil "" path)
+       (.pushState js/history nil "" path)))))
 
 (defn- can-edit? []
   (some? (:auth-user @app-state)))
 
-(defn update-url-with-time [time-str]
-  (let [{:keys [current-user selected-identity]} @app-state]
-    (when (and current-user selected-identity)
-      (update-url (:id current-user) (:identity selected-identity) (can-edit?) time-str))))
+(defn update-url-with-time
+  ([time-str] (update-url-with-time time-str false))
+  ([time-str replace?]
+   (let [{:keys [current-user selected-identity]} @app-state]
+     (when (and current-user selected-identity)
+       (update-url (:id current-user) (:identity selected-identity) (can-edit?) time-str replace?)))))
 
 (defn parse-url []
   (let [pathname (.-pathname js/window.location)
@@ -316,6 +326,15 @@
                                               (when on-complete (on-complete editing?)))}))
                         (when (and (not identity-id) on-complete) (on-complete editing?)))
                       (swap! app-state assoc :not-found-persona persona-id)))
+                  ;; root URL ("/"): reset to the landing state (e.g. back button)
+                  (when-not persona-id
+                    (swap! app-state assoc
+                           :current-user nil
+                           :selected-identity nil
+                           :identities []
+                           :recent-identities []
+                           :not-found-persona nil
+                           :not-found-identity nil))
                   (when (and (not persona-id) on-complete) (on-complete editing?)))
        :response-format :json
        :keywords? true
