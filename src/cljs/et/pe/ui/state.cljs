@@ -31,6 +31,11 @@
                             :nav-search-query ""
                             :nav-search-results []
                             :search-valid-at nil
+                            ;; "fixed" (single time-slice) exploring mode: a non-logged-in
+                            ;; user searched with a date, so every identity is viewed as of
+                            ;; :fixed-time and the version picker is hidden.
+                            :fixed-mode? false
+                            :fixed-time nil
                             :show-beta-modal false
                             :not-found-persona nil
                             :not-found-identity nil
@@ -221,8 +226,12 @@
   ([persona-id identity-id editing?]
    (update-url persona-id identity-id editing? nil))
   ([persona-id identity-id editing? time-str]
-   (let [params (cond-> []
+   (let [{:keys [fixed-mode? fixed-time]} @app-state
+         ;; in fixed mode the whole session stays pinned to a single time-slice
+         time-str (if fixed-mode? fixed-time time-str)
+         params (cond-> []
                   editing? (conj "edit=true")
+                  fixed-mode? (conj "fixed=true")
                   time-str (conj (str "time=" (js/encodeURIComponent (format-time-for-url time-str)))))
          query (when (seq params) (str "?" (str/join "&" params)))
          path (if identity-id
@@ -246,11 +255,13 @@
         search (.-search js/window.location)
         parts (vec (filter seq (str/split pathname #"/")))
         editing? (str/includes? search "edit=true")
+        fixed? (str/includes? search "fixed=true")
         time-match (re-find #"time=([^&]+)" search)
         time-param (when time-match (js/decodeURIComponent (second time-match)))]
     {:persona-id (first parts)
      :identity-id (second parts)
      :editing? editing?
+     :fixed? fixed?
      :time time-param}))
 
 (defn- restore-auth-from-storage [personas]
@@ -265,12 +276,15 @@
         (swap! app-state assoc :auth-user persona)))))
 
 (defn load-from-url [on-complete]
-  (let [{:keys [persona-id identity-id editing? time]} (parse-url)]
+  (let [{:keys [persona-id identity-id editing? fixed? time]} (parse-url)]
     (swap! app-state assoc :url-edit-mode editing? :not-found-persona nil :not-found-identity nil)
     (GET (str api-base "/api/personas")
       {:handler (fn [personas]
                   (swap! app-state assoc :personas personas)
                   (restore-auth-from-storage personas)
+                  ;; fixed mode is an exploring-user feature; a logged-in user ignores it
+                  (let [fixed? (and fixed? (nil? (:auth-user @app-state)))]
+                    (swap! app-state assoc :fixed-mode? fixed? :fixed-time (when fixed? time)))
                   (when persona-id
                     (if-let [persona (first (filter #(= (:id %) persona-id) personas))]
                       (do
@@ -310,7 +324,9 @@
 (defn select-identity
   ([identity] (select-identity identity nil))
   ([identity time-str]
-   (let [{:keys [current-user]} @app-state]
+   (let [{:keys [current-user fixed-mode? fixed-time]} @app-state
+         ;; fixed mode keeps every identity pinned to the same time-slice
+         time-str (if fixed-mode? fixed-time time-str)]
      (swap! app-state assoc
             :selected-identity identity
             :editing-name (:name identity)
@@ -324,6 +340,18 @@
      (fetch-relations (:identity identity) time-str)
      (when time-str
        (fetch-identity-at (:identity identity) time-str)))))
+
+(defn exit-fixed-mode
+  "Leave the single-time-slice exploring mode and return to normal browsing
+   (version picker available again), staying on the very version that was in view
+   at the moment of leaving."
+  []
+  (let [{:keys [current-user selected-identity identity-history slider-value]} @app-state
+        version-time (:valid-from (get identity-history slider-value))]
+    (swap! app-state assoc :fixed-mode? false :fixed-time nil)
+    (if selected-identity
+      (select-identity selected-identity version-time)
+      (update-url (:id current-user) nil false))))
 
 (defn add-identity []
   (let [{:keys [current-user new-identity-name new-identity-text]} @app-state]
@@ -417,6 +445,18 @@
         :response-format :json
         :keywords? true
         :error-handler #(js/console.error "Error searching identities" %)}))))
+
+(defn open-search-modal
+  "Open the search modal. In fixed mode the scoped date is pre-selected (and its
+   results pre-loaded) so the user stays anchored to the same time-slice."
+  []
+  (let [{:keys [fixed-mode? fixed-time]} @app-state]
+    (if (and fixed-mode? fixed-time)
+      (let [date (first (str/split fixed-time #"T"))]
+        (swap! app-state assoc :show-search-modal true :nav-search-query "" :search-valid-at date)
+        (search-identities "" fixed-time
+                           #(swap! app-state assoc :nav-search-results (take 5 %))))
+      (swap! app-state assoc :show-search-modal true))))
 
 (defn- find-persona-by-id [persona-id]
   (first (filter #(= (:id %) (if (keyword? persona-id) (name persona-id) persona-id)) (:personas @app-state))))

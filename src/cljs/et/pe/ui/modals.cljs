@@ -263,7 +263,13 @@
              (for [result results-to-show]
                ^{:key (:identity result)}
                [:li {:on-click (fn []
-                                 (select-identity result (date-to-instant search-valid-at))
+                                 (let [logged-in? (some? (:auth-user @app-state))
+                                       instant (date-to-instant search-valid-at)]
+                                   ;; a non-logged-in user who scoped by a date enters the
+                                   ;; single-time-slice "fixed" mode
+                                   (when (and (not logged-in?) instant)
+                                     (swap! app-state assoc :fixed-mode? true :fixed-time instant))
+                                   (select-identity result instant))
                                  (swap! app-state assoc :show-search-modal false :nav-search-query "" :nav-search-results [] :search-valid-at nil))
                      :style {:padding "0.75rem"
                              :cursor "pointer"

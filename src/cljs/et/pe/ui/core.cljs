@@ -1,6 +1,7 @@
 (ns et.pe.ui.core
   (:require [reagent.dom.client :as rdc]
-            [et.pe.ui.state :refer [app-state fetch-personas check-password-required logout-user dismiss-notification load-from-url parse-url fetch-recent-identities]]
+            [clojure.string :as string]
+            [et.pe.ui.state :refer [app-state fetch-personas check-password-required logout-user dismiss-notification load-from-url parse-url fetch-recent-identities exit-fixed-mode open-search-modal]]
             [et.pe.ui.modals :refer [login-modal auth-modal password-modal
                                      search-modal add-relation-modal
                                      add-identity-modal beta-modal]]
@@ -26,6 +27,8 @@
                                  :selected-identity nil
                                  :not-found-persona nil
                                  :not-found-identity nil
+                                 :fixed-mode? false
+                                 :fixed-time nil
                                  :current-user user)
                           (when user (fetch-recent-identities (:id user)))
                           (.pushState js/history nil "" (if user (str "/" (:id user)) "/")))}
@@ -64,7 +67,7 @@
                             :font-size "1.2rem"
                             :font-weight "bold"}}
            "+"]
-          [:button {:on-click #(swap! app-state assoc :show-search-modal true)
+          [:button {:on-click #(open-search-modal)
                     :style {:padding "0.5rem 1rem"
                             :cursor "pointer"
                             :background "#333"
@@ -74,7 +77,7 @@
                             :font-size "1.1rem"}}
            "\uD83D\uDD0D"]])
        (when (and (not logged-in?) current-user)
-         [:button {:on-click #(swap! app-state assoc :show-search-modal true)
+         [:button {:on-click #(open-search-modal)
                    :style {:padding "0.5rem 1rem"
                            :cursor "pointer"
                            :background "#333"
@@ -91,11 +94,14 @@
                                        :current-tab :main
                                        :selected-identity nil
                                        :not-found-persona nil
-                                       :not-found-identity nil)
+                                       :not-found-identity nil
+                                       :fixed-mode? false
+                                       :fixed-time nil)
                                 (fetch-recent-identities (:id current-user))
                                 (.pushState js/history nil "" (str "/" (:id current-user))))}
           (str "Persona: " (:name current-user))]
-         [:span {:on-click #(do (swap! app-state assoc :current-user nil :identities [] :selected-identity nil)
+         [:span {:on-click #(do (swap! app-state assoc :current-user nil :identities [] :selected-identity nil
+                                       :fixed-mode? false :fixed-time nil)
                                 (.pushState js/history nil "" "/"))
                  :style {:width "18px"
                          :height "18px"
@@ -143,6 +149,36 @@
                           :border-radius "4px"}}
          "Login"])]]))
 
+(defn fixed-mode-strip []
+  (let [{:keys [fixed-mode? fixed-time auth-user]} @app-state]
+    (when (and fixed-mode? fixed-time (nil? auth-user))
+      [:div {:style {:display "flex"
+                     :justify-content "center"
+                     :align-items "center"
+                     :position "relative"
+                     :padding "0.35rem 1rem"
+                     :background "#e3f2fd"
+                     :border-bottom "1px solid #90caf9"
+                     :color "#0d47a1"
+                     :font-size "0.85rem"}}
+       [:span "Fixed to " [:strong (first (string/split fixed-time #"T"))]]
+       [:span {:on-click exit-fixed-mode
+               :title "Back to normal browsing"
+               :style {:cursor "pointer"
+                       :position "absolute"
+                       :right "1rem"
+                       :width "18px"
+                       :height "18px"
+                       :border-radius "50%"
+                       :background "#90caf9"
+                       :color "#0d47a1"
+                       :font-size "12px"
+                       :display "flex"
+                       :align-items "center"
+                       :justify-content "center"
+                       :line-height "1"}}
+        "×"]])))
+
 (defn notification-bar []
   (when-let [{:keys [message type]} (:notification @app-state)]
     [:div {:style {:position "fixed"
@@ -171,6 +207,7 @@
   (let [{:keys [current-tab]} @app-state]
     [:div {:style {:font-family "Arial, sans-serif"}}
      [header]
+     [fixed-mode-strip]
      [login-modal]
      [auth-modal]
      [password-modal]

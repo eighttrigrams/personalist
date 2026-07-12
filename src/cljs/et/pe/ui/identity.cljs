@@ -5,9 +5,21 @@
                                     update-url-with-time fetch-more-recent-identities]]
             ["marked" :refer [marked]]))
 
+(defn fixed-version-indicator []
+  ;; In fixed mode there is no picker; instead show a non-interactive, light-gray
+  ;; note of which version/timestamp of this identity is in view at the slice.
+  (let [{:keys [identity-history slider-value selected-identity fixed-mode?]} @app-state]
+    (when (and fixed-mode? selected-identity (seq identity-history))
+      (let [history-count (count identity-history)
+            current-entry (get identity-history slider-value)]
+        [:div {:style {:font-size "0.8rem" :color "#bbb" :margin-bottom "0.5rem"}}
+         (str "Version " (inc slider-value) " of " history-count
+              (when current-entry (str " · " (:valid-from current-entry))))]))))
+
 (defn time-slider []
-  (let [{:keys [identity-history slider-value selected-identity]} @app-state]
-    (when (and selected-identity (seq identity-history))
+  (let [{:keys [identity-history slider-value selected-identity fixed-mode?]} @app-state]
+    ;; in fixed mode we stay in one time-slice, so no picker — see fixed-version-indicator
+    (when (and selected-identity (seq identity-history) (not fixed-mode?))
       (let [history-count (count identity-history)
             current-entry (get identity-history slider-value)
             single-version? (= history-count 1)]
@@ -141,6 +153,7 @@
                             :border-radius "4px"}}
            "Save"]])
        [time-slider]
+       [fixed-version-indicator]
        (if can-edit?
          [:<>
           [:input {:type "text"
