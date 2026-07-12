@@ -21,6 +21,8 @@
                             :new-identity-name ""
                             :new-identity-text ""
                             :relations []
+                            :pending-relation-adds []
+                            :pending-relation-removes #{}
                             :show-add-relation-modal false
                             :show-search-modal false
                             :show-add-identity-modal false
@@ -206,11 +208,14 @@
         :error-handler #(js/console.error "Error fetching relations" %)}))))
 
 (defn format-time-for-url [time-str]
+  ;; Keep full (millisecond) precision: a version's valid-from can carry sub-second
+  ;; precision, and the relations/identity-at queries match on `valid_from <= t`.
+  ;; Truncating to whole seconds would put the URL time just before a freshly-saved
+  ;; version, hiding that version and the relations committed with it on reload.
   (when time-str
-    (let [base (-> time-str
-                   (str/replace #"\.\d+Z?$" "")
-                   (str/replace #"Z$" ""))]
-      (str base "Z"))))
+    (if (str/ends-with? time-str "Z")
+      time-str
+      (str time-str "Z"))))
 
 (defn update-url
   ([persona-id identity-id editing?]
@@ -311,6 +316,8 @@
             :editing-name (:name identity)
             :editing-text (:text identity)
             :relations []
+            :pending-relation-adds []
+            :pending-relation-removes #{}
             :not-found-identity nil)
      (update-url (:id current-user) (:identity identity) (can-edit?) time-str)
      (fetch-identity-history (:identity identity) time-str)
@@ -344,41 +351,59 @@
                         (js/setTimeout #(swap! app-state assoc :notification nil) 5000))})))))
 
 (defn update-identity [identity-id name text]
-  (let [{:keys [current-user]} @app-state]
+  (let [{:keys [current-user pending-relation-adds pending-relation-removes]} @app-state]
     (PUT (str api-base "/api/personas/" (:id current-user) "/identities/" identity-id)
-      {:params {:name name :text text}
+      {:params {:name name
+                :text text
+                ;; commit pending relation changes tagged with this version's timestamp
+                :relation_adds (mapv :target pending-relation-adds)
+                :relation_removes (vec pending-relation-removes)}
        :format :json
        :headers (auth-headers)
        :handler (fn [_]
+                  (swap! app-state assoc
+                         :pending-relation-adds []
+                         :pending-relation-removes #{})
                   (fetch-identities (:id current-user))
                   (fetch-recent-identities (:id current-user))
-                  (fetch-identity-history identity-id))
+                  (fetch-identity-history identity-id)
+                  ;; the new version is now latest -> show its (current) relations
+                  (fetch-relations identity-id))
        :error-handler (fn [err]
                         (js/console.error "Error updating identity" err)
                         (swap! app-state assoc :notification {:message "Failed to save. Please try again." :type :error})
                         (js/setTimeout #(swap! app-state assoc :notification nil) 5000))})))
 
-(defn add-relation [target-id]
-  (let [{:keys [current-user selected-identity]} @app-state]
-    (POST (str api-base "/api/personas/" (:id current-user) "/identities/" (:identity selected-identity) "/relations")
-      {:params {:target_id target-id}
-       :format :json
-       :headers (auth-headers)
-       :handler (fn [_]
-                  (swap! app-state assoc
-                         :show-add-relation-modal false
-                         :relation-search-query ""
-                         :relation-search-results [])
-                  (fetch-relations (:identity selected-identity)))
-       :error-handler #(js/console.error "Error adding relation" %)})))
+;; Relations are committed together with the identity version on Save, so adding /
+;; removing a relation only stages a pending change here. Navigating away (which
+;; resets the pending sets) discards unsaved changes.
+
+(defn add-relation [target-id target-name]
+  (let [{:keys [selected-identity relations pending-relation-adds pending-relation-removes]} @app-state
+        rel-id (str (:identity selected-identity) "/" (name target-id))
+        existing? (or (some #(= (:id %) rel-id) relations)
+                      (some #(= (:id %) rel-id) pending-relation-adds))]
+    (swap! app-state assoc
+           :show-add-relation-modal false
+           :relation-search-query ""
+           :relation-search-results [])
+    (cond
+      ;; re-adding one that was staged for removal -> just cancel the removal
+      (contains? pending-relation-removes rel-id)
+      (swap! app-state update :pending-relation-removes disj rel-id)
+      ;; new, not-yet-existing relation -> stage it
+      (not existing?)
+      (swap! app-state update :pending-relation-adds conj
+             {:id rel-id :target (name target-id) :target-name target-name :pending true}))))
 
 (defn delete-relation [relation-id]
-  (let [{:keys [current-user selected-identity]} @app-state]
-    (DELETE (str api-base "/api/personas/" (:id current-user) "/relations/" relation-id)
-      {:headers (auth-headers)
-       :handler (fn [_]
-                  (fetch-relations (:identity selected-identity)))
-       :error-handler #(js/console.error "Error deleting relation" %)})))
+  (let [{:keys [pending-relation-adds]} @app-state]
+    (if (some #(= (:id %) relation-id) pending-relation-adds)
+      ;; an unsaved staged add -> just drop it
+      (swap! app-state update :pending-relation-adds
+             (fn [adds] (vec (remove #(= (:id %) relation-id) adds))))
+      ;; a persisted relation -> stage its removal for the next Save
+      (swap! app-state update :pending-relation-removes conj relation-id))))
 
 (defn search-identities
   ([query callback] (search-identities query nil callback))

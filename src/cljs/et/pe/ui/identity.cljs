@@ -78,18 +78,25 @@
          :dangerouslySetInnerHTML (r/unsafe-html (marked (or text "")))}])
 
 (defn relations-list []
-  (let [{:keys [relations auth-user identity-history slider-value]} @app-state
-        can-edit? (some? auth-user)
+  (let [{:keys [relations auth-user url-edit-mode identity-history slider-value
+                pending-relation-adds pending-relation-removes]} @app-state
+        edit? (and (some? auth-user) url-edit-mode)
         current-entry (get identity-history slider-value)
-        current-time (:valid-from current-entry)]
+        current-time (:valid-from current-entry)
+        ;; in edit mode the list previews the not-yet-saved state
+        effective (if edit?
+                    (concat (remove #(contains? pending-relation-removes (:id %)) relations)
+                            pending-relation-adds)
+                    relations)]
     [:div {:style {:margin-top "1.5rem" :padding-top "1rem" :border-top "1px solid #eee"}}
      [:h4 {:style {:margin 0 :margin-bottom "1rem"}} "Related Identities"]
-     (if (seq relations)
+     (if (seq effective)
        [:ul {:style {:list-style "none" :padding 0 :margin 0}}
-        (for [rel relations]
+        (for [rel effective]
           ^{:key (:id rel)}
           [:li {:style {:padding "0.5rem"
-                        :background "#f5f5f5"
+                        :background (if (:pending rel) "#fff8e1" "#f5f5f5")
+                        :border (if (:pending rel) "1px dashed #ffb300" "1px solid transparent")
                         :border-radius "4px"
                         :margin-bottom "0.5rem"
                         :display "flex"
@@ -98,8 +105,11 @@
            [:span {:on-click (fn []
                                (select-identity {:identity (:target rel) :name (:target-name rel)} current-time))
                    :style {:cursor "pointer"}}
-            [:span (or (:target-name rel) (name (:target rel)))]]
-           (when can-edit?
+            [:span (or (:target-name rel) (name (:target rel)))]
+            (when (:pending rel)
+              [:span {:style {:margin-left "0.5rem" :font-size "0.75rem" :color "#b28704" :font-style "italic"}}
+               "unsaved"])]
+           (when edit?
              [:button {:on-click #(delete-relation (:id rel))
                        :style {:padding "0.25rem 0.5rem"
                                :cursor "pointer"

@@ -3,6 +3,7 @@
             [next.jdbc.result-set :as rs]
             [honey.sql :as sql]
             [clojure.string :as str]
+            [clojure.data.json :as json]
             [et.pe.urbit :as urbit]
             [et.pe.ds.migrations :as migrations]
             [taoensso.telemere :as tel])
@@ -217,21 +218,9 @@
                                               :identity_id (kw->str id)
                                               :name nm
                                               :text text
-                                              :valid_from valid-from-epoch}]}))
+                                              :valid_from valid-from-epoch
+                                              :relations "[]"}]}))
         id))))
-
-(defn update-identity
-  [conn {persona-id :id :as _persona} id nm text & [{:keys [valid-from]}]]
-  (let [composite-id (make-composite-id persona-id id)
-        valid-from-epoch (instant->epoch valid-from)]
-    (jdbc/execute! (:conn conn)
-                   (sql/format {:insert-into :identities
-                                :values [{:composite_id composite-id
-                                          :persona_id (kw->str persona-id)
-                                          :identity_id (kw->str id)
-                                          :name nm
-                                          :text text
-                                          :valid_from valid-from-epoch}]}))))
 
 (defn get-identity-at
   [conn {persona-id :id :as _persona} id time-point]
@@ -267,85 +256,88 @@
              :valid-from (epoch->instant (:valid_from r))})
           results)))
 
-(defn- make-relation-id [persona-id source-id target-id]
-  (str (kw->str persona-id) "/" (kw->str source-id) "/" (kw->str target-id)))
+;; ---------------------------------------------------------------------------
+;; Relations
+;;
+;; Relations are unidirectional and owned by the source identity, so each
+;; identity *version* row carries its own relation set inline as a JSON blob:
+;; an ordered list of {:target <identity-id> :description <string|nil>} maps.
+;; Time-travel is then just "read that version's blob" — no event replay, no
+;; separate table.
+;; ---------------------------------------------------------------------------
 
-(defn- relation-active? [conn relation-id]
-  (let [last-event (jdbc/execute-one! (:conn conn)
-                                      (sql/format {:select [:event_type]
-                                                   :from [:relations]
-                                                   :where [:= :relation_id relation-id]
-                                                   :order-by [[:valid_from :desc] [:id :desc]]
-                                                   :limit 1})
-                                      {:builder-fn rs/as-unqualified-lower-maps})]
-    (= "add" (:event_type last-event))))
+(defn- parse-relations [json-str]
+  (if (str/blank? json-str)
+    []
+    (vec (json/read-str json-str :key-fn keyword))))
 
-(defn add-relation
-  [conn {persona-id :id :as _persona} source-id target-id & [{:keys [valid-from]}]]
-  (let [relation-id (make-relation-id persona-id source-id target-id)
-        valid-from-epoch (instant->epoch valid-from)]
-    (if (relation-active? conn relation-id)
-      false
-      (do
-        (jdbc/execute! (:conn conn)
-                       (sql/format {:insert-into :relations
-                                    :values [{:relation_id relation-id
-                                              :persona_id (kw->str persona-id)
-                                              :source_id (kw->str source-id)
-                                              :target_id (kw->str target-id)
-                                              :event_type "add"
-                                              :valid_from valid-from-epoch}]}))
-        true))))
+(defn- relations->json [rels]
+  (json/write-str rels))
 
-(defn- get-active-relations [conn persona-id source-id time-epoch]
-  (let [where-clause (if time-epoch
-                       [:and
-                        [:= :persona_id (kw->str persona-id)]
-                        [:= :source_id (kw->str source-id)]
-                        [:<= :valid_from time-epoch]]
-                       [:and
-                        [:= :persona_id (kw->str persona-id)]
-                        [:= :source_id (kw->str source-id)]])
-        events (jdbc/execute! (:conn conn)
-                              (sql/format {:select [:relation_id :target_id :event_type :valid_from]
-                                           :from [:relations]
-                                           :where where-clause
-                                           :order-by [[:relation_id :asc] [:valid_from :asc] [:id :asc]]})
-                              {:builder-fn rs/as-unqualified-lower-maps})
-        by-relation (group-by :relation_id events)]
-    (for [[rel-id rel-events] by-relation
-          :let [last-event (last rel-events)
-                target-id (:target_id last-event)
-                target-identity (get-identity conn {:id persona-id} (str->kw target-id))]
-          :when (= "add" (:event_type last-event))]
-      {:id (subs rel-id (inc (.indexOf rel-id "/")))
-       :target (str->kw target-id)
-       :target-name (:name target-identity)})))
+(defn- relation-blob-at
+  "The relation list of the identity version in effect at `time-epoch`
+   (or the latest version when `time-epoch` is nil)."
+  [conn persona-id id time-epoch]
+  (let [row (jdbc/execute-one! (:conn conn)
+                               (sql/format {:select [:relations]
+                                            :from [:identities]
+                                            :where (if time-epoch
+                                                     [:and
+                                                      [:= :composite_id (make-composite-id persona-id id)]
+                                                      [:<= :valid_from time-epoch]]
+                                                     [:= :composite_id (make-composite-id persona-id id)])
+                                            :order-by [[:valid_from :desc] [:id :desc]]
+                                            :limit 1})
+                               {:builder-fn rs/as-unqualified-lower-maps})]
+    (parse-relations (:relations row))))
+
+(defn- relation-target
+  "The target id of a relation id in the form \"source/target\"."
+  [rel-id]
+  (subs rel-id (inc (.indexOf rel-id "/"))))
+
+(defn save-identity-version
+  "Persist a new identity version, carrying its relation set forward from the
+   current latest version and applying the requested changes. Because relations
+   live on the version row, they automatically share the version's timeline.
+
+   `relation-adds`    - seq of target ids (or {:target .. :description ..} maps).
+   `relation-removes` - seq of relation ids in the form \"source/target\"."
+  [conn {persona-id :id :as _persona} id nm text & [{:keys [valid-from relation-adds relation-removes]}]]
+  (let [t (or valid-from (Instant/ofEpochMilli (System/currentTimeMillis)))
+        current (relation-blob-at conn persona-id id nil)
+        remove-targets (set (map relation-target relation-removes))
+        kept (vec (remove #(contains? remove-targets (:target %)) current))
+        existing (set (map :target kept))
+        additions (for [a relation-adds
+                        :let [tgt (kw->str (if (map? a) (:target a) a))]
+                        :when (not (contains? existing tgt))]
+                    {:target tgt :description (when (map? a) (:description a))})
+        new-rels (into kept additions)]
+    (jdbc/execute! (:conn conn)
+                   (sql/format {:insert-into :identities
+                                :values [{:composite_id (make-composite-id persona-id id)
+                                          :persona_id (kw->str persona-id)
+                                          :identity_id (kw->str id)
+                                          :name nm
+                                          :text text
+                                          :valid_from (instant->epoch t)
+                                          :relations (relations->json new-rels)}]}))
+    t))
+
+(defn update-identity
+  "Save a new identity version, carrying the current relation set forward unchanged."
+  [conn persona id nm text & [{:keys [valid-from]}]]
+  (save-identity-version conn persona id nm text {:valid-from valid-from}))
 
 (defn list-relations
   [conn {persona-id :id :as _persona} source-id & [{:keys [at]}]]
-  (vec (get-active-relations conn persona-id source-id (when at (instant->epoch at)))))
-
-(defn delete-relation
-  [conn {persona-id :id :as _persona} relation-id & [{:keys [valid-from]}]]
-  (let [full-id (str (kw->str persona-id) "/" relation-id)
-        valid-from-epoch (instant->epoch valid-from)]
-    (when (relation-active? conn full-id)
-      (let [last-event (jdbc/execute-one! (:conn conn)
-                                          (sql/format {:select [:source_id :target_id]
-                                                       :from [:relations]
-                                                       :where [:= :relation_id full-id]
-                                                       :order-by [[:valid_from :desc] [:id :desc]]
-                                                       :limit 1})
-                                          {:builder-fn rs/as-unqualified-lower-maps})]
-        (jdbc/execute! (:conn conn)
-                       (sql/format {:insert-into :relations
-                                    :values [{:relation_id full-id
-                                              :persona_id (kw->str persona-id)
-                                              :source_id (:source_id last-event)
-                                              :target_id (:target_id last-event)
-                                              :event_type "delete"
-                                              :valid_from valid-from-epoch}]}))))))
+  (let [rels (relation-blob-at conn persona-id source-id (when at (instant->epoch at)))]
+    (vec (for [{:keys [target description]} rels]
+           {:id (str (kw->str source-id) "/" target)
+            :target (str->kw target)
+            :target-name (:name (get-identity conn {:id persona-id} (str->kw target)))
+            :description description}))))
 
 (defn search-identities
   [conn {persona-id :id :as _persona} query & [{:keys [at]}]]

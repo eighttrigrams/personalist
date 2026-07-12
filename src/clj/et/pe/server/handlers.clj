@@ -126,13 +126,18 @@
 (defn update-identity-handler [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         identity-id (str->keyword (get-in req [:params :id]))
-        {:keys [name text valid_from]} (:body req)
+        {:keys [name text valid_from relation_adds relation_removes]} (:body req)
         persona (ds/get-persona-by-id (ensure-conn) persona-name)
-        opts (when valid_from {:valid-from (Instant/parse valid_from)})]
+        ;; One timestamp for the version and every relation change it commits, so
+        ;; relations share the version's timeline.
+        t (if valid_from (Instant/parse valid_from) (Instant/now))]
     (if persona
       (do
-        (ds/update-identity (ensure-conn) persona identity-id name text opts)
-        {:status 200 :body {:success true}})
+        (ds/save-identity-version (ensure-conn) persona identity-id name text
+                                  {:valid-from t
+                                   :relation-adds (or relation_adds [])
+                                   :relation-removes (or relation_removes [])})
+        {:status 200 :body {:success true :valid-from (str t)}})
       {:status 404 :body {:error "Persona not found"}})))
 
 (defn get-identity-at-handler [req]
@@ -170,27 +175,9 @@
         {:status 200 :body (serialize-response relations)})
       {:status 404 :body {:error "Persona not found"}})))
 
-(defn add-relation-handler [req]
-  (let [persona-name (str->keyword (get-in req [:params :name]))
-        identity-id (str->keyword (get-in req [:params :id]))
-        {:keys [target_id valid_from]} (:body req)
-        opts (when valid_from {:valid-from (Instant/parse valid_from)})
-        persona (ds/get-persona-by-id (ensure-conn) persona-name)]
-    (if persona
-      (let [result (ds/add-relation (ensure-conn) persona identity-id (str->keyword target_id) opts)]
-        (if (false? result)
-          {:status 409 :body {:error "Relation already exists"}}
-          {:status 201 :body {:success true}}))
-      {:status 404 :body {:error "Persona not found"}})))
-
-(defn delete-relation-handler [persona-name source-id target-id]
-  (let [persona (ds/get-persona-by-id (ensure-conn) (str->keyword persona-name))
-        relation-id (str source-id "/" target-id)]
-    (if persona
-      (do
-        (ds/delete-relation (ensure-conn) persona relation-id)
-        {:status 200 :body {:success true}})
-      {:status 404 :body {:error "Persona not found"}})))
+;; Relations are no longer mutated through dedicated endpoints — they are
+;; committed as part of an identity version via update-identity-handler
+;; (relation_adds / relation_removes) and read back via list-relations-handler.
 
 (defn search-identities-handler [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))

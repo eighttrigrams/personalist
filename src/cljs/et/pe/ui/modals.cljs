@@ -324,19 +324,19 @@
                          :margin-bottom "1rem"}}]
         (when (seq relation-search-results)
           [:ul {:style {:list-style "none" :padding 0 :margin 0}}
-           (for [result relation-search-results]
+           (for [result relation-search-results
+                 :when (not= (:identity result) (:identity selected-identity))]
              ^{:key (:identity result)}
-             (when (not= (:identity result) (:identity selected-identity))
-               [:li {:on-click #(add-relation (:identity result))
-                     :style {:padding "0.75rem"
-                             :cursor "pointer"
-                             :background "#f5f5f5"
-                             :border-radius "4px"
-                             :margin-bottom "0.5rem"
-                             :transition "background 0.2s"}
-                     :on-mouse-over #(set! (.-background (.-style (.-currentTarget %))) "#e0e0e0")
-                     :on-mouse-out #(set! (.-background (.-style (.-currentTarget %))) "#f5f5f5")}
-                [:span {:style {:pointer-events "none"}} (:name result)]]))])
+             [:li {:on-click #(add-relation (:identity result) (:name result))
+                   :style {:padding "0.75rem"
+                           :cursor "pointer"
+                           :background "#f5f5f5"
+                           :border-radius "4px"
+                           :margin-bottom "0.5rem"
+                           :transition "background 0.2s"}
+                   :on-mouse-over #(set! (.-background (.-style (.-currentTarget %))) "#e0e0e0")
+                   :on-mouse-out #(set! (.-background (.-style (.-currentTarget %))) "#f5f5f5")}
+              [:span {:style {:pointer-events "none"}} (:name result)]])])
         [:button {:on-click #(swap! app-state assoc :show-add-relation-modal false :relation-search-query "" :relation-search-results [])
                   :style {:margin-top "1rem"
                           :padding "0.5rem 1rem"
