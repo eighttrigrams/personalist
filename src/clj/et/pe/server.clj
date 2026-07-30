@@ -10,6 +10,7 @@
             [ring.middleware.json :refer [wrap-json-response wrap-json-body]]
             [ring.middleware.params :refer [wrap-params]]
             [ring.middleware.cors :refer [wrap-cors]]
+            [ring.util.codec :as codec]
             [et.pe.server.handlers :as handlers]
             [nrepl.server :as nrepl]
             [taoensso.telemere :as tel])
@@ -114,10 +115,16 @@
   "The `:name` segment of a /api/personas/:name/... URI, or nil when the URI
    names no persona (/api/personas itself). Read off :uri rather than :params
    because wrap-auth sits above the routes, where compojure has not bound them
-   yet. Safe to compare verbatim: clout matches the raw URI too, so this is the
-   same undecoded string the handler will use as the persona id."
+   yet, then URL-decoded with the same ring.util.codec/url-decode compojure
+   applies to route params (compojure.core/decode-route-params), so the guard
+   compares the exact string the handler will use as the persona id. Without the
+   decode a persona whose id is another's percent-encoding slips past. Malformed
+   escapes (%zz, a bare %) are left verbatim by url-decode on both sides, so they
+   neither throw nor bypass."
   [req]
-  (second (re-find persona-uri-re (or (:uri req) ""))))
+  (some-> (re-find persona-uri-re (or (:uri req) ""))
+          second
+          codec/url-decode))
 
 (defn- owns-persona?
   "Whether `claims` may write under `persona`. :persona is the persona id as a

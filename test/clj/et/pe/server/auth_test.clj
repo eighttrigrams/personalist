@@ -136,3 +136,32 @@
       (finally
         (handlers/set-conn! nil)
         (ds/close-conn conn)))))
+
+;; F2 — a token whose persona is the percent-encoding of another persona's id
+;; must not write under that persona via the encoded URI. wrap-auth reads the
+;; persona off the raw :uri; compojure URL-decodes route params before the
+;; handler, so pre-fix the guard saw "%74…" while the handler saw "targetx".
+;; persona-in-uri now decodes the segment the same way, closing the gap.
+(deftest percent-encoded-persona-segment-is-decoded-before-comparison
+  (let [enc "%74%61%72%67%65%74%78"                 ; url-encoding of "targetx"
+        enc-token (create-token (keyword enc))]       ; attacker owns the enc-id persona
+    (testing "control — plain URI for targetx with the enc token is 403"
+      (is (= 403 (:status (guarded (request :put "/api/personas/targetx" enc-token))))))
+    (testing "bypass attempt — encoded URI is now also 403, not 200"
+      (is (= 403 (:status (guarded (request :put (str "/api/personas/" enc) enc-token)))))
+      (is (= 403 (:status (guarded (request :post (str "/api/personas/" enc "/identities") enc-token))))))
+    (testing "lowercase-hex form is decoded identically (Jetty may upcase, decode does not care)"
+      (is (= 403 (:status (guarded (request :put "/api/personas/%74%61%72%67%65%74%78" enc-token))))))
+    (testing "the legitimate owner of targetx still writes under the encoded URI"
+      (is (= 200 (:status (guarded (request :put (str "/api/personas/" enc)
+                                            (create-token :targetx)))))
+          "a token for the decoded id targetx owns the decoded URI, encoded or not"))))
+
+;; A malformed escape must neither throw (500) nor slip past: url-decode leaves
+;; it verbatim on both the guard and handler side, so the comparison still holds.
+(deftest malformed-escape-neither-500s-nor-bypasses
+  (testing "a stranger's token on a malformed-escape URI is a clean 403, not 500"
+    (is (= 403 (:status (guarded (request :put "/api/personas/%zz" @a-token))))))
+  (testing "the owner of the verbatim id still writes under it"
+    (is (= 200 (:status (guarded (request :put "/api/personas/%zz"
+                                          (create-token (keyword "%zz")))))))))
