@@ -29,8 +29,45 @@
       :else
       false)))
 
+(def ^:private describe-namespaces
+  "Namespaces whose public vars back HTTP routes. The /api/describe endpoint
+  walks these to enumerate the API surface from var metadata, so the docstring
+  on each handler *is* the API documentation."
+  '[et.pe.server
+    et.pe.server.handlers])
+
+(def ^:private route-doc-re
+  "Route handlers document themselves as `METHOD /path — explanation`. Matching
+  on that keeps non-route helpers (build-handler etc.) out of /api/describe, so
+  the listing only ever advertises things you can actually call."
+  #"(?s)^(GET|POST|PUT|DELETE|PATCH)\s+(\S+)\s")
+
+(defn describe-handler
+  "GET /api/describe — enumerate the API surface: every route handler with its
+  method, path and docstring. Read-only and unauthenticated; lets an agent
+  discover the endpoints before calling them.
+
+  Every GET under /api is public here by design — personalist serves what a
+  visitor of personalist.org sees. Only writes are guarded (see wrap-auth)."
+  [_req]
+  {:status 200
+   :body (->> describe-namespaces
+              (mapcat (fn [ns-sym] (when-let [n (find-ns ns-sym)] (ns-publics n))))
+              (keep (fn [[sym v]]
+                      (let [doc (:doc (meta v))]
+                        (when-let [[_ method path] (some->> doc (re-find route-doc-re))]
+                          {:name (str sym)
+                           :ns (str (ns-name (.ns ^clojure.lang.Var v)))
+                           :method method
+                           :path path
+                           :arglists (pr-str (:arglists (meta v)))
+                           :doc doc}))))
+              (sort-by (juxt :path :method))
+              vec)})
+
 (defroutes api-routes
   (context "/api" []
+    (GET "/describe" [] describe-handler)
     (GET "/personas" [] handlers/list-personas-handler)
     (POST "/personas" [] handlers/add-persona-handler)
     (PUT "/personas/:name" [_name] handlers/update-persona-handler)

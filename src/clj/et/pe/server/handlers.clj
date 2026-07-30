@@ -55,7 +55,12 @@
 (defn- dangerously-skip-logins? []
   (true? (get-in @config [:devel :dangerously-skip-logins?])))
 
-(defn list-personas-handler [_req]
+(defn list-personas-handler
+  "GET /api/personas — every persona as {:id :email :name}, the :email included.
+   Public and unauthenticated, like every read here. In dev with
+   :dangerously-skip-logins? an extra :admin row is prepended so the persona
+   switcher can offer it."
+  [_req]
   (let [personas (ds/list-personas (ensure-conn))
         personas (if (dangerously-skip-logins?)
                    (cons {:id :admin :email nil :name "Admin"} personas)
@@ -63,7 +68,13 @@
     {:status 200
      :body (serialize-response personas)}))
 
-(defn add-persona-handler [req]
+(defn add-persona-handler
+  "POST /api/personas — mint a persona. Takes {:id :email :password :name}; the
+   password is stored as a bcrypt hash and may be omitted, which leaves the
+   persona with no way to log in. Answers 201 {:success true}. In prod mode any
+   valid token will do, whosever it is — 401 without one. 400 when the id or the
+   email is already taken."
+  [req]
   (let [{:keys [id email password name]} (:body req)
         password-hash (when (seq password) (hashers/derive password))
         result (ds/add-persona (ensure-conn) (str->keyword id) email password-hash name)]
@@ -71,7 +82,12 @@
       {:status 201 :body {:success true}}
       {:status 400 :body {:success false :error "Persona already exists"}})))
 
-(defn update-persona-handler [req]
+(defn update-persona-handler
+  "PUT /api/personas/:name — change a persona's :email and/or :name; a key absent
+   from the body is left alone. In prod mode the token must be :name's own or
+   admin's — 401 without a token, 403 with another persona's. 404 when the
+   persona does not exist, 400 when the email belongs to someone else."
+  [req]
   (let [persona-id (str->keyword (get-in req [:params :name]))
         {:keys [email name]} (:body req)
         updates (cond-> {}
@@ -83,14 +99,23 @@
       (:error result) {:status 400 :body {:success false :error "Email already exists"}}
       :else {:status 200 :body {:success true}})))
 
-(defn list-identities-handler [req]
+(defn list-identities-handler
+  "GET /api/personas/:name/identities — the persona's identities at their latest
+   version: [{:identity :name :text}]. Public, like every read here. 404 when
+   the persona does not exist."
+  [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         persona (ds/get-persona-by-id (ensure-conn) persona-name)]
     (if persona
       {:status 200 :body (serialize-response (ds/list-identities (ensure-conn) persona))}
       {:status 404 :body {:error "Persona not found"}})))
 
-(defn list-recent-identities-handler [req]
+(defn list-recent-identities-handler
+  "GET /api/personas/:name/identities/recent — a page of the persona's identities,
+   most recently versioned first: {:items [{:identity :name :modified-at}]
+   :has-more bool}. Query params ?limit (default 5) and ?offset (default 0).
+   Public, like every read here. 404 when the persona does not exist."
+  [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         limit (or (some-> (get-in req [:query-params "limit"]) Integer/parseInt) 5)
         offset (or (some-> (get-in req [:query-params "offset"]) Integer/parseInt) 0)
@@ -99,7 +124,11 @@
       {:status 200 :body (serialize-response (ds/list-recent-identities (ensure-conn) persona limit offset))}
       {:status 404 :body {:error "Persona not found"}})))
 
-(defn get-identity-handler [req]
+(defn get-identity-handler
+  "GET /api/personas/:name/identities/:id — one identity at its latest version:
+   {:identity :name :text}. Public, like every read here. 404 when either the
+   persona or the identity does not exist."
+  [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         identity-id (str->keyword (get-in req [:params :id]))
         persona (ds/get-persona-by-id (ensure-conn) persona-name)]
@@ -109,7 +138,14 @@
         {:status 404 :body {:error "Identity not found"}})
       {:status 404 :body {:error "Persona not found"}})))
 
-(defn add-identity-handler [req]
+(defn add-identity-handler
+  "POST /api/personas/:name/identities — create an identity. Takes
+   {:name :text :id? :valid_from?}; :id defaults to a generated urbit-style
+   two-word name and :valid_from (ISO-8601) to now. Answers 201
+   {:success true :id ...}. In prod mode the token must be :name's own or
+   admin's — 401 without a token, 403 with another persona's. 409 when :id is
+   already in use under this persona, 404 when the persona does not exist."
+  [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         {:keys [id name text valid_from]} (:body req)
         persona (ds/get-persona-by-id (ensure-conn) persona-name)
@@ -123,7 +159,17 @@
           {:status 201 :body {:success true :id (clojure.core/name generated-id)}}))
       {:status 404 :body {:error "Persona not found"}})))
 
-(defn update-identity-handler [req]
+(defn update-identity-handler
+  "PUT /api/personas/:name/identities/:id — append a new version of an identity.
+   Takes {:name :text :valid_from? :relation_adds? :relation_removes?}, where
+   :name and :text are the new version's values in full rather than a patch.
+   :relation_adds are target identity ids, :relation_removes relation ids of the
+   form \"source/target\"; relations neither added nor removed carry forward.
+   Answers {:success true :valid-from <ISO-8601>}. There is no delete: an :id
+   with no versions yet gets its first one here instead of a 404. In prod mode
+   the token must be :name's own or admin's — 401 without a token, 403 with
+   another persona's. 404 when the persona does not exist."
+  [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         identity-id (str->keyword (get-in req [:params :id]))
         {:keys [name text valid_from relation_adds relation_removes]} (:body req)
@@ -140,7 +186,13 @@
         {:status 200 :body {:success true :valid-from (str t)}})
       {:status 404 :body {:error "Persona not found"}})))
 
-(defn get-identity-at-handler [req]
+(defn get-identity-at-handler
+  "GET /api/personas/:name/identities/:id/at — the version of an identity in
+   effect at ?time (ISO-8601, required): {:identity :name :text}, or an empty
+   body when the identity had no version yet at that instant. Public, like every
+   read here. 404 when the persona does not exist; a missing or unparseable
+   ?time comes back 500."
+  [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         identity-id (str->keyword (get-in req [:params :id]))
         time-str (or (get-in req [:params :time])
@@ -153,7 +205,12 @@
         {:status 200 :body (serialize-response result)})
       {:status 404 :body {:error "Persona not found"}})))
 
-(defn get-identity-history-handler [req]
+(defn get-identity-history-handler
+  "GET /api/personas/:name/identities/:id/history — every version of an identity,
+   oldest first: [{:identity :name :text :valid-from}]. This is what the version
+   slider walks. Public, like every read here. 404 when the persona does not
+   exist; an unknown identity is an empty list rather than a 404."
+  [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         identity-id (str->keyword (get-in req [:params :id]))
         persona (ds/get-persona-by-id (ensure-conn) persona-name)]
@@ -162,7 +219,13 @@
         {:status 200 :body (serialize-response history)})
       {:status 404 :body {:error "Persona not found"}})))
 
-(defn list-relations-handler [req]
+(defn list-relations-handler
+  "GET /api/personas/:name/identities/:id/relations — the identity's outgoing
+   relations as of ?time (ISO-8601, optional; its latest version when omitted):
+   [{:id \"source/target\" :target :target-name :description}]. Relations live on
+   the identity version, so they time-travel with it. Public, like every read
+   here. 404 when the persona does not exist."
+  [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         identity-id (str->keyword (get-in req [:params :id]))
         time-str (or (get-in req [:params :time])
@@ -179,7 +242,14 @@
 ;; committed as part of an identity version via update-identity-handler
 ;; (relation_adds / relation_removes) and read back via list-relations-handler.
 
-(defn search-identities-handler [req]
+(defn search-identities-handler
+  "GET /api/personas/:name/identities/search — the persona's identities whose
+   name contains ?q, case-insensitively; an absent or empty q matches all of
+   them. With ?valid_at (ISO-8601) each identity is matched and returned as of
+   that instant instead of at its latest version, which is what backs the
+   read-only \"fixed\" exploring mode. Public, like every read here. 404 when the
+   persona does not exist."
+  [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         query (or (get-in req [:params :q])
                   (get-in req [:params "q"])
@@ -195,7 +265,16 @@
         {:status 200 :body (serialize-response results)})
       {:status 404 :body {:error "Persona not found"}})))
 
-(defn persona-login-handler [prod-mode?]
+(defn persona-login-handler
+  "POST /api/auth/login — exchange credentials for a JWT. Takes
+   {:id <persona-id> :password ...} or {:email ... :password ...}, and :id
+   \"admin\" is checked against ADMIN_PASSWORD rather than the persona table.
+   Answers {:success true :token ...}; the token carries {:persona <id>} and is
+   what every write wants back as `Authorization: Bearer`. Public, necessarily.
+   401 on any bad credential, without saying whether the persona was unknown or
+   the password wrong. In dev with :dangerously-skip-logins? it answers success
+   and no token, since nothing is guarded there either."
+  [prod-mode?]
   (fn [req]
     (let [{:keys [id email password]} (:body req)]
       (if (allow-skip-logins? prod-mode?)
@@ -219,11 +298,20 @@
                   {:status 200 :body {:success true :token (create-token persona-id)}}
                   {:status 401 :body {:success false :error "Invalid credentials"}})))))))))
 
-(defn password-required-handler [prod-mode?]
+(defn password-required-handler
+  "GET /api/auth/required — whether this instance asks for a password at all:
+   {:required false} only in dev with :dangerously-skip-logins?, true otherwise.
+   Public, necessarily — the login screen asks before anyone is authenticated."
+  [prod-mode?]
   (fn [_req]
     {:status 200 :body {:required (not (allow-skip-logins? prod-mode?))}}))
 
-(defn generate-id-handler [_req]
+(defn generate-id-handler
+  "GET /api/generate-id — propose an unused urbit-style two-word persona id for
+   the Settings form: {:id \"...\"}. Public, like every read here. It reserves
+   nothing, so two callers can be handed the same id and whoever POSTs second
+   gets the 400. 500 if 100 draws all collide with an existing persona."
+  [_req]
   (let [existing-ids (set (map :id (ds/list-personas (ensure-conn))))]
     (loop [attempts 0]
       (let [candidate (urbit/generate-name)]
