@@ -19,11 +19,17 @@
 >   Comparing the raw `:uri` segment is safe because clout matches the raw URI
 >   too and hands the handler that same undecoded string — verified, not assumed.
 >   `47526ae`.
-> - §4 rate limiter — verify-only, and it turned up a real defect: **the limiter
->   is a no-op in production.** `app` calls `(wrap-rate-limit base-app)` *inside*
->   its per-request `fn`, so `create-limiter`'s atoms are reallocated on every
->   request. 200 requests from one IP against a real prod-mode server: zero 429s.
->   Left unfixed by instruction; see the report.
+> - §4 rate limiter — asked for verify-only, and it turned up a real defect:
+>   **the limiter was a no-op in production.** `app` called
+>   `(wrap-rate-limit base-app)` *inside* its per-request `fn`, so
+>   `create-limiter`'s atoms were reallocated on every request. 200 requests from
+>   one IP against a real prod-mode server: zero 429s. Reported, then **fixed on
+>   the owner's direction** by hoisting the wrap out of the request path
+>   (`6faf9bd`), with the app-level tests the 17 existing primitive tests could
+>   not provide. Live re-check: the 429 now arrives at request #61 as designed.
+>   Deliberately left alone: `:devel :shadow?` is a hot-reload flag that also
+>   switches the limiter off, so standalone `start.sh prod` skips it — options
+>   laid out in the report, owner's call.
 >
 > **Two blockers found on the way**, fixed as separate commits because nothing
 > in the app would start otherwise:
