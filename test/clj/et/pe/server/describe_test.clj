@@ -4,39 +4,44 @@
             [et.pe.server :as server]
             [et.pe.server.handlers]))
 
-(defn- describe []
-  (server/describe-handler {}))
+(def ^:private api-routes
+  #{["GET"  "/api/describe"]
+    ["GET"  "/api/personas"]
+    ["POST" "/api/personas"]
+    ["PUT"  "/api/personas/:name"]
+    ["GET"  "/api/generate-id"]
+    ["GET"  "/api/auth/required"]
+    ["POST" "/api/auth/login"]
+    ["GET"  "/api/personas/:name/identities"]
+    ["POST" "/api/personas/:name/identities"]
+    ["GET"  "/api/personas/:name/identities/recent"]
+    ["GET"  "/api/personas/:name/identities/search"]
+    ["GET"  "/api/personas/:name/identities/:id"]
+    ["PUT"  "/api/personas/:name/identities/:id"]
+    ["GET"  "/api/personas/:name/identities/:id/at"]
+    ["GET"  "/api/personas/:name/identities/:id/history"]
+    ["GET"  "/api/personas/:name/identities/:id/relations"]})
 
-(deftest describe-endpoint-returns-the-api-surface
-  (let [{:keys [status body]} (describe)]
-    (testing "returns 200 with a non-empty flat vector"
-      (is (= 200 status))
-      (is (vector? body))
-      (is (pos? (count body))))
+(deftest describe-lists-every-route
+  (let [{:keys [status body]} (server/describe-handler {})]
+    (is (= 200 status))
+    (is (vector? body))
+    (testing "exactly the routed endpoints, no more and no fewer"
+      (is (= api-routes (set (map (juxt :method :path) body)))))
 
     (testing "every entry has the house shape {:name :ns :method :path :arglists :doc}"
       (doseq [entry body]
         (is (= #{:name :ns :method :path :arglists :doc} (set (keys entry))))
         (is (string? (:name entry)))
         (is (string? (:ns entry)))
-        (is (contains? #{"GET" "POST" "PUT" "DELETE" "PATCH"} (:method entry)))
-        (is (str/starts-with? (:path entry) "/api/"))
         (is (string? (:arglists entry)))
-        (is (seq (:doc entry)))))
+        (is (not (str/blank? (:doc entry))) (str (:name entry) " must carry a docstring"))
+        (is (re-find #"^(GET|POST|PUT|DELETE|PATCH)\s+/api/" (:doc entry))
+            (str (:name entry) " must open its docstring with 'VERB /api/...'"))))
 
     (testing "entries are sorted by path then method"
       (let [keys-seen (mapv (juxt :path :method) body)]
         (is (= keys-seen (sort keys-seen)))))
-
-    (testing "describe advertises itself"
-      (is (contains? (set (map (juxt :ns :name) body))
-                     ["et.pe.server" "describe-handler"])))
-
-    (testing "non-route publics stay out of the listing"
-      (let [names (set (map :name body))]
-        (doseq [n ["set-conn!" "set-config!" "ensure-conn" "verify-token-check"
-                   "wrap-rate-limit" "build-handler" "prod-mode?" "app"]]
-          (is (not (contains? names n)) (str n " should not be advertised as a route")))))
 
     (testing "every *-handler in et.pe.server.handlers is documented"
       (let [described (set (map (juxt :ns :name) body))]
@@ -44,27 +49,4 @@
                 :when (str/ends-with? (name sym) "-handler")]
           (is (contains? described ["et.pe.server.handlers" (str sym)])
               (str "et.pe.server.handlers/" sym
-                   " is a *-handler but missing from describe")))))
-
-    (testing "every route in api-routes is described"
-      (let [described (set (map (juxt :method :path) body))]
-        (doseq [pair [["GET" "/api/describe"]
-                      ["GET" "/api/personas"]
-                      ["POST" "/api/personas"]
-                      ["PUT" "/api/personas/:name"]
-                      ["GET" "/api/generate-id"]
-                      ["GET" "/api/auth/required"]
-                      ["POST" "/api/auth/login"]
-                      ["GET" "/api/personas/:name/identities"]
-                      ["GET" "/api/personas/:name/identities/recent"]
-                      ["GET" "/api/personas/:name/identities/search"]
-                      ["POST" "/api/personas/:name/identities"]
-                      ["PUT" "/api/personas/:name/identities/:id"]
-                      ["GET" "/api/personas/:name/identities/:id/at"]
-                      ["GET" "/api/personas/:name/identities/:id/history"]
-                      ["GET" "/api/personas/:name/identities/:id/relations"]
-                      ["GET" "/api/personas/:name/identities/:id"]]]
-          (is (contains? described pair) (str (str/join " " pair) " missing from describe")))))
-
-    (testing "the listing covers the routes and nothing more"
-      (is (= 16 (count body))))))
+                   " is a *-handler but missing from describe")))))))

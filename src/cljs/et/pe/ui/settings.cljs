@@ -1,7 +1,7 @@
 (ns et.pe.ui.settings
   (:require [reagent.core :as r]
             [ajax.core :refer [POST]]
-            [et.pe.ui.state :refer [app-state api-base valid-email?
+            [et.pe.ui.state :refer [app-state api-base valid-email? auth-headers
                                     fetch-personas update-persona generate-id]]))
 
 (defn- persona-form []
@@ -65,6 +65,7 @@
                                                :password password-val
                                                :name (if (seq display-name-val) display-name-val id-val)}
                                       :format :json
+                                      :headers (auth-headers)
                                       :handler (fn [_]
                                                  (regenerate!)
                                                  (when @display-name-ref (set! (.-value @display-name-ref) ""))

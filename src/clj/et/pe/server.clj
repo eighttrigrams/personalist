@@ -106,19 +106,52 @@
   (#{:post :put :delete} (:request-method req)))
 
 (defn- public-endpoint? [req]
-  (let [uri (:uri req)]
-    (or (= uri "/api/auth/login")
-        (= uri "/api/personas"))))
+  (= (:uri req) "/api/auth/login"))
 
-(defn wrap-auth [handler]
+(def ^:private persona-uri-re #"^/api/personas/([^/]+)")
+
+(defn- persona-in-uri
+  "The `:name` segment of a /api/personas/:name/... URI, or nil when the URI
+   names no persona (/api/personas itself). Read off :uri rather than :params
+   because wrap-auth sits above the routes, where compojure has not bound them
+   yet. Safe to compare verbatim: clout matches the raw URI too, so this is the
+   same undecoded string the handler will use as the persona id."
+  [req]
+  (second (re-find persona-uri-re (or (:uri req) ""))))
+
+(defn- owns-persona?
+  "Whether `claims` may write under `persona`. :persona is the persona id as a
+   string (create-token calls `name` on it), so it compares directly with the
+   URI segment. Admin is exempt because the Settings tab edits other personas."
+  [claims persona]
+  (let [holder (:persona claims)]
+    (or (= holder "admin")
+        (= holder persona))))
+
+(defn wrap-auth
+  "Guard writes. Engages only in prod mode, only for mutating requests under
+   /api, and only outside /api/auth/login — every GET is public by design, and
+   login has to be reachable for anyone to obtain a token at all.
+
+   A request must carry a verifying `Authorization: Bearer` token (401
+   otherwise) that belongs either to the persona it writes under or to admin
+   (403 otherwise). POST /api/personas names no persona in its URI, so any
+   valid token may mint one."
+  [handler]
   (fn [req]
     (if (and (prod-mode?)
              (mutating-request? req)
              (str/starts-with? (or (:uri req) "") "/api")
              (not (public-endpoint? req)))
       (if-let [token (extract-token req)]
-        (if (handlers/verify-token-check token)
-          (handler req)
+        (if-let [claims (handlers/verify-token-check token)]
+          (let [persona (persona-in-uri req)]
+            (if (or (nil? persona)
+                    (owns-persona? claims persona))
+              (handler req)
+              {:status 403
+               :headers {"Content-Type" "application/json"}
+               :body "{\"error\":\"Not your persona\"}"}))
           {:status 401
            :headers {"Content-Type" "application/json"}
            :body "{\"error\":\"Invalid token\"}"})
