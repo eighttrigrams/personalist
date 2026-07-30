@@ -194,11 +194,14 @@
 (defn- shadow-mode? [config]
   (true? (get-in config [:devel :shadow?])))
 
-(defn app [config]
-  (fn [req]
-    (if (shadow-mode? config)
-      (base-app req)
-      ((handlers/wrap-rate-limit base-app) req))))
+(defn app
+  "The ring handler for `config`. Built once per call — wrap-rate-limit
+   allocates the request log it counts against, so building it per request
+   would hand every caller an empty one and never limit anything."
+  [config]
+  (if (shadow-mode? config)
+    base-app
+    (handlers/wrap-rate-limit base-app)))
 
 (defn- run-server [port config]
   (let [host (or (System/getenv "HOST") "127.0.0.1")]
