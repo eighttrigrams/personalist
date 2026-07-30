@@ -44,6 +44,13 @@
 (defn- create-token [persona-name]
   (jwt/sign {:persona (name persona-name)} (jwt-secret)))
 
+;; The admin exemption (server/owns-persona?) keys on this :admin claim, never on
+;; the string "admin", so it cannot be minted by anyone who can create a persona
+;; row: only the ADMIN_PASSWORD login below calls this. Folding it back into
+;; create-token would re-open the admin-row escalation.
+(defn- create-admin-token []
+  (jwt/sign {:persona "admin" :admin true} (jwt-secret)))
+
 (defn- verify-token [token]
   (try
     (jwt/unsign token (jwt-secret))
@@ -68,19 +75,28 @@
     {:status 200
      :body (serialize-response personas)}))
 
+;; Ids the auth layer special-cases and so must never become a persona row.
+;; "admin" logs in against ADMIN_PASSWORD rather than the persona table, so a row
+;; by that id can be entered by email login and — before this guard — minted a
+;; token the ownership check treated as admin's.
+(def ^:private reserved-persona-ids #{:admin})
+
 (defn add-persona-handler
   "POST /api/personas — mint a persona. Takes {:id :email :password :name}; the
    password is stored as a bcrypt hash and may be omitted, which leaves the
    persona with no way to log in. Answers 201 {:success true}. In prod mode any
    valid token will do, whosever it is — 401 without one. 400 when the id or the
-   email is already taken."
+   email is already taken. The id `admin` is reserved and refused with 400."
   [req]
   (let [{:keys [id email password name]} (:body req)
-        password-hash (when (seq password) (hashers/derive password))
-        result (ds/add-persona (ensure-conn) (str->keyword id) email password-hash name)]
-    (if result
-      {:status 201 :body {:success true}}
-      {:status 400 :body {:success false :error "Persona already exists"}})))
+        id-kw (str->keyword id)]
+    (if (contains? reserved-persona-ids id-kw)
+      {:status 400 :body {:success false :error "Reserved persona id"}}
+      (let [password-hash (when (seq password) (hashers/derive password))
+            result (ds/add-persona (ensure-conn) id-kw email password-hash name)]
+        (if result
+          {:status 201 :body {:success true}}
+          {:status 400 :body {:success false :error "Persona already exists"}})))))
 
 (defn update-persona-handler
   "PUT /api/personas/:name — change a persona's :email and/or :name; a key absent
@@ -284,7 +300,7 @@
                                  (System/getenv "ADMIN_PASSWORD")
                                  "admin")]
             (if (= password admin-password)
-              {:status 200 :body {:success true :token (create-token :admin)}}
+              {:status 200 :body {:success true :token (create-admin-token)}}
               {:status 401 :body {:success false :error "Invalid credentials"}}))
           (let [persona (cond
                           (seq id) (ds/get-persona-by-id (ensure-conn) (str->keyword id))

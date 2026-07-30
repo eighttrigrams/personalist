@@ -122,11 +122,12 @@
 (defn- owns-persona?
   "Whether `claims` may write under `persona`. :persona is the persona id as a
    string (create-token calls `name` on it), so it compares directly with the
-   URI segment. Admin is exempt because the Settings tab edits other personas."
+   URI segment. Admin is exempt because the Settings tab edits other personas;
+   the exemption keys on the un-mintable :admin claim (create-admin-token), never
+   on the string \"admin\", so a persona row named admin cannot claim it."
   [claims persona]
-  (let [holder (:persona claims)]
-    (or (= holder "admin")
-        (= holder persona))))
+  (or (true? (:admin claims))
+      (= (:persona claims) persona)))
 
 (defn wrap-auth
   "Guard writes. Engages only in prod mode, only for mutating requests under

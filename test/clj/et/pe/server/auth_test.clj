@@ -1,9 +1,11 @@
 (ns et.pe.server.auth-test
   (:require [clojure.test :refer [deftest testing is]]
+            [et.pe.ds :as ds]
             [et.pe.server :as server]
             [et.pe.server.handlers :as handlers]))
 
 (def ^:private create-token #'handlers/create-token)
+(def ^:private create-admin-token #'handlers/create-admin-token)
 
 (defn- echo-handler [_req] {:status 200 :body {:reached true}})
 
@@ -27,12 +29,18 @@
 
 (def ^:private a-token (delay (create-token :aaa)))
 (def ^:private b-token (delay (create-token :bbb)))
-(def ^:private admin-token (delay (create-token :admin)))
+;; The exempt admin token is the one the ADMIN_PASSWORD login mints, which
+;; carries an un-mintable :admin claim — not merely a :persona of "admin".
+(def ^:private admin-token (delay (create-admin-token)))
+;; What email-login on a persona row whose id is "admin" would mint: a plain
+;; token with :persona "admin" and no :admin claim. This must NOT be exempt.
+(def ^:private admin-string-token (delay (create-token :admin)))
 
 (deftest token-round-trip
   (testing "the claims wrap-auth reads back carry the persona id as a string"
     (is (= "aaa" (:persona (handlers/verify-token-check @a-token))))
     (is (= "admin" (:persona (handlers/verify-token-check @admin-token))))
+    (is (true? (:admin (handlers/verify-token-check @admin-token))))
     (is (nil? (handlers/verify-token-check "not-a-token")))))
 
 (deftest persona-creation-needs-a-token
@@ -91,3 +99,40 @@
                  (request :post "/api/personas/bbb/identities")
                  (request :put "/api/personas/bbb")]]
       (is (= 200 (:status (unguarded req)))))))
+
+;; F1 — a persona row named "admin", entered by email login, must not grant a
+;; blanket exemption. Email-login mints (create-token (:id persona)); for an
+;; "admin" row that is (create-token :admin) → {:persona "admin"} with no :admin
+;; claim. Against the pre-fix guard (which tested (= (:persona claims) "admin"))
+;; this cleared owns-persona? for everyone; now the exemption keys on the
+;; un-mintable :admin claim instead.
+(deftest admin-string-persona-grants-no-exemption
+  (testing "a bare {:persona \"admin\"} token writes only under the admin-id persona"
+    (is (= 200 (:status (guarded (request :put "/api/personas/admin" @admin-string-token))))
+        "it owns the persona literally named admin, and nothing more"))
+  (testing "it is forbidden under any other persona — no blanket exemption"
+    (is (= 403 (:status (guarded (request :put "/api/personas/bbb" @admin-string-token)))))
+    (is (= 403 (:status (guarded (request :post "/api/personas/bbb/identities" @admin-string-token)))))
+    (is (= 403 (:status (guarded (request :put "/api/personas/aaa" @admin-string-token))))))
+  (testing "only the ADMIN_PASSWORD login's token is exempt everywhere"
+    (is (= 200 (:status (guarded (request :put "/api/personas/bbb" @admin-token)))))
+    (is (= 200 (:status (guarded (request :post "/api/personas/aaa/identities" @admin-token)))))))
+
+;; F1, second latch — the confusing "admin" row cannot be created at all.
+(deftest reserved-persona-ids-are-refused
+  (let [conn (ds/init-conn :sqlite-in-memory {})]
+    (handlers/set-conn! conn)
+    (try
+      (testing "POST /api/personas with a reserved id is 400, not 201"
+        (is (= 400 (:status (handlers/add-persona-handler
+                             {:body {:id "admin" :email "pwn@evil.example"
+                                     :password "pwnedpw" :name "pwn"}})))))
+      (testing "no such row was written"
+        (is (nil? (ds/get-persona-by-id conn :admin))))
+      (testing "an ordinary id still mints a persona"
+        (is (= 201 (:status (handlers/add-persona-handler
+                             {:body {:id "regular" :email "r@example.com"
+                                     :password "pw" :name "Regular"}})))))
+      (finally
+        (handlers/set-conn! nil)
+        (ds/close-conn conn)))))
