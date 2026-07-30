@@ -24,14 +24,20 @@ fi
 PORT=${PORT:-3017}
 echo $PORT > .server.port
 
+# config.edn carries aero reader tags (#long #or #env), so plain read-string
+# cannot parse it. Same reader the app itself uses.
+read_config() {
+  clj -M -e "(require '[aero.core :as aero]) (-> (aero/read-config \"config.edn\") $1)"
+}
+
 if [ "$1" = "prod" ]; then
-  IN_MEMORY=$(clj -M -e "(-> \"config.edn\" slurp read-string :db :type (= :sqlite-in-memory))")
+  IN_MEMORY=$(read_config ":db :type (= :sqlite-in-memory)")
   if [ "$IN_MEMORY" = "true" ]; then
     echo "Error: Cannot start in production mode with in-memory database."
     echo "Please configure a persistent database in config.edn"
     exit 1
   fi
-  SKIP_LOGINS=$(clj -M -e "(-> \"config.edn\" slurp read-string :devel :dangerously-skip-logins? true?)")
+  SKIP_LOGINS=$(read_config ":devel :dangerously-skip-logins? true?")
   if [ "$SKIP_LOGINS" = "true" ]; then
     echo "Error: Cannot start in production mode with :dangerously-skip-logins? enabled."
     echo "Please remove or set :dangerously-skip-logins? to false in config.edn"
@@ -44,7 +50,7 @@ if [ "$1" = "prod" ]; then
   export ADMIN_PASSWORD=${ADMIN_PASSWORD:-abcdef}
   java -jar target/personalist-0.0.1-standalone.jar
 else
-  SHADOW_MODE=$(clj -M -e "(-> \"config.edn\" slurp read-string :devel :shadow? true?)")
+  SHADOW_MODE=$(read_config ":devel :shadow? true?")
   if [ "$SHADOW_MODE" = "true" ]; then
     echo "Starting with shadow-cljs watch (hot reload)..."
     npx shadow-cljs watch app &

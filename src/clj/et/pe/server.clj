@@ -3,7 +3,7 @@
             [et.pe.ds :as ds]
             [et.pe.logging :as logging]
             [clojure.java.io :as io]
-            [clojure.edn :as edn]
+            [aero.core :as aero]
             [clojure.string :as str]
             [compojure.core :refer [defroutes GET POST PUT DELETE context]]
             [compojure.route :as route]
@@ -186,7 +186,7 @@
       (throw (ex-info "Config file required" {:file (.getName config-file)}))
       (do
         (tel/log! :info (str "Loading configuration from " (.getName config-file)))
-        (edn/read-string (slurp config-file))))))
+        (aero/read-config config-file)))))
 
 (defn- should-pre-seed? [cfg]
   (true? (get-in cfg [:devel :pre-seed?])))
