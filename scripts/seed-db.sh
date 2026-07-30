@@ -1,6 +1,16 @@
 #!/bin/bash
 
-API_BASE="http://localhost:3017"
+. "$(dirname "$0")/config.sh"
+
+# Prefer the port the running server wrote — this is normally invoked by that
+# server's own pre-seed, and the seed POSTs have to reach it.
+if [ -f .server.port ]; then
+  PORT=$(cat .server.port)
+else
+  PORT=$(read_config ":server :port")
+fi
+
+API_BASE="http://localhost:$PORT"
 
 echo "Seeding database..."
 

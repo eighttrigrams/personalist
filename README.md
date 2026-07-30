@@ -14,7 +14,7 @@ Run
 $ make start
 ```
 
-Now visit a browser under http://localhost:3017.
+Now visit a browser under http://localhost:3120.
 
 To stop or restart afterwards, use
 
@@ -50,7 +50,7 @@ $ make start
 
 This starts:
 
-- the server on port 3017
+- the server on port 3120
 - an nREPL server on port 7888
 - shadow-cljs in watch mode (if `:shadow? true`)
 - an in-memory database, pre-seeded with demo data (by default)

@@ -1,9 +1,16 @@
 #!/bin/bash
 
+. "$(dirname "$0")/config.sh"
+
 if [ -f .server.port ]; then
   PORT=$(cat .server.port)
-else
-  PORT=${PORT:-3017}
+elif [ -f config.edn ]; then
+  PORT=$(read_config ":server :port")
+fi
+
+if [ -z "$PORT" ]; then
+  echo "Cannot tell which port to stop: no .server.port and no config.edn."
+  exit 1
 fi
 
 echo "Stopping application..."

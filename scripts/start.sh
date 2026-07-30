@@ -1,5 +1,7 @@
 #!/bin/bash
 
+. "$(dirname "$0")/config.sh"
+
 if [ ! -f config.edn ]; then
   echo "No config.edn found. Creating default configuration..."
   cat > config.edn << 'CONFIG'
@@ -14,21 +16,18 @@ if [ ! -f config.edn ]; then
    :format :human
  }
  :server {
-   :port 3017
+   :port #long #or [#env PORT 3120]
  }
 }
 CONFIG
   echo "Created config.edn"
 fi
 
-PORT=${PORT:-3017}
+# The app takes its port from config.edn, where #env PORT is an optional
+# override. Resolve it the same way rather than defaulting here, so
+# .server.port holds the port stop.sh will actually find the process on.
+PORT=$(read_config ":server :port")
 echo $PORT > .server.port
-
-# config.edn carries aero reader tags (#long #or #env), so plain read-string
-# cannot parse it. Same reader the app itself uses.
-read_config() {
-  clj -M -e "(require '[aero.core :as aero]) (-> (aero/read-config \"config.edn\") $1)"
-}
 
 if [ "$1" = "prod" ]; then
   IN_MEMORY=$(read_config ":db :type (= :sqlite-in-memory)")
