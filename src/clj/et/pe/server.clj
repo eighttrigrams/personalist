@@ -88,12 +88,12 @@
 (defn- serve-index [_]
   {:status 200
    :headers {"Content-Type" "text/html"}
-   :body (slurp (clojure.java.io/resource "public/index.html"))})
+   :body (slurp (clojure.java.io/resource "public/personalist/index.html"))})
 
 (defroutes app-routes
   api-routes
   (GET "/" [] serve-index)
-  (route/resources "/")
+  (route/resources "/" {:root "public/personalist"})
   (GET "/:persona-id" [_persona-id] serve-index)
   (GET "/:persona-id/:identity-id" [_persona-id _identity-id] serve-index)
   (route/not-found {:status 404 :body {:error "Not found"}}))

@@ -7,7 +7,7 @@ target
 server.jar
 node_modules
 .shadow-cljs
-resources/public/js
+resources/public/personalist/js
 .claude/settings.local.json
 .playwright-mcp
 .shadow-cljs.pid

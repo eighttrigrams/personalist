@@ -3,8 +3,8 @@
  :dependencies [[reagent "2.0.1"]
                 [cljs-ajax "0.8.4"]]
  :builds {:app {:target :browser
-                :output-dir "resources/public/js"
+                :output-dir "resources/public/personalist/js"
                 :asset-path "/js"
                 :modules {:main {:init-fn et.pe.ui.core/init}}
-                :devtools {:http-root "resources/public"
+                :devtools {:http-root "resources/public/personalist"
                            :http-port 3026}}}}
