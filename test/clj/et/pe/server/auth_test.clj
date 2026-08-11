@@ -9,7 +9,11 @@
 (def ^:private create-admin-token #'handlers/create-admin-token)
 (def ^:private jwt-secret #'handlers/jwt-secret)
 
-(defn- echo-handler [_req] {:status 200 :body {:reached true}})
+;; The principal is echoed back because it is now part of what wrap-auth *does*:
+;; it used to answer "may you write this?" and drop the answer on the floor, and
+;; every version row written since was authorless as a result. Carrying it in
+;; the body means every case below exercises the pass-down as well as the verdict.
+(defn- echo-handler [req] {:status 200 :body {:reached true :principal (:principal req)}})
 
 (defn- request
   ([method uri] (request method uri nil))
@@ -278,6 +282,39 @@
     (ds/delete-machine-user @db (:id (ds/get-machine-user @db "writer-to-delete")))
     (testing "the row is gone, so the token names nobody"
       (is (= 401 (:status (guarded (request :put "/api/personas/aaa" token))))))))
+
+;; ---------------------------------------------------------------------------
+;; The principal reaches the handler
+;;
+;; wrap-auth resolves a Bearer token to a principal in order to answer one
+;; question and then had nothing further to do with it. It is also the only
+;; place in the app that knows *who* is writing, so the write path had no way to
+;; stamp a version with its author. It now hands the principal on, and these are
+;; the four shapes a handler can meet.
+;; ---------------------------------------------------------------------------
+
+(deftest the-principal-is-handed-to-the-handler
+  (testing "a human's token arrives as its account"
+    (is (= {:kind :human :account (:a @accounts)}
+           (get-in (guarded (request :post "/api/personas/aaa/identities" (token-for :a)))
+                   [:body :principal]))))
+
+  (testing "admin's arrives as admin, which has no account of its own"
+    (is (= {:kind :admin}
+           (get-in (guarded (request :put "/api/personas/bbb" (create-admin-token)))
+                   [:body :principal]))))
+
+  (testing "a machine token arrives carrying its name — the one thing that
+            distinguishes one machine user's work from another's"
+    (let [token (machine-token-for :a "writer-that-signs" [:aaa])
+          principal (get-in (guarded (request :put "/api/personas/aaa" token))
+                            [:body :principal])]
+      (is (= :machine (:kind principal)))
+      (is (= "writer-that-signs" (:name principal)))))
+
+  (testing "and in dev mode there is none at all: wrap-auth does not engage, so a
+            handler must read the absence as a hand at a keyboard"
+    (is (nil? (get-in (unguarded (request :put "/api/personas/aaa")) [:body :principal])))))
 
 (deftest a-machine-token-is-not-an-admin-token
   (let [token (machine-token-for :a "writer-not-admin" [:aaa])]

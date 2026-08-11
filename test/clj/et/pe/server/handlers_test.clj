@@ -240,8 +240,8 @@
         (ds/add-persona conn mine :keeper "Keeper")
         (ds/add-persona conn mine :doomed "Doomed")
         (let [doomed (ds/get-persona-by-id conn :doomed)
-              ident (ds/add-identity conn doomed "goes" "away")]
-          (ds/update-identity conn doomed ident "goes" "away, edited")
+              ident (ds/add-identity conn doomed "goes" "away" "human")]
+          (ds/update-identity conn doomed ident "goes" "away, edited" "human")
 
           (testing "the typed confirmation is checked here, not only in the dialog"
             (is (= 400 (:status (handlers/delete-persona-handler
@@ -662,7 +662,7 @@
       (let [acc (ds/add-account conn "d@et.n" (hashers/derive "pw"))]
         (ds/add-persona conn acc :only-face "The only one")
         (let [persona (ds/get-persona-by-id conn :only-face)
-              ident (ds/add-identity conn persona "goes" "away")]
+              ident (ds/add-identity conn persona "goes" "away" "human")]
 
           (testing "the last persona goes like any other — no 409, no special case"
             (let [res (handlers/delete-persona-handler
@@ -851,3 +851,153 @@
               (is (= 200 (:status res)))
               (is (= {:name "a-machine" :machine true :can-create false :personas []}
                      (seen res))))))))))
+
+;; ---------------------------------------------------------------------------
+;; Version authorship
+;;
+;; wrap-auth resolves a Bearer token to a principal, and now hands it on rather
+;; than dropping it (see auth-test/the-principal-is-handed-to-the-handler).
+;; These tests are about what the handlers do with it: every path that writes an
+;; identity version stamps that version with who wrote it.
+;;
+;; The request is built the way the middleware leaves it, through
+;; principal-for-token — the very call wrap-auth makes — rather than by
+;; inventing a principal shape here that could drift from the real one.
+;; ---------------------------------------------------------------------------
+
+(defn- acting
+  "A request as it reaches a handler in prod: whatever `token` resolves to, under
+   :principal, plus whatever else. A nil token stands for dev mode, where
+   wrap-auth does not engage and there is no principal at all."
+  [token & {:as more}]
+  (cond-> (or more {})
+    token (assoc :principal (handlers/principal-for-token token))))
+
+(defn- authors-of
+  "Who wrote each version of an identity, oldest first."
+  [conn persona-id identity-id]
+  (mapv :author (ds/get-identity-history conn
+                                         (ds/get-persona-by-id conn persona-id)
+                                         identity-id)))
+
+(defn- wrote-identity
+  "Create an identity through the handler as `token`'s owner, and hand back its id."
+  [token persona-id body]
+  (-> (handlers/add-identity-handler
+       (acting token :params {:name (name persona-id)} :body body))
+      (get-in [:body :id])
+      keyword))
+
+(deftest a-machine-user-s-version-carries-its-own-name
+  (with-app
+    (fn [conn]
+      (let [acc (ds/add-account conn "d@et.n" nil)]
+        (ds/add-persona conn acc :face "Face")
+        (ds/add-machine-user conn acc "daniel-machine" {})
+        (let [token (handlers/mint-machine-token! "daniel-machine")
+              id (wrote-identity token :face {:name "Notes" :text "written by the machine"})]
+
+          (testing "the name, not the word `machine` — one account may hold several,
+                    and which of them wrote a line is the thing worth recording"
+            (is (= ["daniel-machine"] (authors-of conn :face id))))
+
+          (testing "and every version it appends afterwards says so too"
+            (handlers/update-identity-handler
+             (acting token :params {:name "face" :id (name id)}
+                     :body {:name "Notes" :text "and edited by it"}))
+            (is (= ["daniel-machine" "daniel-machine"] (authors-of conn :face id))))
+
+          (testing "a second machine user of the same account is told apart from the first"
+            (ds/add-machine-user conn acc "other-machine" {})
+            (let [other (handlers/mint-machine-token! "other-machine")]
+              (handlers/update-identity-handler
+               (acting other :params {:name "face" :id (name id)}
+                       :body {:name "Notes" :text "and then by the other one"}))
+              (is (= ["daniel-machine" "daniel-machine" "other-machine"]
+                     (authors-of conn :face id))))))))))
+
+(deftest a-person-s-version-says-human
+  (with-app
+    (fn [conn]
+      (let [acc (ds/add-account conn "d@et.n" nil)]
+        (ds/add-persona conn acc :face "Face")
+        (let [token (create-token acc)
+              id (wrote-identity token :face {:name "Notes" :text "typed by hand"})]
+
+          (testing "a human's JWT lands the literal `human`, which is the marker
+                    et.pe.provenance/ours is a set of"
+            (is (= ["human"] (authors-of conn :face id))))
+
+          (testing "admin is a human hand too, even editing another account's persona"
+            (handlers/update-identity-handler
+             (acting (create-admin-token) :params {:name "face" :id (name id)}
+                     :body {:name "Notes" :text "edited from Settings"}))
+            (is (= ["human" "human"] (authors-of conn :face id)))))))))
+
+(deftest a-write-with-no-principal-at-all-is-a-hand-at-a-keyboard
+  (with-app {:dangerously-skip-logins? true}
+    (fn [conn]
+      (let [acc (ds/add-account conn "d@et.n" nil)]
+        (ds/add-persona conn acc :face "Face")
+        ;; Dev mode: wrap-auth never engages (prod-mode? is false), so nothing
+        ;; puts a principal on the request. Reading that absence as a machine
+        ;; would stamp every version written on the owner's own laptop as an
+        ;; agent's, and an agent reading it back would be told his own writing is
+        ;; free to rewrite.
+        (let [id (wrote-identity nil :face {:name "Notes" :text "no token anywhere"})]
+          (is (= ["human"] (authors-of conn :face id)))
+          (handlers/update-identity-handler
+           (acting nil :params {:name "face" :id (name id)}
+                   :body {:name "Notes" :text "still no token"}))
+          (is (= ["human" "human"] (authors-of conn :face id))))))))
+
+(deftest a-relation-only-change-is-authored-like-any-other-version
+  (with-app
+    (fn [conn]
+      (let [acc (ds/add-account conn "d@et.n" nil)]
+        (ds/add-persona conn acc :face "Face")
+        (ds/add-machine-user conn acc "daniel-machine" {})
+        (let [human (create-token acc)
+              machine (handlers/mint-machine-token! "daniel-machine")
+              source (wrote-identity human :face {:name "Source" :text "a text"})
+              target (wrote-identity human :face {:name "Target" :text "another"})]
+
+          ;; A relation change writes a version like any other edit (002 put the
+          ;; relation set on the version row), so it gets an author like any
+          ;; other — the caller who committed it, not whoever wrote the text it
+          ;; carries forward unchanged.
+          (testing "the machine adding a relation authors the version it makes"
+            (handlers/update-identity-handler
+             (acting machine :params {:name "face" :id (name source)}
+                     :body {:name "Source" :text "a text"
+                            :relation_adds [(name target)]}))
+            (is (= ["human" "daniel-machine"] (authors-of conn :face source))))
+
+          (testing "and so does the human taking it away again"
+            (handlers/update-identity-handler
+             (acting human :params {:name "face" :id (name source)}
+                     :body {:name "Source" :text "a text"
+                            :relation_removes [(str (name source) "/" (name target))]}))
+            (is (= ["human" "daniel-machine" "human"] (authors-of conn :face source)))
+            (is (= [] (ds/list-relations conn (ds/get-persona-by-id conn :face) source)))))))))
+
+(deftest the-public-history-still-says-nothing-about-machine-users
+  (with-app
+    (fn [conn]
+      (let [acc (ds/add-account conn "d@et.n" nil)]
+        (ds/add-persona conn acc :face "Face")
+        (ds/add-machine-user conn acc "daniel-machine" {})
+        (let [machine (handlers/mint-machine-token! "daniel-machine")
+              id (wrote-identity machine :face {:name "Notes" :text "by the machine"})
+              res (handlers/get-identity-history-handler {:params {:name "face" :id (name id)}})]
+
+          ;; "Nothing about machine users is public" is a standing property of
+          ;; this app, and this endpoint is public and unauthenticated. The
+          ;; column exists now, so the handler has to *not* hand it out — which
+          ;; is a decision, and this is the test that keeps it decided.
+          (testing "the version list a visitor gets carries no author key"
+            (is (= 200 (:status res)))
+            (is (every? #(= #{:identity :name :text :valid-from} (set (keys %))) (seen res))))
+
+          (testing "and no machine user's name appears anywhere in that body"
+            (is (not (str/includes? (pr-str (:body res)) "daniel-machine")))))))))

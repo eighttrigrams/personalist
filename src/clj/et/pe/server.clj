@@ -183,10 +183,18 @@
    itself that the caller is a *human* owning the target. See
    handlers/owning-account.
 
-   Two GETs are guarded, but by themselves rather than here: /api/me and
+   Three GETs are guarded, but by themselves rather than here: /api/me and
    /api/accounts answer *about an account*, which is the one thing this app's
-   anonymity protects. Everything else under /api that a GET can reach is what a
-   visitor of personalist.org sees anyway."
+   anonymity protects, and .../provenance answers which of an account's machine
+   users wrote what. Everything else under /api that a GET can reach is what a
+   visitor of personalist.org sees anyway.
+
+   **The principal is handed on, under :principal.** This middleware is the only
+   place in the app that knows who is writing, and it used to answer its one
+   question and drop the answer — so every version written was authorless. A
+   handler that inserts a version now reads it back through
+   handlers/author-of. Nothing is added in dev mode, where this does not engage
+   at all; author-of reads that absence as a hand at a keyboard."
   [handler]
   (fn [req]
     (if (and (prod-mode?)
@@ -198,7 +206,7 @@
           (let [persona (persona-in-uri req)]
             (if (or (nil? persona)
                     (owns-persona? principal persona))
-              (handler req)
+              (handler (assoc req :principal principal))
               {:status 403
                :headers {"Content-Type" "application/json"}
                :body "{\"error\":\"Not your persona\"}"}))

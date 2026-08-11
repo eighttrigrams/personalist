@@ -158,6 +158,36 @@
         {:kind :human :account (:account c)}))))
 
 ;; ---------------------------------------------------------------------------
+;; Who wrote this version
+;;
+;; wrap-auth resolves the Bearer token to a principal and passes it down under
+;; :principal; this turns it into the marker a row carries. It is the whole of
+;; the translation, and it is three lines because the column holds a *name*
+;; rather than a category — see migration 005.
+;; ---------------------------------------------------------------------------
+
+(defn author-of
+  "The authorship marker for a request: a machine user's own **name** when a
+   machine token made it, and the literal \"human\" otherwise.
+
+   Admin is a human hand, even when editing another account's persona from
+   Settings — the exemption is about *whose* persona may be written, not about
+   what kind of writer is doing it.
+
+   **No principal at all also means \"human\"**, and that is the case worth
+   stating. It is dev mode: wrap-auth engages only in prod (server/prod-mode?),
+   so on the owner's own laptop nothing puts a principal on the request, and a
+   write there is a hand at a keyboard. Reading the absence the other way would
+   stamp everything he writes at home as an agent's — and an agent reading that
+   back would be told his own writing is free to rewrite, which is the one
+   mistake this feature exists to prevent."
+  [req]
+  (let [principal (:principal req)]
+    (if (= :machine (:kind principal))
+      (:name principal)
+      "human")))
+
+;; ---------------------------------------------------------------------------
 ;; The handlers that guard themselves
 ;;
 ;; wrap-auth guards writes and lets every GET through, because a GET here serves
@@ -744,7 +774,10 @@
    two-word name and :valid_from (ISO-8601) to now. Answers 201
    {:success true :id ...}. In prod mode the token must be :name's own or
    admin's — 401 without a token, 403 with another persona's. 409 when :id is
-   already in use under this persona, 404 when the persona does not exist."
+   already in use under this persona, 404 when the persona does not exist.
+
+   The first version is stamped with its author like every later one (see
+   author-of): a machine user's name, or \"human\"."
   [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         {:keys [id name text valid_from]} (:body req)
@@ -753,7 +786,8 @@
                valid_from (assoc :valid-from (Instant/parse valid_from))
                id (assoc :id (keyword id)))]
     (if persona
-      (let [generated-id (ds/add-identity (ensure-conn) persona name text (when (seq opts) opts))]
+      (let [generated-id (ds/add-identity (ensure-conn) persona name text (author-of req)
+                                          (when (seq opts) opts))]
         (if (false? generated-id)
           {:status 409 :body {:error "Identity with this ID already exists"}}
           {:status 201 :body {:success true :id (clojure.core/name generated-id)}}))
@@ -768,7 +802,12 @@
    Answers {:success true :valid-from <ISO-8601>}. There is no delete: an :id
    with no versions yet gets its first one here instead of a 404. In prod mode
    the token must be :name's own or admin's — 401 without a token, 403 with
-   another persona's. 404 when the persona does not exist."
+   another persona's. 404 when the persona does not exist.
+
+   **A relation-only change is authored like any other version.** Relations live
+   on the version row (002), so adding or removing one writes a version, and it
+   is stamped with whoever committed *that call* — not with whoever wrote the
+   text it carries forward unchanged."
   [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         identity-id (str->keyword (get-in req [:params :id]))
@@ -779,7 +818,7 @@
         t (if valid_from (Instant/parse valid_from) (Instant/now))]
     (if persona
       (do
-        (ds/save-identity-version (ensure-conn) persona identity-id name text
+        (ds/save-identity-version (ensure-conn) persona identity-id name text (author-of req)
                                   {:valid-from t
                                    :relation-adds (or relation_adds [])
                                    :relation-removes (or relation_removes [])})
@@ -809,14 +848,24 @@
   "GET /api/personas/:name/identities/:id/history — every version of an identity,
    oldest first: [{:identity :name :text :valid-from}]. This is what the version
    slider walks. Public, like every read here. 404 when the persona does not
-   exist; an unknown identity is an empty list rather than a 404."
+   exist; an unknown identity is an empty list rather than a 404.
+
+   **It does not carry :author, and the four keys are named rather than taken as
+   they come.** Every version now records who wrote it, and a machine user's
+   marker is its own *name* — so handing the row out whole would make the names
+   of an account's machine users public, on an unauthenticated endpoint, in one
+   line of nobody's diff. \"Nothing about machine users is public\" is a standing
+   property of this app; the authorship of an account's own personas is served
+   by the guarded provenance read instead."
   [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         identity-id (str->keyword (get-in req [:params :id]))
         persona (ds/get-persona-by-id (ensure-conn) persona-name)]
     (if persona
       (let [history (ds/get-identity-history (ensure-conn) persona identity-id)]
-        {:status 200 :body (serialize-response history)})
+        {:status 200
+         :body (serialize-response
+                (mapv #(select-keys % [:identity :name :text :valid-from]) history))})
       {:status 404 :body {:error "Persona not found"}})))
 
 (defn list-relations-handler

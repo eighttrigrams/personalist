@@ -103,10 +103,10 @@
           _ (ds/add-persona conn acc :spared nil)
           doomed (ds/get-persona-by-id conn :doomed)
           spared (ds/get-persona-by-id conn :spared)
-          gone (ds/add-identity conn doomed "goes" "away")
-          kept (ds/add-identity conn spared "stays" "put")]
+          gone (ds/add-identity conn doomed "goes" "away" "human")
+          kept (ds/add-identity conn spared "stays" "put" "human")]
       ;; a second version, so it is the whole history that goes and not one row
-      (ds/update-identity conn doomed gone "goes" "away, edited")
+      (ds/update-identity conn doomed gone "goes" "away, edited" "human")
       (are=
        2 (count (ds/get-identity-history conn doomed gone))
        1 (count (ds/list-identities conn spared)))
@@ -131,10 +131,10 @@
   (testing-with-conn "add and retrieve identities"
     (let [dan (persona! :dan "d@et.n")
           dan2 (persona! :dan2 "d2@et.n")
-          id11 (ds/add-identity conn dan "name11" "text11")
-          id12 (ds/add-identity conn dan "name12" "text12")
-          id21 (ds/add-identity conn dan2 "name21" "text21")
-          id22 (ds/add-identity conn dan2 "name22" "text22")]
+          id11 (ds/add-identity conn dan "name11" "text11" "human")
+          id12 (ds/add-identity conn dan "name12" "text12" "human")
+          id21 (ds/add-identity conn dan2 "name21" "text21" "human")
+          id22 (ds/add-identity conn dan2 "name22" "text22" "human")]
       (sets-are=
        [{:identity id11
          :name     "name11"
@@ -151,14 +151,36 @@
          :text     "text22"}]
        (ds/list-identities conn dan2)))))
 
+(deftest every-version-remembers-who-wrote-it
+  (testing-with-conn "the marker is a name, and it goes in and comes back verbatim"
+    (let [dan (persona! :dan "d@et.n")
+          t1 (Instant/parse "2020-01-01T00:00:00Z")
+          t2 (Instant/parse "2020-06-01T00:00:00Z")
+          t3 (Instant/parse "2020-12-01T00:00:00Z")
+          id (ds/add-identity conn dan "notes" "his own first line" "human" {:valid-from t1})]
+      (ds/save-identity-version conn dan id "notes" "an agent's second" "daniel-machine" {:valid-from t2})
+      (ds/update-identity conn dan id "notes" "another agent's third" "other-machine" {:valid-from t3})
+      (testing "- the history says who wrote each version, oldest first"
+        (are=
+         [["human" "his own first line"]
+          ["daniel-machine" "an agent's second"]
+          ["other-machine" "another agent's third"]]
+         (mapv (juxt :author :text) (ds/get-identity-history conn dan id))))
+      (testing "- nothing here validates the marker: the app takes sides in
+                et.pe.provenance, and one it has never seen falls to *them*"
+        (let [odd (ds/add-identity conn dan "odd" "text" "something-else-entirely")]
+          (are=
+           ["something-else-entirely"]
+           (mapv :author (ds/get-identity-history conn dan odd))))))))
+
 (deftest identity-time-travel
   (testing-with-conn "identities change over time but history is preserved"
     (let [dan (persona! :dan "d@et.n")
           t1 (Instant/parse "2020-01-01T00:00:00Z")
           t2 (Instant/parse "2020-06-01T00:00:00Z")
           query-time (Instant/parse "2020-03-01T00:00:00Z")
-          evolving-id (ds/add-identity conn dan "original name" "original text" {:valid-from t1})]
-      (ds/update-identity conn dan evolving-id "updated name" "updated text" {:valid-from t2})
+          evolving-id (ds/add-identity conn dan "original name" "original text" "human" {:valid-from t1})]
+      (ds/update-identity conn dan evolving-id "updated name" "updated text" "human" {:valid-from t2})
       (testing "- current query returns updated text"
         (is (= "updated text"
                (:text (first (filter #(= evolving-id (:identity %))
@@ -173,13 +195,13 @@
           t1 (Instant/parse "2020-01-01T00:00:00Z")
           t2 (Instant/parse "2020-06-01T00:00:00Z")
           t3 (Instant/parse "2020-12-01T00:00:00Z")
-          source-id (ds/add-identity conn dan "source" "source text" {:valid-from t1})
-          target-id (ds/add-identity conn dan "target" "target text" {:valid-from t1})
+          source-id (ds/add-identity conn dan "source" "source text" "human" {:valid-from t1})
+          target-id (ds/add-identity conn dan "target" "target text" "human" {:valid-from t1})
           relation-id (str (name source-id) "/" (name target-id))]
       ;; relations only change as part of saving an identity version
-      (ds/save-identity-version conn dan source-id "source v2" "source text v2"
+      (ds/save-identity-version conn dan source-id "source v2" "source text v2" "human"
                                 {:valid-from t2 :relation-adds [target-id]})
-      (ds/save-identity-version conn dan source-id "source v3" "source text v3"
+      (ds/save-identity-version conn dan source-id "source v3" "source text v3" "human"
                                 {:valid-from t3 :relation-removes [relation-id]})
       (testing "- querying before relation exists returns no relations"
         (is (= []
@@ -202,14 +224,14 @@
           t3 (Instant/parse "2020-06-01T00:00:00Z")
           t4 (Instant/parse "2020-09-01T00:00:00Z")
           t5 (Instant/parse "2020-12-01T00:00:00Z")
-          source-id (ds/add-identity conn dan "source" "v1" {:valid-from t1})
-          target-id (ds/add-identity conn dan "target" "target" {:valid-from t1})
+          source-id (ds/add-identity conn dan "source" "v1" "human" {:valid-from t1})
+          target-id (ds/add-identity conn dan "target" "target" "human" {:valid-from t1})
           relation-id (str (name source-id) "/" (name target-id))
           expected [{:id relation-id :target target-id :target-name "target" :description nil}]]
-      (ds/save-identity-version conn dan source-id "source" "v2" {:valid-from t2 :relation-adds [target-id]})
-      (ds/save-identity-version conn dan source-id "source" "v3" {:valid-from t3 :relation-removes [relation-id]})
-      (ds/save-identity-version conn dan source-id "source" "v4" {:valid-from t4 :relation-adds [target-id]})
-      (ds/save-identity-version conn dan source-id "source" "v5" {:valid-from t5 :relation-removes [relation-id]})
+      (ds/save-identity-version conn dan source-id "source" "v2" "human" {:valid-from t2 :relation-adds [target-id]})
+      (ds/save-identity-version conn dan source-id "source" "v3" "human" {:valid-from t3 :relation-removes [relation-id]})
+      (ds/save-identity-version conn dan source-id "source" "v4" "human" {:valid-from t4 :relation-adds [target-id]})
+      (ds/save-identity-version conn dan source-id "source" "v5" "human" {:valid-from t5 :relation-removes [relation-id]})
       (testing "- v1: no relation"
         (is (= [] (ds/list-relations conn dan source-id {:at (Instant/parse "2020-02-01T00:00:00Z")}))))
       (testing "- v2: relation exists"
@@ -229,12 +251,12 @@
           t1 (Instant/parse "2020-01-01T00:00:00Z")
           t2 (Instant/parse "2020-06-01T00:00:00Z")
           t3 (Instant/parse "2020-12-01T00:00:00Z")
-          source-id (ds/add-identity conn dan "source" "v1" {:valid-from t1})
-          target-id (ds/add-identity conn dan "target" "target" {:valid-from t1})
+          source-id (ds/add-identity conn dan "source" "v1" "human" {:valid-from t1})
+          target-id (ds/add-identity conn dan "target" "target" "human" {:valid-from t1})
           relation-id (str (name source-id) "/" (name target-id))]
-      (ds/save-identity-version conn dan source-id "source" "v2" {:valid-from t2 :relation-adds [target-id]})
+      (ds/save-identity-version conn dan source-id "source" "v2" "human" {:valid-from t2 :relation-adds [target-id]})
       ;; a plain edit (no relation changes) must not drop the relation
-      (ds/update-identity conn dan source-id "source" "v3" {:valid-from t3})
+      (ds/update-identity conn dan source-id "source" "v3" "human" {:valid-from t3})
       (is (= [{:id relation-id :target target-id :target-name "target" :description nil}]
              (ds/list-relations conn dan source-id))))))
 
@@ -243,10 +265,10 @@
     (let [dan (persona! :dan "d@et.n")
           t1 (Instant/parse "2020-01-01T00:00:00Z")
           t2 (Instant/parse "2020-06-01T00:00:00Z")
-          source-id (ds/add-identity conn dan "source" "v1" {:valid-from t1})
-          target-id (ds/add-identity conn dan "target" "target" {:valid-from t1})
+          source-id (ds/add-identity conn dan "source" "v1" "human" {:valid-from t1})
+          target-id (ds/add-identity conn dan "target" "target" "human" {:valid-from t1})
           relation-id (str (name source-id) "/" (name target-id))]
-      (ds/save-identity-version conn dan source-id "source" "v2"
+      (ds/save-identity-version conn dan source-id "source" "v2" "human"
                                 {:valid-from t2
                                  :relation-adds [{:target target-id :description "why they relate"}]})
       (is (= [{:id relation-id :target target-id :target-name "target" :description "why they relate"}]
@@ -258,12 +280,12 @@
           t1 (Instant/parse "2020-01-01T00:00:00Z")
           t2 (Instant/parse "2020-06-01T00:00:00Z")
           t3 (Instant/parse "2020-12-01T00:00:00Z")
-          source-id (ds/add-identity conn dan "source" "v1" {:valid-from t1})
-          target-id (ds/add-identity conn dan "target" "target" {:valid-from t1})
+          source-id (ds/add-identity conn dan "source" "v1" "human" {:valid-from t1})
+          target-id (ds/add-identity conn dan "target" "target" "human" {:valid-from t1})
           relation-id (str (name source-id) "/" (name target-id))
           expected [{:id relation-id :target target-id :target-name "target" :description nil}]]
       ;; add the relation as part of saving a new version, all tagged at t2
-      (ds/save-identity-version conn dan source-id "source" "v2"
+      (ds/save-identity-version conn dan source-id "source" "v2" "human"
                                 {:valid-from t2 :relation-adds [target-id]})
       (testing "- relation is visible at the exact version timestamp (regression: was tagged later than the version)"
         (is (= expected (ds/list-relations conn dan source-id {:at t2}))))
@@ -272,7 +294,7 @@
       (testing "- but not before that version existed"
         (is (= [] (ds/list-relations conn dan source-id {:at (Instant/parse "2020-03-01T00:00:00Z")}))))
       ;; remove it as part of saving a further version at t3
-      (ds/save-identity-version conn dan source-id "source" "v3"
+      (ds/save-identity-version conn dan source-id "source" "v3" "human"
                                 {:valid-from t3 :relation-removes [relation-id]})
       (testing "- removal takes effect exactly at the new version's timestamp"
         (is (= [] (ds/list-relations conn dan source-id {:at t3}))))
@@ -286,10 +308,10 @@
           t2 (Instant/parse "2020-06-01T00:00:00Z")
           query-before (Instant/parse "2020-03-01T00:00:00Z")
           query-after (Instant/parse "2020-09-01T00:00:00Z")
-          id1 (ds/add-identity conn dan "Alice" "original alice" {:valid-from t1})
-          id2 (ds/add-identity conn dan "Bob" "original bob" {:valid-from t1})
+          id1 (ds/add-identity conn dan "Alice" "original alice" "human" {:valid-from t1})
+          id2 (ds/add-identity conn dan "Bob" "original bob" "human" {:valid-from t1})
           a 1]
-      (ds/update-identity conn dan id1 "Alice Updated" "updated alice" {:valid-from t2})
+      (ds/update-identity conn dan id1 "Alice Updated" "updated alice" "human" {:valid-from t2})
       (testing "- search without cutoff returns current versions"
         (let [results (ds/search-identities conn dan "Alice")]
           (is (= 1 (count results)))

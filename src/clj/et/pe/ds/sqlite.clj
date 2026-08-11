@@ -486,8 +486,26 @@
                   page)
      :has-more has-more}))
 
+;; ---------------------------------------------------------------------------
+;; Who wrote a version
+;;
+;; `author` is a **required positional argument** of the two functions that
+;; write an identity version, and deliberately not an entry in their trailing
+;; opts map. Migration 005 gives the column a default of 'human', which is what
+;; lets one ALTER TABLE be both the constraint and the retrofit — but that
+;; default must never become the way authorship gets set: a write path that
+;; forgot to pass one would silently claim a person wrote it, which is a false
+;; claim in the dangerous direction. As a positional argument, forgetting it is
+;; an arity error where the call is written. As an opts key it would be a lie in
+;; a row nobody reads again.
+;;
+;; The marker is the literal "human", or a machine user's own name. Nothing here
+;; validates it: et.pe.provenance is where the app takes sides, and a marker it
+;; has never seen falls to *them*, which is the safe direction.
+;; ---------------------------------------------------------------------------
+
 (defn add-identity
-  [conn {persona-id :id :as _persona} nm text & [{:keys [valid-from id]}]]
+  [conn {persona-id :id :as _persona} nm text author & [{:keys [valid-from id]}]]
   (let [id (or id (keyword (urbit/generate-name)))
         composite-id (make-composite-id persona-id id)
         valid-from-epoch (instant->epoch valid-from)]
@@ -502,6 +520,7 @@
                                               :name nm
                                               :text text
                                               :valid_from valid-from-epoch
+                                              :author author
                                               :relations "[]"}]}))
         id))))
 
@@ -524,18 +543,42 @@
        :text (:text result)})))
 
 (defn get-identity-history
+  "Every version of an identity, **oldest first**, each with who wrote it.
+
+   The order is not incidental. `et.uvt.caution/assess` replays a history
+   forwards, and `valid_from :asc` is already that order — which is why
+   `et.pe.provenance` hands this list over as it comes. Both sibling apps have
+   to reverse theirs (cookbook's and rhizome's ladders arrive newest first), and
+   copying their `(reverse …)` here would attribute every line to whoever wrote
+   the version *after* it: not a crash and not a malformed answer, just a
+   confident inversion of who wrote what. et.pe.provenance-test pins it.
+
+   **The id breaks a tie on `valid_from`, and that is not decoration.** The
+   column is epoch *milliseconds* and update-identity-handler stamps
+   `Instant/now`, so two versions written in the same millisecond — an agent
+   writing in a loop, which is precisely the writer this feature is about — sort
+   arbitrarily without it, and a replay in the wrong order attributes each
+   line to whoever wrote the version beside it. `relation-blob-at` already
+   tie-breaks on `id` for the same reason in the other direction; the id is the
+   insertion order, which is what \"which came first\" means when the clock
+   cannot say.
+
+   `:author` is on every entry, so the caller decides who may see it — the
+   public history handler does not hand it out, because nothing about machine
+   users is public."
   [conn {persona-id :id :as _persona} id]
   (let [composite-id (make-composite-id persona-id id)
         results (jdbc/execute! (:conn conn)
-                               (sql/format {:select [:identity_id :name :text :valid_from]
+                               (sql/format {:select [:identity_id :name :text :valid_from :author]
                                             :from [:identities]
                                             :where [:= :composite_id composite-id]
-                                            :order-by [[:valid_from :asc]]})
+                                            :order-by [[:valid_from :asc] [:id :asc]]})
                                {:builder-fn rs/as-unqualified-lower-maps})]
     (mapv (fn [r]
             {:identity (str->kw (:identity_id r))
              :name (:name r)
              :text (:text r)
+             :author (:author r)
              :valid-from (epoch->instant (:valid_from r))})
           results)))
 
@@ -585,8 +628,11 @@
    live on the version row, they automatically share the version's timeline.
 
    `relation-adds`    - seq of target ids (or {:target .. :description ..} maps).
-   `relation-removes` - seq of relation ids in the form \"source/target\"."
-  [conn {persona-id :id :as _persona} id nm text & [{:keys [valid-from relation-adds relation-removes]}]]
+   `relation-removes` - seq of relation ids in the form \"source/target\".
+   `author`           - who is writing this version: \"human\", or a machine
+                        user's own name. Positional, and required, for the
+                        reason given above the write section."
+  [conn {persona-id :id :as _persona} id nm text author & [{:keys [valid-from relation-adds relation-removes]}]]
   (let [t (or valid-from (Instant/ofEpochMilli (System/currentTimeMillis)))
         current (relation-blob-at conn persona-id id nil)
         remove-targets (set (map relation-target relation-removes))
@@ -605,13 +651,14 @@
                                           :name nm
                                           :text text
                                           :valid_from (instant->epoch t)
+                                          :author author
                                           :relations (relations->json new-rels)}]}))
     t))
 
 (defn update-identity
   "Save a new identity version, carrying the current relation set forward unchanged."
-  [conn persona id nm text & [{:keys [valid-from]}]]
-  (save-identity-version conn persona id nm text {:valid-from valid-from}))
+  [conn persona id nm text author & [{:keys [valid-from]}]]
+  (save-identity-version conn persona id nm text author {:valid-from valid-from}))
 
 (defn list-relations
   [conn {persona-id :id :as _persona} source-id & [{:keys [at]}]]

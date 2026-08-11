@@ -29,9 +29,12 @@
 (defn list-identities [conn persona] (sqlite/list-identities conn persona))
 (defn get-identity [conn persona identity-id] (sqlite/get-identity conn persona identity-id))
 (defn list-recent-identities [conn persona limit offset] (sqlite/list-recent-identities conn persona limit offset))
-(defn add-identity [conn persona nm text & [opts]] (sqlite/add-identity conn persona nm text opts))
-(defn update-identity [conn persona id nm text & [opts]] (sqlite/update-identity conn persona id nm text opts))
-(defn save-identity-version [conn persona id nm text & [opts]] (sqlite/save-identity-version conn persona id nm text opts))
+;; `author` is positional on the three writes below, and stays positional as it
+;; is passed on: see the write section of ds.sqlite for why the loud failure
+;; belongs in the signature rather than in a default nobody sees.
+(defn add-identity [conn persona nm text author & [opts]] (sqlite/add-identity conn persona nm text author opts))
+(defn update-identity [conn persona id nm text author & [opts]] (sqlite/update-identity conn persona id nm text author opts))
+(defn save-identity-version [conn persona id nm text author & [opts]] (sqlite/save-identity-version conn persona id nm text author opts))
 (defn get-identity-at [conn persona id time-point] (sqlite/get-identity-at conn persona id time-point))
 (defn get-identity-history [conn persona id] (sqlite/get-identity-history conn persona id))
 (defn list-relations [conn persona source-id & [opts]] (sqlite/list-relations conn persona source-id opts))
