@@ -14,19 +14,31 @@ API_BASE="http://localhost:$PORT"
 
 echo "Seeding database..."
 
-# An account is the email and the password; a persona is the public address it
-# is reached at. POST /api/accounts makes both at once, so alice and bob come
-# out as one account each with one persona. (POST /api/personas adds a further
-# persona to an account that already exists, which is not what seeding wants.)
-# This runs in dev, where wrap-auth is off, so no token is needed.
-echo "Creating accounts and their first personas..."
-curl -s -X POST -H "Content-Type: application/json" \
-  -d '{"id":"alice","email":"alice@example.com","name":"Alice Johnson"}' \
-  "$API_BASE/api/accounts" > /dev/null
+# An account is an email and a password, and it may hold no personas at all —
+# POST /api/accounts creates only the account. So seeding is two steps per user:
+# create the account, read its id out of the response, and create the persona
+# under it with :account_id. That field is admin's, and this runs in dev with
+# :dangerously-skip-logins?, where every caller counts as admin — which is why
+# no token is needed here.
+create_account() {          # create_account <email> -> prints the new account id
+  curl -s -X POST -H "Content-Type: application/json" \
+    -d "{\"email\":\"$1\"}" \
+    "$API_BASE/api/accounts" \
+  | sed -n 's/.*"id":\([0-9]*\).*/\1/p'
+}
 
-curl -s -X POST -H "Content-Type: application/json" \
-  -d '{"id":"bob","email":"bob@example.com","name":"Bob Smith"}' \
-  "$API_BASE/api/accounts" > /dev/null
+create_persona() {          # create_persona <account-id> <persona-id> <display name>
+  curl -s -X POST -H "Content-Type: application/json" \
+    -d "{\"account_id\":$1,\"id\":\"$2\",\"name\":\"$3\"}" \
+    "$API_BASE/api/personas" > /dev/null
+}
+
+echo "Creating accounts and their personas..."
+ALICE_ACCOUNT=$(create_account "alice@example.com")
+create_persona "$ALICE_ACCOUNT" "alice" "Alice Johnson"
+
+BOB_ACCOUNT=$(create_account "bob@example.com")
+create_persona "$BOB_ACCOUNT" "bob" "Bob Smith"
 
 echo "Creating identities for alice..."
 
