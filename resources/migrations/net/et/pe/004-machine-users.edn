@@ -19,6 +19,16 @@
       ;; beside itself and renamed, exactly as 003 rebuilt `personas`.
       ;; IF EXISTS on the scratch table: :transactions is false, so a run that
       ;; died halfway leaves its debris behind and the retry has to survive it.
+      ;; Save the AUTOINCREMENT high-water mark before the rebuild destroys it.
+      ;; The rebuild drops accounts' sqlite_sequence row and the copy re-creates
+      ;; it at MAX(id) of the rows inserted, so after a rebuild the next account
+      ;; would be handed the id of the last account that had been *deleted*.
+      ;; That matters here specifically: a JWT carries {:account <id>} and never
+      ;; expires, so a token minted for a since-deleted account would, once its
+      ;; id was reused, authenticate as a different account.
+      "DROP TABLE IF EXISTS accounts_seq_keep"
+      "CREATE TABLE accounts_seq_keep AS
+         SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'accounts'), 0) AS seq"
       "DROP TABLE IF EXISTS accounts_rebuilt"
       "CREATE TABLE accounts_rebuilt (
          id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,12 +46,17 @@
       ;; new columns take their defaults.
       "INSERT INTO accounts_rebuilt (id, email, password_hash)
          SELECT id, email, password_hash FROM accounts"
-      ;; The rebuild drops accounts' sqlite_sequence row and re-creates it at
-      ;; MAX(id) of what was copied. Every account row is copied here — nothing
-      ;; is filtered out — so the high-water mark is unchanged and the next
-      ;; insert cannot be handed a deleted account's id.
       "DROP TABLE accounts"
       "ALTER TABLE accounts_rebuilt RENAME TO accounts"
+      ;; Put the mark back. DELETE then INSERT rather than INSERT OR REPLACE:
+      ;; sqlite_sequence has no unique index on `name`, so a replace quietly
+      ;; leaves two rows for one table. max(saved, largest surviving id) covers
+      ;; the empty-table case, where 0 is harmless — the next id is seq + 1.
+      "DELETE FROM sqlite_sequence WHERE name = 'accounts'"
+      "INSERT INTO sqlite_sequence (name, seq)
+         SELECT 'accounts', max(k.seq, COALESCE((SELECT MAX(id) FROM accounts), 0))
+           FROM accounts_seq_keep k"
+      "DROP TABLE accounts_seq_keep"
 
       ;; Uniqueness moves from the column to two partial indexes, tracker's own
       ;; device. WHERE is what makes them not collide: a human is simply not in
@@ -79,7 +94,12 @@
  ;; As in 003, the INSERT comes before any DROP: with :transactions false there
  ;; is nothing to undo, so the statement that fails must be one that has not yet
  ;; destroyed anything.
- :down ["DROP TABLE IF EXISTS accounts_old"
+ ;; A rollback that reuses a deleted id is the same bug, so it saves and
+ ;; restores the mark exactly as :up does.
+ :down ["DROP TABLE IF EXISTS accounts_seq_keep"
+        "CREATE TABLE accounts_seq_keep AS
+           SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'accounts'), 0) AS seq"
+        "DROP TABLE IF EXISTS accounts_old"
         "CREATE TABLE accounts_old (
            id INTEGER PRIMARY KEY AUTOINCREMENT,
            email TEXT UNIQUE NOT NULL,
@@ -92,6 +112,11 @@
         "DROP INDEX IF EXISTS idx_accounts_email"
         "DROP TABLE accounts"
         "ALTER TABLE accounts_old RENAME TO accounts"
+        "DELETE FROM sqlite_sequence WHERE name = 'accounts'"
+        "INSERT INTO sqlite_sequence (name, seq)
+           SELECT 'accounts', max(k.seq, COALESCE((SELECT MAX(id) FROM accounts), 0))
+             FROM accounts_seq_keep k"
+        "DROP TABLE accounts_seq_keep"
         "DROP INDEX IF EXISTS idx_grants_persona"
         "DROP TABLE IF EXISTS machine_persona_grants"]
  :transactions false}

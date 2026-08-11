@@ -310,29 +310,64 @@
           :else (recur (inc attempts)))))))
 
 (defn me-handler
-  "GET /api/me — the account behind the request: {:email :personas [{:id :name
-   :sort-order}]}, its personas in the order the account holds them. Together
-   with GET /api/accounts this is one of the two guarded reads in the app: an
-   anonymous visitor learns that personas exist and nothing about who holds
-   them, so the one read that pairs an email with a persona list has to prove
-   it is that account's own. 401 without a verifying token, or when the account
-   the token names is gone. An admin token answers {:admin true} — admin has no
-   account of its own. In dev with :dangerously-skip-logins? nothing mints a
-   token, so ?persona=<id> names the persona whose account to answer for (and
-   ?persona=admin the admin screen); that branch exists only in that mode."
+  "GET /api/me — who the caller is. Together with GET /api/accounts this is one
+   of the two guarded reads in the app: an anonymous visitor learns that personas
+   exist and nothing about who holds them, so the one read that pairs an email
+   with a persona list has to prove it is that account's own. It answers three
+   different shapes, for the three kinds of caller:
+
+   - a **human**: {:email :personas [{:id :name :sort-order}]
+     :machine-users [{:name :can-create :personas [<granted id>...]}]} — the
+     account, its personas in the order it holds them, and its machine users
+     with their grants. That last list is the checkbox grid of the profile page,
+     as data. No token or token hash ever appears here; only minting and
+     rotation ever return one.
+   - a **machine user**: {:name :machine true :can-create :personas [<granted
+     id>...]} — itself and nothing else. Never the account's roster, never the
+     owner's email, never the personas it was not granted. A machine user has no
+     browser session and no business seeing its siblings.
+   - **admin**: {:admin true}. Admin has no account of its own.
+
+   401 without a verifying token, when the account the token names is gone, or
+   when a machine token has been rotated away. In dev with
+   :dangerously-skip-logins? nothing mints a token, so ?persona=<id> names the
+   persona whose account to answer for (and ?persona=admin the admin screen);
+   that branch exists only in that mode."
   [prod-mode?]
   (fn [req]
     (let [dev? (allow-skip-logins? prod-mode?)
+          token (bearer-token req)
           admin? (if dev?
                    (= "admin" (dev-persona-param req))
                    (true? (:admin (claims req))))]
-      (if admin?
+      (cond
+        admin?
         {:status 200 :body {:admin true}}
+
+        ;; A machine token is answered about itself, before the human branch,
+        ;; because acting-account would refuse it anyway and the 401 would be
+        ;; true but useless — it *is* authenticated, just not as a person.
+        (machine-token? token)
+        (if-let [m (machine-user-for-token token)]
+          {:status 200
+           :body (serialize-response
+                  {:name (:name m)
+                   :machine true
+                   :can-create (:can-create-personas? m)
+                   :personas (ds/granted-personas (ensure-conn) (:id m))})}
+          (unauthenticated))
+
+        :else
         (if-let [account (acting-account-row req prod-mode?)]
           {:status 200
            :body (serialize-response
                   {:email (:email account)
-                   :personas (ds/list-personas-for-account (ensure-conn) (:id account))})}
+                   :personas (ds/list-personas-for-account (ensure-conn) (:id account))
+                   :machine-users (mapv (fn [m]
+                                          {:name (:name m)
+                                           :can-create (:can-create-personas? m)
+                                           :personas (:personas m)})
+                                        (ds/list-machine-users (ensure-conn) (:id account)))})}
           (unauthenticated))))))
 
 (defn- creating-account

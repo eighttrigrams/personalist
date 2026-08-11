@@ -154,7 +154,10 @@
             (is (= 200 (:status res)))
             (is (= {:email "d@et.n"
                     :personas [{:id "first-face" :name "First" :sort-order 0}
-                               {:id "second-face" :name "Second" :sort-order 1}]}
+                               {:id "second-face" :name "Second" :sort-order 1}]
+                    ;; an account with no machine users still says so, rather
+                    ;; than omitting the key and making the client guess
+                    :machine-users []}
                    (seen res)))
             (is (not (re-find #"not-mine" (pr-str (:body res))))
                 "and nobody else's")))
@@ -658,3 +661,57 @@
         (is (= account (:account-id (ds/get-persona-by-id conn :by-hand))))
         (testing "and grants nothing to any machine user by doing so"
           (is (= [:face-a] (ds/granted-personas conn (:id (ds/get-machine-user conn "daniel-machine"))))))))))
+
+;; ---------------------------------------------------------------------------
+;; /api/me answers two different questions, depending who asks
+;; ---------------------------------------------------------------------------
+
+(deftest me-tells-a-human-about-its-machine-users
+  (with-app
+    (fn [conn]
+      (let [{:keys [account human-token machine]} (machine-fixture conn)]
+        (ds/add-machine-user conn account "second-machine" {:can-create-personas? true})
+        (ds/grant-persona conn (:id (ds/get-machine-user conn "second-machine")) :face-b)
+
+        (let [body (seen ((handlers/me-handler true) (as human-token)))]
+          (testing "the roster, with each one's grants — the checkbox grid, as data"
+            (is (= [{:name "daniel-machine" :can-create false :personas ["face-a"]}
+                    {:name "second-machine" :can-create true :personas ["face-b"]}]
+                   (:machine-users body))))
+
+          (testing "and the personas are still there for the grid's columns"
+            (is (= ["face-a" "face-b"] (map :id (:personas body)))))
+
+          (testing "no token ever comes back here, not even its hash"
+            (is (not (str/includes? (pr-str body) "pmu_")))
+            (is (not (str/includes? (pr-str body) (:token-hash (ds/get-machine-user conn "daniel-machine")))))
+            (is (not (str/includes? (pr-str body) "token")))))
+
+        (testing "another account sees none of them"
+          (let [other (ds/add-account conn "z@et.n" nil)]
+            (ds/add-persona conn other :zeta "Z")
+            (is (= [] (:machine-users (seen ((handlers/me-handler true) (as (create-token other))))))))))))) 
+
+(deftest me-tells-a-machine-user-about-itself
+  (with-app
+    (fn [conn]
+      (let [{:keys [machine-token]} (machine-fixture conn)
+            body (seen ((handlers/me-handler true) (as machine-token)))]
+
+        (testing "its own name, what it may do, and what it may write"
+          (is (= {:name "daniel-machine" :machine true :can-create false :personas ["face-a"]}
+                 body)))
+
+        (testing "and never the account's roster — a machine user is not shown
+                  the other machine users, nor the personas it was not granted"
+          (is (nil? (:machine-users body)))
+          (is (not (str/includes? (pr-str body) "face-b")))
+          (is (not (str/includes? (pr-str body) "@")) "nor its owner's email"))))))
+
+(deftest me-refuses-a-rotated-away-machine-token
+  (with-app
+    (fn [conn]
+      (let [{:keys [machine-token]} (machine-fixture conn)]
+        (is (= 200 (:status ((handlers/me-handler true) (as machine-token)))))
+        (handlers/mint-machine-token! "daniel-machine")
+        (is (= 401 (:status ((handlers/me-handler true) (as machine-token)))))))))

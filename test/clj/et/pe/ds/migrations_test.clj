@@ -251,3 +251,50 @@
       (testing "a machine user has no email, and the old shape demands one — so the
                 rollback hits NOT NULL rather than inventing one or dropping the row"
         (is (thrown? Exception (rollback! store "004-machine-users")))))))
+
+;; A rebuild drops the table's sqlite_sequence row and the copy re-creates it at
+;; MAX(id) of the rows actually inserted — so the next insert is handed the id of
+;; the last account that had been *deleted* before the migration. Nothing looks
+;; wrong. It bites because a JWT carries {:account <id>} and never expires: a
+;; token minted for a since-deleted account would, after the id is reused,
+;; authenticate as a different one.
+;;
+;; The suite's other fixtures never delete the last row, so the counter never
+;; differs from MAX(id) and every one of them passes either way. This is the
+;; test that makes the gap exist.
+(deftest the-account-id-counter-survives-the-rebuild
+  (with-open [conn (fresh-db "mig004-seq")]
+    (let [store (ragtime-jdbc/sql-database (jdbc/with-options conn {}))]
+      (through-003! conn store)
+      ;; a fifth account, then deleted: MAX(id) is 4 again but the high-water
+      ;; mark is 5, which is exactly the state a real database gets into
+      (jdbc/execute! conn ["INSERT INTO accounts (email) VALUES ('gone@et.n')"])
+      (let [gone (:id (first (q conn "SELECT id FROM accounts WHERE email = 'gone@et.n'")))]
+        (jdbc/execute! conn ["DELETE FROM accounts WHERE email = 'gone@et.n'"])
+        (is (= 4 (count (q conn "SELECT id FROM accounts"))))
+
+        (run-migrations! store ["004-machine-users"])
+
+        (testing "the next account gets a fresh id, never the deleted one's"
+          (jdbc/execute! conn ["INSERT INTO accounts (email) VALUES ('new@et.n')"])
+          (let [new-id (:id (first (q conn "SELECT id FROM accounts WHERE email = 'new@et.n'")))]
+            (is (= (inc gone) new-id)
+                (str "expected " (inc gone) ", got " new-id
+                     " — the rebuild reset sqlite_sequence, so a JWT for the deleted"
+                     " account " gone " would now name this one"))))))))
+
+(deftest the-account-id-counter-survives-the-rollback-too
+  (with-open [conn (fresh-db "mig004-seq-down")]
+    (let [store (ragtime-jdbc/sql-database (jdbc/with-options conn {}))]
+      (through-003! conn store)
+      (run-migrations! store ["004-machine-users"])
+      (jdbc/execute! conn ["INSERT INTO accounts (email) VALUES ('gone@et.n')"])
+      (let [gone (:id (first (q conn "SELECT id FROM accounts WHERE email = 'gone@et.n'")))]
+        (jdbc/execute! conn ["DELETE FROM accounts WHERE email = 'gone@et.n'"])
+
+        (rollback! store "004-machine-users")
+
+        (testing "a rollback that reuses a deleted id is the same bug"
+          (jdbc/execute! conn ["INSERT INTO accounts (email) VALUES ('new@et.n')"])
+          (is (= (inc gone)
+                 (:id (first (q conn "SELECT id FROM accounts WHERE email = 'new@et.n'")))))))))) 
