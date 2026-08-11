@@ -1,3 +1,31 @@
+> **Done 2026-08-11.** Six commits, one per stage, `4a30cde` → `2a2cd82`:
+> migration 005 · the principal carried to the write · `et.pe.provenance` ·
+> the guarded read · the view · the docs. Full suite green at 109 tests / 729
+> assertions; checked in a Playwright-driven browser and reported in
+> `handoffs/personalist-version-authorship-and-provenance-report.md`.
+>
+> **What did the trick** was that the plan's two silent-failure warnings were
+> both real, and writing the test *first* is what caught a third:
+>
+> - The `(reverse …)` both sibling adapters need and this one must not have is
+>   pinned by `provenance-test/the-history-is-not-reversed`, checked by adding
+>   the reverse and watching four assertions redden.
+> - Making `author` a required *positional* argument turned every forgotten
+>   write into an arity error at compile time, which is how all of them were
+>   found.
+> - **Not in the plan:** `ds/get-identity-history` did not tie-break on `id`.
+>   `valid_from` is epoch milliseconds and two versions written in the same
+>   millisecond — an agent writing in a loop, precisely the writer this
+>   feature is about — sorted arbitrarily, and a replay in the wrong order
+>   attributes lines to whoever wrote the version beside them. Found by
+>   `a-machine-user-s-version-carries-its-own-name`, which asked for three
+>   versions in a row and got them back in the wrong order.
+>
+> The deploy plumbing needed nothing added: `plurama/Dockerfile` already puts
+> the sibling at `/opt/us-vs-them` for cookbook's sake, and does so before the
+> uberjar step that resolves personalist's classpath. Details, plus the
+> re-takeable-machine-name caveat, are in the report.
+
 # Version authorship, and a provenance view for the human who owns the persona
 
 ## What the owner asked for
