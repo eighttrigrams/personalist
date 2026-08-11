@@ -215,10 +215,12 @@
     (true? (:admin (claims req)))))
 
 (defn- refuse-non-admin
-  "401 without a verifying token, 403 with one that is not admin's — the same
-   distinction wrap-auth draws for writes."
+  "401 without a credential at all, 403 with one that is simply not admin's —
+   the same distinction wrap-auth draws for writes. A machine token counts as a
+   credential even though it is not a JWT and `claims` cannot read it: it *is*
+   authenticated, just not as admin, so it earns the 403."
   [req]
-  (if (claims req)
+  (if (bearer-token req)
     {:status 403 :body {:success false :error "Admin only"}}
     {:status 401 :body {:success false :error "Authentication required"}}))
 
@@ -254,7 +256,7 @@
   "401 with no credential at all, 403 with one that is simply not entitled —
    the same distinction wrap-auth draws for writes."
   [req]
-  (if (or (bearer-token req) (claims req))
+  (if (bearer-token req)
     {:status 403 :body {:success false :error "Machine users are managed by their own account"}}
     (unauthenticated)))
 

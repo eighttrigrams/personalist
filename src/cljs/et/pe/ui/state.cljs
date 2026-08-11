@@ -682,6 +682,61 @@
      :error-handler (fn [err]
                       (on-error (or (get-in err [:response :error]) "Could not remove persona")))}))
 
+(defn create-machine-user
+  "Mint a machine user under the logged-in account. The token comes back in the
+   response and nowhere else, ever — only its hash is kept — so the caller must
+   put it in front of the user at once."
+  [nm can-create? on-success on-error]
+  (POST (acting-as (str api-base "/api/machine-users"))
+    {:params {:name nm :can_create can-create?}
+     :format :json
+     :response-format :json
+     :keywords? true
+     :headers (auth-headers)
+     :handler (fn [res] (fetch-me (fn [_] (on-success res)) nil))
+     :error-handler (fn [err]
+                      (on-error (or (get-in err [:response :error]) "Could not create machine user")))}))
+
+(defn rotate-machine-token
+  "Issue a new token and answer it, once. Whatever is using the old one stops
+   working the moment this returns."
+  [nm on-success on-error]
+  (POST (acting-as (str api-base "/api/machine-users/" (js/encodeURIComponent nm) "/token"))
+    {:format :json
+     :response-format :json
+     :keywords? true
+     :headers (auth-headers)
+     :handler (fn [res] (on-success res))
+     :error-handler (fn [err]
+                      (on-error (or (get-in err [:response :error]) "Could not rotate token")))}))
+
+(defn update-machine-user
+  "Set which personas a machine user may write, and whether it may create them.
+   :personas is the whole grant list rather than a patch — it is the checkbox
+   grid, and the server replaces what it holds with what is sent."
+  [nm {:keys [personas can-create?]} on-success on-error]
+  (PUT (acting-as (str api-base "/api/machine-users/" (js/encodeURIComponent nm)))
+    {:params (cond-> {}
+               personas (assoc :personas personas)
+               (some? can-create?) (assoc :can_create can-create?))
+     :format :json
+     :response-format :json
+     :keywords? true
+     :headers (auth-headers)
+     :handler (fn [_] (fetch-me (fn [_] (on-success)) nil))
+     :error-handler (fn [err]
+                      (on-error (or (get-in err [:response :error]) "Could not save")))}))
+
+(defn delete-machine-user [nm on-success on-error]
+  (DELETE (acting-as (str api-base "/api/machine-users/" (js/encodeURIComponent nm)))
+    {:format :json
+     :response-format :json
+     :keywords? true
+     :headers (auth-headers)
+     :handler (fn [_] (fetch-me (fn [_] (on-success)) nil))
+     :error-handler (fn [err]
+                      (on-error (or (get-in err [:response :error]) "Could not remove machine user")))}))
+
 (defn fetch-accounts
   "The admin listing: every account with its email and its personas."
   []

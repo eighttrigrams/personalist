@@ -324,6 +324,15 @@
                   {:email "bob@et.n" :personas [{:id "bob" :name "Bob" :sort-order 0}]}]
                  (mapv #(dissoc % :id) (seen res))))))
 
+      (testing "a machine token is refused as forbidden, not as unauthenticated —
+                it is a credential, just not an admin one"
+        (let [acc (ds/get-account-by-email conn "alice@et.n")]
+          (ds/add-machine-user conn (:id acc) "alice-machine" {})
+          (let [mt (handlers/mint-machine-token! "alice-machine")]
+            (is (= 403 (:status ((handlers/list-accounts-handler true) (as mt)))))
+            (is (= 403 (:status ((handlers/add-account-handler true)
+                                 (as mt :body {:id "x" :email "x@et.n" :password "pw" :name "X"}))))))))
+
       (testing "and neither endpoint answers to anyone else"
         (let [ordinary (create-token (:id (ds/get-account-by-email conn "alice@et.n")))]
           (is (= 403 (:status ((handlers/list-accounts-handler true) (as ordinary)))))
