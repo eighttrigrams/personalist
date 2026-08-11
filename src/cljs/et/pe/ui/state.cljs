@@ -321,8 +321,14 @@
                  persona (or (first (filter #(= (:id %) last-active) (:personas account)))
                              (first (:personas account)))]
              ;; An account may hold none. It is logged in all the same — :account
-             ;; is what says so — with no active persona until it makes one.
+             ;; is what says so — with no active persona until it makes one, and
+             ;; the profile page is where it makes one. Only when the URL names
+             ;; no persona of its own: arriving at /someone-else means to look at
+             ;; someone else, and being logged in holding nothing does not change
+             ;; that.
              (swap! app-state assoc :auth-user persona)
+             (when (and (nil? persona) (nil? (:persona-id (parse-url))))
+               (swap! app-state assoc :current-tab :profile))
              (save-auth-persona (:id persona))))
          (on-done))
        (fn [_]
