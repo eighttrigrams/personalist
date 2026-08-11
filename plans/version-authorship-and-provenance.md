@@ -1,3 +1,8 @@
+> **Re-opened 2026-08-11, same day**, for stage 7 below — the owner's follow-up:
+> a machine user must get the provenance back **in the body of the plain
+> single-identity read**, not from a second request. Not a new feature; the same
+> one, finished. The note below covers stages 1–6 and is left as it was written.
+
 > **Done 2026-08-11.** Six commits, one per stage, `4a30cde` → `2a2cd82`:
 > migration 005 · the principal carried to the write · `et.pe.provenance` ·
 > the guarded read · the view · the docs. Full suite green at 109 tests / 729
@@ -238,3 +243,75 @@ more than the code around them.
   `push`, no `rebase`.
 - This file moved to `plans/done/` with a note at the top: when, what did the
   trick, and the commits.
+
+---
+
+# Stage 7 — the provenance rides along on the single-identity read
+
+## What the owner asked for, and what the first order got wrong
+
+*"when a MACHINE USER retrieves GET /api/personas/:name/identities/:id — the
+plain single-identity read — the provenance must come back IN THAT SAME BODY,
+immediately, not from a second request."*
+
+Stages 1–6 built a **dedicated** guarded route and stopped there, which is
+half the sibling pattern rather than all of it. Both siblings ride the answer
+along on the read an agent already makes:
+
+- `cookbook/src/clj/et/cb/server/recipe_handler.clj` — `caution-body` and its
+  use in `get-recipe-handler`. Two things to take verbatim: the legend and the
+  ranges are **one key**, because *"neither half is meaningful alone: the
+  numbers need reading and the reading is about nothing without them"*; and a
+  caller not to be served it gets **no key at all**, the shape `tags` and
+  `scopes` already take there, never a null or an empty list.
+- `rhizome/src/clj/rest_api/queries.clj` — `get-item` attaches `:caution` on
+  the single-item fetch and its docstring says why it is there: *"the one
+  number in this API written for an agent to act on before it edits something,
+  so read it before a PUT that rewrites a description."* That sentence is the
+  whole justification for this stage: an agent that has to make a second call
+  to find out what it may rewrite will not make it.
+
+The dedicated `/provenance` route **stays**. It carries per-version authorship
+(`:versions`), which is what the human's view draws its "written by …" line
+from; this stage only stops it being the only way in.
+
+## Decisions
+
+**`:provenance {:legend :ranges}` on `get-identity-handler`, and never
+`:versions` there.** `:versions` names an account's machine users. A machine
+user must not learn its siblings' names — `/api/me` already refuses it that,
+deliberately — and this route is the one a machine user reads. So the two
+routes differ in shape on purpose, and the difference is the audience.
+
+**Present only for a caller entitled to it**, computed nowhere else:
+
+- a **machine token on a persona it may write** — its grant is the entitlement,
+  the same grant that lets it PUT there. A machine token on a persona it was
+  not granted gets no key, like any other stranger.
+- the **owning human account**, and **admin**.
+- a **visitor** gets exactly the keys the route gives today, and the ranges are
+  **not computed at all** for it. That is not only privacy: `assess` is linear
+  in versions and quadratic in lines, and this is the app's single-identity
+  read. Pin it with a test that reddens if the guard is ever evaluated after
+  the arithmetic rather than before it.
+
+**It costs a history read and a fold on this route for every entitled caller**,
+including the logged-in human's own browsing, which pays for it on each identity
+it opens whether or not the panel is showing. Cookbook says the same about its
+hottest route and does it anyway; it is the first thing to look at if this read
+ever gets slow, and the answer then is a cache keyed on the newest
+`valid_from`, not a narrowing of who is served.
+
+## Tests, red first
+
+A machine token on a granted persona gets `:provenance` with `:legend` and
+`:ranges` and **no** `:versions`; a machine token on a persona it may not write
+gets no key; the owning human gets the key; a visitor gets exactly today's keys;
+and the anonymous read does not compute the ranges.
+
+## Docs
+
+`get-identity-handler`'s docstring is where an agent meets this — rhizome's
+`get-item` is the model, down to saying to split on `\n` keeping trailing empty
+fields, and that this is not a version list. `specs/startup.md` too, after the
+`us-vs-them` heritage check.
