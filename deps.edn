@@ -18,6 +18,15 @@
         metosin/malli                     {:mvn/version "0.20.0"}
         fmnoise/flow                      {:mvn/version "4.3.0"}
         nrepl/nrepl                       {:mvn/version "1.7.0"}
+        ;; Line-level provenance — who wrote which lines of an identity's text,
+        ;; given its version history. A sibling checkout by :local/root like every
+        ;; other cross-app dependency in this suite; cookbook and rhizome name it
+        ;; exactly this way. It resolves relative to *this file*, so the checkout
+        ;; has to sit beside personalist's — in the box that is /workspace/us-vs-them,
+        ;; and in the umbrella build /opt/us-vs-them, which plurama/Dockerfile
+        ;; already copies for cookbook's sake. A clone without the sibling fails on
+        ;; the first clj invocation rather than at the point of use.
+        eighttrigrams/us-vs-them          {:local/root "../us-vs-them"}
         }
  :aliases {:run {:exec-fn et.pe.server/-main}
            :test {:extra-paths ["test/clj"]
