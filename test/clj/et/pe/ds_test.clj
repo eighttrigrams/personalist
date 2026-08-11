@@ -302,3 +302,128 @@
         (let [results (ds/search-identities conn dan "Alice" {:at query-after})]
           (is (= 1 (count results)))
           (is (= "Alice Updated" (:name (first results)))))))))
+
+;; ---------------------------------------------------------------------------
+;; Machine users: accounts rows under a human account, with one grant row per
+;; persona they may write. They hold no password and never log in.
+;; ---------------------------------------------------------------------------
+
+(deftest machine-users-sit-under-an-account
+  (testing-with-conn "an account may hold several, each with its own grants"
+    (let [mine (ds/add-account conn "d@et.n" "hash")
+          theirs (ds/add-account conn "e@et.n" "hash")]
+      (ds/add-persona conn mine :face-a "A")
+      (ds/add-persona conn mine :face-b "B")
+      (ds/add-persona conn mine :face-c "C")
+      (ds/add-persona conn theirs :not-mine "Theirs")
+
+      (let [one (ds/add-machine-user conn mine "writer-ac" {:can-create-personas? false})
+            two (ds/add-machine-user conn mine "writer-bc" {:can-create-personas? true})]
+        (testing "- minting one hands back its account id"
+          (is (integer? one))
+          (is (integer? two))
+          (is (not= one two)))
+
+        (testing "- the name is taken now, globally rather than per account"
+          (are=
+           false (ds/add-machine-user conn mine "writer-ac" {})
+           false (ds/add-machine-user conn theirs "writer-ac" {})))
+
+        (testing "- it is an account row, but never one that can log in"
+          (are=
+           nil (ds/get-account-by-email conn nil)
+           nil (ds/get-account-password-hash conn one))
+          (is (nil? (:email (ds/get-machine-user conn "writer-ac")))))
+
+        ;; the owner's own example: one writes A and C, the other B and C
+        (ds/grant-persona conn one :face-a)
+        (ds/grant-persona conn one :face-c)
+        (ds/grant-persona conn two :face-b)
+        (ds/grant-persona conn two :face-c)
+
+        (testing "- the grants are exactly what was granted"
+          (are=
+           [:face-a :face-c] (ds/granted-personas conn one)
+           [:face-b :face-c] (ds/granted-personas conn two)))
+
+        (testing "- granting twice is the same grant, not an error"
+          (ds/grant-persona conn one :face-a)
+          (are= [:face-a :face-c] (ds/granted-personas conn one)))
+
+        (testing "- and the question the guard actually asks"
+          (are=
+           true  (ds/machine-may-write? conn one :face-a)
+           false (ds/machine-may-write? conn one :face-b)
+           true  (ds/machine-may-write? conn one :face-c)
+           false (ds/machine-may-write? conn one :not-mine)
+           false (ds/machine-may-write? conn 9999 :face-a)))
+
+        (testing "- a machine user knows its parent and its permission"
+          (are=
+           {:id one :name "writer-ac" :for-account-id mine :can-create-personas? false}
+           (dissoc (ds/get-machine-user conn "writer-ac") :email :token-hash)
+           {:id two :name "writer-bc" :for-account-id mine :can-create-personas? true}
+           (dissoc (ds/get-machine-user conn "writer-bc") :email :token-hash)
+           nil (ds/get-machine-user conn "no-such-machine")))
+
+        (testing "- the account's roster, in name order"
+          (are=
+           [{:id one :name "writer-ac" :can-create-personas? false :personas [:face-a :face-c]}
+            {:id two :name "writer-bc" :can-create-personas? true  :personas [:face-b :face-c]}]
+           (ds/list-machine-users conn mine)
+           [] (ds/list-machine-users conn theirs)))
+
+        (testing "- revoking takes one grant and leaves the rest"
+          (ds/revoke-persona conn one :face-a)
+          (are=
+           [:face-c] (ds/granted-personas conn one)
+           [:face-b :face-c] (ds/granted-personas conn two)))
+
+        (testing "- can-create-personas can be flipped"
+          (ds/update-machine-user conn one {:can-create-personas? true})
+          (is (true? (:can-create-personas? (ds/get-machine-user conn "writer-ac")))))
+
+        (testing "- and removing one takes its grants with it, nobody else's"
+          (is (true? (ds/delete-machine-user conn one)))
+          (are=
+           nil (ds/get-machine-user conn "writer-ac")
+           [{:id two :name "writer-bc" :can-create-personas? true :personas [:face-b :face-c]}]
+           (ds/list-machine-users conn mine)
+           false (ds/machine-may-write? conn one :face-c))
+          (is (false? (ds/delete-machine-user conn one))))))))
+
+(deftest a-machine-user-is-not-in-the-human-listings
+  (testing-with-conn "nothing that enumerates accounts or personas shows one"
+    (let [mine (ds/add-account conn "d@et.n" "hash")]
+      (ds/add-persona conn mine :face-a "A")
+      (ds/add-machine-user conn mine "a-machine" {})
+      (testing "- the admin account listing is humans only"
+        (are=
+         [{:id mine :email "d@et.n" :personas [{:id :face-a :name "A" :sort-order 0}]}]
+         (ds/list-accounts conn)))
+      (testing "- and a machine user has no persona of its own to leak"
+        (are=
+         [{:id :face-a :name "A"}] (ds/list-personas conn)
+         [] (ds/list-personas-for-account conn (:id (ds/get-machine-user conn "a-machine"))))))))
+
+(deftest deleting-a-persona-revokes-every-grant-on-it
+  (testing-with-conn "a grant must not outlive the persona it names"
+    (let [mine (ds/add-account conn "d@et.n" "hash")]
+      (ds/add-persona conn mine :doomed "Doomed")
+      (ds/add-persona conn mine :spared "Spared")
+      (let [one (ds/add-machine-user conn mine "writer-one" {})
+            two (ds/add-machine-user conn mine "writer-two" {})]
+        (doseq [m [one two]]
+          (ds/grant-persona conn m :doomed)
+          (ds/grant-persona conn m :spared))
+
+        (ds/delete-persona conn :doomed)
+
+        (testing "- every machine user's grant on it is gone"
+          (are=
+           [:spared] (ds/granted-personas conn one)
+           [:spared] (ds/granted-personas conn two)
+           false (ds/machine-may-write? conn one :doomed)))
+        (testing "- and a persona re-created under the same id inherits nothing"
+          (ds/add-persona conn mine :doomed "Doomed Again")
+          (are= false (ds/machine-may-write? conn one :doomed)))))))

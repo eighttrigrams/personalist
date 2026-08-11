@@ -60,11 +60,17 @@
 ;; ---------------------------------------------------------------------------
 
 (defn get-account
+  "A *human* account. Machine users are accounts rows too, so every read that
+   means \"a person's login\" says so: otherwise a machine user's account id,
+   which is what its own grants are keyed on, would resolve here as if it were
+   the human it belongs to."
   [conn account-id]
   (let [result (jdbc/execute-one! (:conn conn)
                                   (sql/format {:select [:id :email]
                                                :from [:accounts]
-                                               :where [:= :id account-id]})
+                                               :where [:and
+                                                       [:= :is_machine_user 0]
+                                                       [:= :id account-id]]})
                                   {:builder-fn rs/as-unqualified-lower-maps})]
     (when result
       {:id (:id result) :email (:email result)})))
@@ -74,7 +80,12 @@
   (let [result (jdbc/execute-one! (:conn conn)
                                   (sql/format {:select [:id :email]
                                                :from [:accounts]
-                                               :where [:= :email email]})
+                                               ;; is_machine_user 0 is not decoration: honeysql renders
+                                               ;; [:= :email nil] as `email IS NULL`, which every machine
+                                               ;; user matches. A nil email must find nobody.
+                                               :where [:and
+                                                       [:= :is_machine_user 0]
+                                                       [:= :email email]]})
                                   {:builder-fn rs/as-unqualified-lower-maps})]
     (when result
       {:id (:id result) :email (:email result)})))
@@ -96,11 +107,16 @@
       (:id (get-account-by-email conn email)))))
 
 (defn get-account-password-hash
+  "A machine user has none, forever — it authenticates by token and never
+   reaches the login route. Restricted to humans so that stays true even if
+   something one day writes a hash into the wrong row."
   [conn account-id]
   (let [result (jdbc/execute-one! (:conn conn)
                                   (sql/format {:select [:password_hash]
                                                :from [:accounts]
-                                               :where [:= :id account-id]})
+                                               :where [:and
+                                                       [:= :is_machine_user 0]
+                                                       [:= :id account-id]]})
                                   {:builder-fn rs/as-unqualified-lower-maps})]
     (:password_hash result)))
 
@@ -164,13 +180,18 @@
    no history left afterwards and no undo. False when there is no such persona.
 
    Identities go first: a half-done delete then leaves an empty persona, which
-   the owner can simply retry, rather than identity rows no persona points at."
+   the owner can simply retry, rather than identity rows no persona points at.
+   Any machine user's grant on it goes too — a grant that outlived its persona
+   would silently become a grant on whatever is created under that id next."
   [conn id]
   (if-not (get-persona-by-id conn id)
     false
     (do
       (jdbc/execute! (:conn conn)
                      (sql/format {:delete-from :identities
+                                  :where [:= :persona_id (kw->str id)]}))
+      (jdbc/execute! (:conn conn)
+                     (sql/format {:delete-from :machine_persona_grants
                                   :where [:= :persona_id (kw->str id)]}))
       (jdbc/execute! (:conn conn)
                      (sql/format {:delete-from :personas
@@ -205,12 +226,15 @@
           results)))
 
 (defn list-accounts
-  "Every account with its personas — the admin Settings listing, and the only
-   read in this namespace that pairs an email with anything public."
+  "Every human account with its personas — the admin Settings listing, and the
+   only read in this namespace that pairs an email with anything public. Machine
+   users are accounts rows too but are not accounts in this sense: they have no
+   email, no personas of their own, and no business in a roster of people."
   [conn]
   (let [results (jdbc/execute! (:conn conn)
                                (sql/format {:select [:id :email]
                                             :from [:accounts]
+                                            :where [:= :is_machine_user 0]
                                             :order-by [[:id :asc]]})
                                {:builder-fn rs/as-unqualified-lower-maps})]
     (mapv (fn [r]
@@ -218,6 +242,184 @@
              :email (:email r)
              :personas (list-personas-for-account conn (:id r))})
           results)))
+
+;; ---------------------------------------------------------------------------
+;; Machine users
+;;
+;; A machine user is an `accounts` row flagged `is_machine_user`, pointing at
+;; the human account whose personas it writes. It holds no password and never
+;; reaches the login route; its whole credential is `token_hash`, and because
+;; there is exactly one column to hold it, rotating a token overwrites the
+;; previous one and that one stops verifying immediately.
+;;
+;; What it may write is not "everything under its parent" but exactly the rows
+;; in `machine_persona_grants` — so an account can hold one machine user for
+;; personas A and C and another for B and C.
+;; ---------------------------------------------------------------------------
+
+(defn- machine-row->map [r]
+  (when r
+    {:id (:id r)
+     :name (:name r)
+     :for-account-id (:for_account_id r)
+     :can-create-personas? (= 1 (:can_create_personas r))
+     :token-hash (:token_hash r)}))
+
+(defn get-machine-user
+  "A machine user by its (globally unique) name, or nil."
+  [conn nm]
+  (machine-row->map
+   (jdbc/execute-one! (:conn conn)
+                      (sql/format {:select [:id :name :for_account_id :can_create_personas :token_hash]
+                                   :from [:accounts]
+                                   :where [:and
+                                           [:= :is_machine_user 1]
+                                           [:= :name (kw->str nm)]]})
+                      {:builder-fn rs/as-unqualified-lower-maps})))
+
+(defn get-machine-user-by-id
+  [conn account-id]
+  (machine-row->map
+   (jdbc/execute-one! (:conn conn)
+                      (sql/format {:select [:id :name :for_account_id :can_create_personas :token_hash]
+                                   :from [:accounts]
+                                   :where [:and
+                                           [:= :is_machine_user 1]
+                                           [:= :id account-id]]})
+                      {:builder-fn rs/as-unqualified-lower-maps})))
+
+(defn add-machine-user
+  "Mint a machine user named `nm` under `account-id`, answering its own account
+   id — or false when the name is taken. Names are unique across all accounts,
+   not per account: they are how these get referred to outside the app."
+  [conn account-id nm {:keys [can-create-personas?]}]
+  (if (get-machine-user conn nm)
+    false
+    (do
+      (jdbc/execute! (:conn conn)
+                     (sql/format {:insert-into :accounts
+                                  :values [{:name (kw->str nm)
+                                            :for_account_id account-id
+                                            :is_machine_user 1
+                                            :can_create_personas (if can-create-personas? 1 0)}]}))
+      (:id (get-machine-user conn nm)))))
+
+(defn update-machine-user
+  [conn machine-account-id {:keys [can-create-personas?]}]
+  (when (some? can-create-personas?)
+    (jdbc/execute! (:conn conn)
+                   (sql/format {:update :accounts
+                                :set {:can_create_personas (if can-create-personas? 1 0)}
+                                :where [:and
+                                        [:= :is_machine_user 1]
+                                        [:= :id machine-account-id]]})))
+  {:success true})
+
+(defn set-machine-token-hash!
+  "Overwrite the machine user's one live token hash. This *is* the rotation:
+   whatever verified against the old hash stops verifying here."
+  [conn machine-account-id token-hash]
+  (jdbc/execute! (:conn conn)
+                 (sql/format {:update :accounts
+                              :set {:token_hash token-hash}
+                              :where [:and
+                                      [:= :is_machine_user 1]
+                                      [:= :id machine-account-id]]}))
+  true)
+
+(defn get-machine-user-by-token-hash
+  "The machine user presenting a token, found by the hash of what it presented.
+   A NULL token_hash must never match — a machine user that has never been given
+   a token would otherwise be reachable by presenting nothing."
+  [conn token-hash]
+  (when (seq token-hash)
+    (machine-row->map
+     (jdbc/execute-one! (:conn conn)
+                        (sql/format {:select [:id :name :for_account_id :can_create_personas :token_hash]
+                                     :from [:accounts]
+                                     :where [:and
+                                             [:= :is_machine_user 1]
+                                             [:= :token_hash token-hash]]})
+                        {:builder-fn rs/as-unqualified-lower-maps}))))
+
+(defn granted-personas
+  "The persona ids this machine user may write, in id order."
+  [conn machine-account-id]
+  (mapv (fn [r] (str->kw (:persona_id r)))
+        (jdbc/execute! (:conn conn)
+                       (sql/format {:select [:persona_id]
+                                    :from [:machine_persona_grants]
+                                    :where [:= :machine_account_id machine-account-id]
+                                    :order-by [[:persona_id :asc]]})
+                       {:builder-fn rs/as-unqualified-lower-maps})))
+
+(defn machine-may-write?
+  "The question the auth guard asks. A lookup rather than a set membership on a
+   list read elsewhere, so a grant revoked a moment ago is honoured at once."
+  [conn machine-account-id persona-id]
+  (some? (jdbc/execute-one! (:conn conn)
+                            (sql/format {:select [:persona_id]
+                                         :from [:machine_persona_grants]
+                                         :where [:and
+                                                 [:= :machine_account_id machine-account-id]
+                                                 [:= :persona_id (kw->str persona-id)]]})
+                            {:builder-fn rs/as-unqualified-lower-maps})))
+
+(defn grant-persona
+  "Let this machine user write `persona-id`. Granting twice is the same grant."
+  [conn machine-account-id persona-id]
+  (when-not (machine-may-write? conn machine-account-id persona-id)
+    (jdbc/execute! (:conn conn)
+                   (sql/format {:insert-into :machine_persona_grants
+                                :values [{:machine_account_id machine-account-id
+                                          :persona_id (kw->str persona-id)}]})))
+  true)
+
+(defn revoke-persona
+  [conn machine-account-id persona-id]
+  (jdbc/execute! (:conn conn)
+                 (sql/format {:delete-from :machine_persona_grants
+                              :where [:and
+                                      [:= :machine_account_id machine-account-id]
+                                      [:= :persona_id (kw->str persona-id)]]}))
+  true)
+
+(defn list-machine-users
+  "An account's machine users with their grants, in name order — the roster the
+   profile page draws its checkbox grid from. Never includes the token hash:
+   nothing outside verification has any use for it."
+  [conn account-id]
+  (mapv (fn [r]
+          {:id (:id r)
+           :name (:name r)
+           :can-create-personas? (= 1 (:can_create_personas r))
+           :personas (granted-personas conn (:id r))})
+        (jdbc/execute! (:conn conn)
+                       (sql/format {:select [:id :name :can_create_personas]
+                                    :from [:accounts]
+                                    :where [:and
+                                            [:= :is_machine_user 1]
+                                            [:= :for_account_id account-id]]
+                                    :order-by [[:name :asc]]})
+                       {:builder-fn rs/as-unqualified-lower-maps})))
+
+(defn delete-machine-user
+  "Remove a machine user and every grant it held. Grants go first, so a
+   half-done delete leaves a machine user that can write nothing rather than
+   grant rows naming an account that no longer exists."
+  [conn machine-account-id]
+  (if-not (get-machine-user-by-id conn machine-account-id)
+    false
+    (do
+      (jdbc/execute! (:conn conn)
+                     (sql/format {:delete-from :machine_persona_grants
+                                  :where [:= :machine_account_id machine-account-id]}))
+      (jdbc/execute! (:conn conn)
+                     (sql/format {:delete-from :accounts
+                                  :where [:and
+                                          [:= :is_machine_user 1]
+                                          [:= :id machine-account-id]]}))
+      true)))
 
 (defn- make-composite-id [persona-id identity-id]
   (str (kw->str persona-id) "/" (kw->str identity-id)))
