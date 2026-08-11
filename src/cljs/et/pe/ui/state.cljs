@@ -53,6 +53,13 @@
                             :auth-token nil
                             :notification nil
                             :text-editor-mode :edit
+                            ;; Who wrote which lines of the selected identity's
+                            ;; text: {:legend :ranges :versions} as the guarded
+                            ;; provenance read answers it, or nil when it has not
+                            ;; been asked for. Only ever fetched for a persona the
+                            ;; logged-in account holds — see own-persona?
+                            :provenance nil
+                            :showing-provenance? false
                             :url-edit-mode false}))
 
 (def api-base "")
@@ -236,6 +243,62 @@
         :keywords? true
         :error-handler #(js/console.error "Error fetching relations" %)}))))
 
+;; ---------------------------------------------------------------------------
+;; Provenance — who wrote which lines, for the account that holds the persona
+;;
+;; The read is guarded (401/403), so the button that opens it is offered only
+;; when the client can already tell the answer is the caller's to have. That is
+;; not a security measure — the server's guard is — it is what keeps a visitor
+;; from being shown a control that would only ever refuse them.
+;; ---------------------------------------------------------------------------
+
+(defn own-persona?
+  "Whether the persona currently being looked at is one the logged-in account
+   holds. False for a visitor, for a logged-out reader, and for a logged-in
+   account looking at somebody else's persona.
+
+   Admin holds no personas of its own and may see any of them, the same
+   authority by which Settings edits them."
+  []
+  (let [{:keys [account current-user]} @app-state]
+    (boolean (and account
+                  current-user
+                  (or (:admin account)
+                      (some #(= (:id %) (:id current-user)) (:personas account)))))))
+
+(defn fetch-provenance
+  "Load the provenance of one identity into :provenance. Silent on failure and
+   the panel closes: the answer is the account's own, so a 401 or a 403 here
+   means the client offered a control it should not have, and the honest thing
+   on screen is nothing at all rather than an error about somebody else's
+   persona."
+  [identity-id]
+  (let [{:keys [current-user]} @app-state]
+    (GET (acting-as (str api-base "/api/personas/" (:id current-user)
+                         "/identities/" identity-id "/provenance"))
+      {:handler (fn [res] (swap! app-state assoc :provenance res))
+       :headers (auth-headers)
+       :response-format :json
+       :keywords? true
+       :error-handler (fn [err]
+                        (swap! app-state assoc :provenance nil :showing-provenance? false)
+                        (js/console.error "Error fetching provenance" err))})))
+
+(defn toggle-provenance
+  "Show or hide the provenance panel for the selected identity, fetching the
+   answer the first time it is opened. Re-fetched on every open rather than
+   cached against the identity: a save writes a new version, which is exactly
+   when the answer changes, and a stale spectrum is a claim about who wrote
+   lines that are no longer there."
+  []
+  (let [{:keys [showing-provenance? selected-identity]} @app-state]
+    (if showing-provenance?
+      (swap! app-state assoc :showing-provenance? false)
+      (do
+        (swap! app-state assoc :showing-provenance? true)
+        (when selected-identity
+          (fetch-provenance (:identity selected-identity)))))))
+
 (defn format-time-for-url [time-str]
   ;; Keep full (millisecond) precision: a version's valid-from can carry sub-second
   ;; precision, and the relations/identity-at queries match on `valid_from <= t`.
@@ -404,6 +467,10 @@
             :relations []
             :pending-relation-adds []
             :pending-relation-removes #{}
+            ;; the answer is about one identity's text, so it goes with the
+            ;; identity rather than lingering over the next one
+            :provenance nil
+            :showing-provenance? false
             :not-found-identity nil)
      (update-url (:id current-user) (:identity identity) (can-edit?) time-str)
      (fetch-identity-history (:identity identity) time-str)
@@ -466,7 +533,12 @@
                   (fetch-recent-identities (:id current-user))
                   (fetch-identity-history identity-id)
                   ;; the new version is now latest -> show its (current) relations
-                  (fetch-relations identity-id))
+                  (fetch-relations identity-id)
+                  ;; and it is a new version, which is precisely when who-wrote-what
+                  ;; changes — a panel left showing the previous answer would be a
+                  ;; claim about lines that are no longer there
+                  (when (:showing-provenance? @app-state)
+                    (fetch-provenance identity-id)))
        :error-handler (fn [err]
                         (js/console.error "Error updating identity" err)
                         (swap! app-state assoc :notification {:message "Failed to save. Please try again." :type :error})
@@ -662,7 +734,9 @@
          :current-tab :main
          :identities []
          :selected-identity nil
-         :identity-history [])
+         :identity-history []
+         :provenance nil
+         :showing-provenance? false)
   (.pushState js/history nil "" "/"))
 
 ;; ---------------------------------------------------------------------------
