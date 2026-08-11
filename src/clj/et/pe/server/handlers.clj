@@ -496,42 +496,40 @@
       {:status 200 :body {:success true}})))
 
 (defn add-account-handler
-  "POST /api/accounts — create an account and its first persona in one call.
-   Takes {:email :password :name :id?}; the password is stored as a bcrypt hash
-   and may be omitted, which leaves the account with no way to log in, and :id
-   defaults to a generated urbit-style two-word name. Answers 201
-   {:success true :id <persona-id>}. Admin only: 401 without a token, 403 with
-   an ordinary account's — except in dev with :dangerously-skip-logins?, where
-   nothing is guarded at all and the seed script uses this. 400 when the email
-   or the persona id is already taken,
-   or the id is the reserved `admin`. The persona id is checked before the
-   account is minted, so a refusal never leaves an email spent on nothing."
+  "POST /api/accounts — create an account: an email and a password, and nothing
+   else. Takes {:email :password}; the password is stored as a bcrypt hash and
+   may be omitted, which leaves the account with no way to log in.
+
+   It used to mint a first persona in the same call. It does not any more —
+   zero personas is a legitimate state, and an account holding none lands on its
+   profile page and makes its own. So a :name or an :id in the body is not a
+   thing here, and the generated-id, reserved-id and persona-taken checks went
+   with them; the email checks are what remain.
+
+   Answers 201 {:success true :id <account-id>}. That id is the only way to give
+   a new account its first persona from outside it: POST /api/personas honours
+   an :account_id for an admin caller, which is what the seed script and the
+   admin Settings form use.
+
+   Admin only: 401 without a credential, 403 with an ordinary account's or a
+   machine token — except in dev with :dangerously-skip-logins?, where nothing
+   is guarded at all and the seed script uses this. 400 when the email is
+   missing or already taken."
   [prod-mode?]
   (fn [req]
-    (let [{:keys [id email password name]} (:body req)]
-      (if-not (admin-request? req prod-mode?)
+    (let [{:keys [email password]} (:body req)]
+      (cond
+        (not (admin-request? req prod-mode?))
         (refuse-non-admin req)
-        (let [id-kw (or (when (seq id) (str->keyword id)) (generate-persona-id))]
-          (cond
-            (nil? id-kw)
-            {:status 500 :body {:success false :error "Could not generate unique ID"}}
 
-            (contains? reserved-persona-ids id-kw)
-            {:status 400 :body {:success false :error "Reserved persona id"}}
+        (not (seq email))
+        {:status 400 :body {:success false :error "Email is required"}}
 
-            (not (seq email))
-            {:status 400 :body {:success false :error "Email is required"}}
-
-            (ds/get-persona-by-id (ensure-conn) id-kw)
-            {:status 400 :body {:success false :error "Persona already exists"}}
-
-            :else
-            (let [password-hash (when (seq password) (hashers/derive password))
-                  account (ds/add-account (ensure-conn) email password-hash)]
-              (if account
-                (do (ds/add-persona (ensure-conn) account id-kw name)
-                    {:status 201 :body {:success true :id (clojure.core/name id-kw)}})
-                {:status 400 :body {:success false :error "Email already exists"}}))))))))
+        :else
+        (let [password-hash (when (seq password) (hashers/derive password))]
+          (if-let [account-id (ds/add-account (ensure-conn) email password-hash)]
+            {:status 201 :body {:success true :id account-id}}
+            {:status 400 :body {:success false :error "Email already exists"}}))))))
 
 (defn add-machine-user-handler
   "POST /api/machine-users — create a machine user under the calling account and

@@ -293,38 +293,39 @@
 (deftest accounts-are-the-admin-s-business
   (with-app
     (fn [conn]
-      (testing "admin creates an account and its first persona in one call"
+      (testing "admin creates an account — an email and a password, no persona"
         (let [res ((handlers/add-account-handler true)
-                   (as (create-admin-token)
-                       :body {:id "alice" :email "alice@et.n" :password "pw" :name "Alice"}))]
+                   (as (create-admin-token) :body {:email "alice@et.n" :password "pw"}))]
           (is (= 201 (:status res)))
-          (is (= "alice" (:id (seen res))))
           (let [acc (ds/get-account-by-email conn "alice@et.n")]
             (is (some? acc))
-            (is (= [{:id :alice :name "Alice" :sort-order 0}]
-                   (ds/list-personas-for-account conn (:id acc))))
+            (is (= (:id acc) (:id (seen res))) "the response names the new account")
+            (is (= [] (ds/list-personas-for-account conn (:id acc))))
             (testing "- and the password it can log in with"
               (is (= 200 (:status (login {:username "alice@et.n" :password "pw"}))))))))
 
-      (testing "a taken email is refused, and leaves no half-made persona"
+      (testing "a taken email is refused"
         (is (= 400 (:status ((handlers/add-account-handler true)
                              (as (create-admin-token)
-                                 :body {:id "bob" :email "alice@et.n" :password "pw" :name "Bob"})))))
-        (is (nil? (ds/get-persona-by-id conn :bob))))
+                                 :body {:email "alice@et.n" :password "pw"})))))
+        (is (= 1 (count (ds/list-accounts conn)))))
 
-      (testing "a taken persona id is refused, and leaves no orphan account behind"
-        (is (= 400 (:status ((handlers/add-account-handler true)
-                             (as (create-admin-token)
-                                 :body {:id "alice" :email "other@et.n" :password "pw" :name "X"})))))
-        (is (nil? (ds/get-account-by-email conn "other@et.n"))))
+      ;; What used to be here — "a taken persona id is refused, and leaves no
+      ;; orphan account behind" — cannot happen any more: this call names no
+      ;; persona. The id collision it guarded against now lives entirely in
+      ;; POST /api/personas, where a-persona-is-minted-under-the-requesting-account
+      ;; and the admin :account_id tests cover it.
 
-      (testing "the listing pairs each account with its personas"
+      (testing "the listing pairs each account with its personas, and an account
+                with none is listed all the same"
         ((handlers/add-account-handler true)
-         (as (create-admin-token) :body {:id "bob" :email "bob@et.n" :password "pw" :name "Bob"}))
+         (as (create-admin-token) :body {:email "bob@et.n" :password "pw"}))
+        (let [alice (ds/get-account-by-email conn "alice@et.n")]
+          (ds/add-persona conn (:id alice) :alice "Alice"))
         (let [res ((handlers/list-accounts-handler true) (as (create-admin-token)))]
           (is (= 200 (:status res)))
           (is (= [{:email "alice@et.n" :personas [{:id "alice" :name "Alice" :sort-order 0}]}
-                  {:email "bob@et.n" :personas [{:id "bob" :name "Bob" :sort-order 0}]}]
+                  {:email "bob@et.n" :personas []}]
                  (mapv #(dissoc % :id) (seen res))))))
 
       (testing "a machine token is refused as forbidden, not as unauthenticated —
@@ -334,129 +335,44 @@
           (let [mt (handlers/mint-machine-token! "alice-machine")]
             (is (= 403 (:status ((handlers/list-accounts-handler true) (as mt)))))
             (is (= 403 (:status ((handlers/add-account-handler true)
-                                 (as mt :body {:id "x" :email "x@et.n" :password "pw" :name "X"}))))))))
+                                 (as mt :body {:email "x@et.n" :password "pw"}))))))))
 
       (testing "and neither endpoint answers to anyone else"
         (let [ordinary (create-token (:id (ds/get-account-by-email conn "alice@et.n")))]
           (is (= 403 (:status ((handlers/list-accounts-handler true) (as ordinary)))))
           (is (= 401 (:status ((handlers/list-accounts-handler true) (as nil)))))
           (is (= 403 (:status ((handlers/add-account-handler true)
-                               (as ordinary :body {:id "eve" :email "eve@et.n" :password "pw" :name "Eve"})))))
-          (is (nil? (ds/get-persona-by-id conn :eve))))))))
+                               (as ordinary :body {:email "eve@et.n" :password "pw"})))))
+          (is (nil? (ds/get-account-by-email conn "eve@et.n"))))))))
 
-;; F1's second latch, moved here from auth-test: the confusing "admin" row
-;; cannot be created at all. Since the split it has to hold on the account side
-;; too — a refusal that had already minted the account would leave an email
-;; spent on nothing.
+;; F1's second latch: the confusing "admin" row cannot be created at all. It used
+;; to be checked at POST /api/accounts as well, because that call minted a first
+;; persona; it does not any more, so the latch lives where personas are actually
+;; made — which is the only place it ever mattered.
 (deftest reserved-persona-ids-are-refused
   (with-app
     (fn [conn]
-      (testing "POST /api/accounts with the reserved persona id is 400, not 201"
-        (is (= 400 (:status ((handlers/add-account-handler true)
-                             (as (create-admin-token)
-                                 :body {:id "admin" :email "pwn@evil.example"
-                                        :password "pwnedpw" :name "pwn"}))))))
-      (testing "and neither row was written"
-        (is (nil? (ds/get-persona-by-id conn :admin)))
-        (is (nil? (ds/get-account-by-email conn "pwn@evil.example"))))
-      (testing "an ordinary id still mints an account and its first persona"
-        (is (= 201 (:status ((handlers/add-account-handler true)
-                             (as (create-admin-token)
-                                 :body {:id "regular" :email "r@example.com"
-                                        :password "pw" :name "Regular"}))))))
-      (testing "nor can the reserved id be minted as a further persona of an account"
-        (let [acc (ds/get-account-by-email conn "r@example.com")]
+      (let [acc (ds/add-account conn "r@example.com" (hashers/derive "pw"))
+            token (create-token acc)]
+        (testing "a human cannot mint the reserved id under its own account"
           (is (= 400 (:status ((handlers/add-persona-handler true)
-                               (as (create-token (:id acc)) :body {:id "admin" :name "pwn"})))))
-          (is (nil? (ds/get-persona-by-id conn :admin))))))))
+                               (as token :body {:id "admin" :name "pwn"})))))
+          (is (nil? (ds/get-persona-by-id conn :admin))))
 
-;; ---------------------------------------------------------------------------
-;; The machine token
-;;
-;; Two kinds of credential now arrive in the same Authorization: Bearer header —
-;; a signed JWT for a human, an opaque random string for a machine user. The
-;; machine one is stored only as a SHA-256, so it can be shown exactly once.
-;; ---------------------------------------------------------------------------
+        ;; The admin-with-:account_id case is added in the cycle that gives admin
+        ;; that power — there is no way for admin to reach add-persona-handler yet.
 
-(deftest a-machine-token-is-high-entropy-prefixed-and-stored-only-as-a-hash
-  (with-app
-    (fn [conn]
-      (let [acc (ds/add-account conn "d@et.n" nil)]
-        (ds/add-machine-user conn acc "daniel-machine" {})
-        (let [token (handlers/mint-machine-token! "daniel-machine")]
+        (testing "nor can a machine user that may create personas"
+          (ds/add-machine-user conn acc "a-machine" {:can-create-personas? true})
+          (let [mt (handlers/mint-machine-token! "a-machine")]
+            (is (= 400 (:status ((handlers/add-persona-handler true)
+                                 (as mt :body {:id "admin" :name "pwn"})))))
+            (is (nil? (ds/get-persona-by-id conn :admin)))))
 
-          (testing "it wears a visible prefix, so a verifier can tell it from a JWT
-                    on sight and a leaked one is greppable"
-            (is (string? token))
-            (is (str/starts-with? token "pmu_")))
-
-          (testing "and carries 32 random bytes behind that"
-            (is (<= 43 (count (subs token 4)))
-                "base64url of 32 bytes is 43 characters unpadded")
-            (is (re-matches #"pmu_[A-Za-z0-9_-]+" token)
-                "base64url, so it survives a header and a yaml file untouched"))
-
-          (testing "two mints never collide"
-            (ds/add-machine-user conn acc "other-machine" {})
-            (is (not= token (handlers/mint-machine-token! "other-machine"))))
-
-          (testing "the token itself is nowhere in the database — only its hash"
-            (let [row (ds/get-machine-user conn "daniel-machine")]
-              (is (some? (:token-hash row)))
-              (is (not= token (:token-hash row)))
-              (is (= 64 (count (:token-hash row))) "hex sha-256")
-              (is (not (str/includes? (:token-hash row) (subs token 4))))))
-
-          (testing "presenting it finds the machine user it belongs to"
-            (let [found (handlers/machine-user-for-token token)]
-              (is (= "daniel-machine" (:name found)))
-              (is (= acc (:for-account-id found)))))
-
-          (testing "and anything else finds nobody"
-            (are-nil
-             (handlers/machine-user-for-token nil)
-             (handlers/machine-user-for-token "")
-             (handlers/machine-user-for-token "pmu_not-a-real-token")
-             (handlers/machine-user-for-token (str/upper-case token))
-             (handlers/machine-user-for-token (subs token 0 (dec (count token))))
-             (handlers/machine-user-for-token (subs token 4)))))))))
-
-(deftest rotating-a-token-stops-the-previous-one-verifying
-  (with-app
-    (fn [conn]
-      (let [acc (ds/add-account conn "d@et.n" nil)]
-        (ds/add-machine-user conn acc "daniel-machine" {})
-        (let [first-token (handlers/mint-machine-token! "daniel-machine")]
-          (is (some? (handlers/machine-user-for-token first-token)))
-
-          (let [second-token (handlers/mint-machine-token! "daniel-machine")]
-            (testing "rotation hands back a different token"
-              (is (not= first-token second-token)))
-            (testing "the new one verifies"
-              (is (= "daniel-machine" (:name (handlers/machine-user-for-token second-token)))))
-            ;; This is the assertion that proves "only the latest active". It is
-            ;; written out rather than trusted to the single-column overwrite,
-            ;; because the day someone adds a machine_tokens table to keep a
-            ;; history, this is the test that stops them.
-            (testing "and the previous one is dead the moment it is replaced"
-              (is (nil? (handlers/machine-user-for-token first-token))))
-
-            (testing "a third rotation kills the second in turn"
-              (let [third-token (handlers/mint-machine-token! "daniel-machine")]
-                (are-nil (handlers/machine-user-for-token first-token)
-                         (handlers/machine-user-for-token second-token))
-                (is (some? (handlers/machine-user-for-token third-token)))))))))))
-
-(deftest a-machine-user-with-no-token-yet-is-reachable-by-nothing
-  (with-app
-    (fn [conn]
-      (let [acc (ds/add-account conn "d@et.n" nil)]
-        (ds/add-machine-user conn acc "never-issued" {})
-        (testing "a NULL token_hash must not be matched by an absent or empty credential"
-          (are-nil
-           (handlers/machine-user-for-token nil)
-           (handlers/machine-user-for-token "")
-           (handlers/machine-user-for-token "pmu_")))))))
+        (testing "an ordinary id still goes through"
+          (is (= 201 (:status ((handlers/add-persona-handler true)
+                               (as token :body {:id "regular" :name "Regular"})))))
+          (is (some? (ds/get-persona-by-id conn :regular))))))))
 
 ;; ===========================================================================
 ;; THE ESCALATION TESTS
@@ -768,3 +684,46 @@
             (is (= 400 (:status (handlers/delete-persona-handler
                                  {:params {:name "second-try"} :body {:confirm "wrong"}}))))
             (is (some? (ds/get-persona-by-id conn :second-try)))))))))
+
+(deftest creating-an-account-creates-only-the-account
+  (with-app
+    (fn [conn]
+      (testing "an email and a password, and nothing else — no first persona"
+        (let [res ((handlers/add-account-handler true)
+                   (as (create-admin-token) :body {:email "alice@et.n" :password "pw"}))]
+          (is (= 201 (:status res)))
+          (testing "- the response carries the new account's id, which is what the
+                    seed script and the admin form need to make a persona under it"
+            (let [id (:id (seen res))
+                  acc (ds/get-account-by-email conn "alice@et.n")]
+              (is (integer? id))
+              (is (= (:id acc) id))))
+          (testing "- and the call made no persona at all"
+            (is (= [] (ds/list-personas conn)))
+            (is (= [] (ds/list-personas-for-account conn (:id (ds/get-account-by-email conn "alice@et.n"))))))))
+
+      (testing "it can log in immediately, holding nothing"
+        (is (= 200 (:status (login {:username "alice@et.n" :password "pw"})))))
+
+      (testing "a :name or an :id in the body is not a thing any more"
+        (let [res ((handlers/add-account-handler true)
+                   (as (create-admin-token)
+                       :body {:email "bob@et.n" :password "pw" :name "Bob" :id "bob"}))]
+          (is (= 201 (:status res)))
+          (is (nil? (ds/get-persona-by-id conn :bob))
+              "an :id in the body mints no persona")
+          (is (= [] (ds/list-personas conn)))))
+
+      (testing "the email checks are what remain"
+        (is (= 400 (:status ((handlers/add-account-handler true)
+                             (as (create-admin-token) :body {:email "alice@et.n" :password "pw"})))))
+        (is (= 400 (:status ((handlers/add-account-handler true)
+                             (as (create-admin-token) :body {:password "pw"}))))))
+
+      (testing "and it is still admin's alone"
+        (let [ordinary (create-token (:id (ds/get-account-by-email conn "alice@et.n")))]
+          (is (= 403 (:status ((handlers/add-account-handler true)
+                               (as ordinary :body {:email "eve@et.n" :password "pw"})))))
+          (is (= 401 (:status ((handlers/add-account-handler true)
+                               (as nil :body {:email "eve@et.n" :password "pw"})))))
+          (is (nil? (ds/get-account-by-email conn "eve@et.n"))))))))
