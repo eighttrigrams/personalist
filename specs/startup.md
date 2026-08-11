@@ -139,8 +139,9 @@ about who holds them or which of them share a login.
 - A write under `/api/personas/:id/...` is allowed when the token's account
   holds that persona — so one login can edit every persona it owns.
 - `GET /api/me` answers with the account behind the token: its email and its
-  personas in order. It and `GET /api/accounts` are the only reads that ask for
-  a token; everything else a `GET` can reach is what a visitor sees anyway.
+  personas in order. It, `GET /api/accounts` and an identity's `/provenance`
+  (see *Version Authorship* below) are the only three reads that ask for a
+  token; everything else a `GET` can reach is what a visitor sees anyway.
 - A logged-in user manages their own personas on the Profile tab: create one
   (a generated urbit id plus a display name), or remove one by hand-typing its
   urbit id. Removal destroys the persona and every version of every identity
@@ -191,8 +192,52 @@ one machine user writing personas A and C, another writing B and C.
 - `GET /api/me` answers a machine user about *itself* — its name, its
   permission, its granted persona ids — and never the account's roster.
 
-Nothing about machine users is public. `GET /api/personas` is unchanged, and a
-persona written by a machine is indistinguishable from any other.
+Nothing about machine users is public. `GET /api/personas` is unchanged, and no
+public read says which of an account's writers wrote what — but the account that
+holds a persona can now see which of its machines wrote which lines of it. That
+is *Version Authorship*, next.
+
+## Version Authorship and the Provenance View
+
+Since migration `005-version-authorship` every identity version carries an
+`author`: the literal `human`, or the **name** of the machine user that wrote
+it. The name and not the word "machine", because an account may hold several and
+which of them wrote a line is the thing worth recording — and because every
+marker that is not `human` is then an agent's automatically, with no list to keep
+in step when a new machine user is created.
+
+- **Every version that existed before the migration reads `human`.** One
+  `ALTER TABLE ... DEFAULT 'human'` is both the constraint and the retrofit; it
+  records the owner's own answer about those versions rather than a schema
+  guessing at them.
+- **The write path names its author, and cannot forget to.** `wrap-auth` already
+  resolved the token to a principal in order to answer *may you write this
+  persona?*; it now passes that down, and `handlers/author-of` turns it into the
+  marker. `author` is a *required positional argument* of the datastore's write
+  functions, so a path that forgot it is an arity error rather than a version
+  that silently claims a person wrote it. Admin counts as a person; so does a
+  write in dev mode, where nothing authenticates and the writer is a hand at a
+  keyboard.
+- **A relation change is a version and gets an author like any other**, that of
+  the call that committed it.
+- **A machine user may not be named `human`** — 400, case-insensitively. It
+  would otherwise be able to forge human authorship of everything it wrote.
+
+`GET /api/personas/:name/identities/:id/provenance` is the third guarded read.
+It answers `{:legend, :ranges, :versions}` — how careful an agent should be in
+each stretch of the text as it stands now (`1.00` written by hand, `0.00` by a
+machine user, in between both), the sentence that says what those numbers mean,
+and who wrote each version. The arithmetic is the `us-vs-them` sibling
+checkout's, wired in by `:local/root` exactly as cookbook and rhizome wire it;
+`et.pe.provenance` only says which marker counts as the person's and hands the
+history over in the order the library replays it.
+
+401 without a token, 403 for another account's, and **403 for a machine token
+even on a persona it may write** — this one is for logged-in humans. The public
+history read next door still carries no author at all, because a machine
+marker is a machine user's own name. In the UI the account that holds the
+persona gets a *Show provenance* button on its identities; nobody else is shown
+a control at all, not even a disabled one.
 
 ## Seeding
 
