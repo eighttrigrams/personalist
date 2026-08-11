@@ -827,3 +827,27 @@
           (is (= 400 (:status ((handlers/add-persona-handler true)
                                (as (create-admin-token) :body {:id "nowhere" :name "N"})))))
           (is (nil? (ds/get-persona-by-id conn :nowhere))))))))
+
+(deftest me-answers-an-account-that-holds-nothing
+  (with-app
+    (fn [conn]
+      (let [empty-account (ds/add-account conn "d@et.n" (hashers/derive "pw"))]
+        (testing "an empty persona list is an answer, not an error — this is the
+                  state a freshly created account is in, and /api/me is what the
+                  profile page asks before rendering its empty state"
+          (let [res ((handlers/me-handler true) (as (create-token empty-account)))]
+            (is (= 200 (:status res)))
+            (is (= {:email "d@et.n" :personas [] :machine-users []} (seen res)))))
+
+        (testing "and it still holds machine users, which do not need a persona to exist"
+          (ds/add-machine-user conn empty-account "a-machine" {})
+          (let [body (seen ((handlers/me-handler true) (as (create-token empty-account))))]
+            (is (= [] (:personas body)))
+            (is (= [{:name "a-machine" :can-create false :personas []}] (:machine-users body)))))
+
+        (testing "a machine user of an empty account is answered too, granted nothing"
+          (let [mt (handlers/mint-machine-token! "a-machine")]
+            (let [res ((handlers/me-handler true) (as mt))]
+              (is (= 200 (:status res)))
+              (is (= {:name "a-machine" :machine true :can-create false :personas []}
+                     (seen res))))))))))
