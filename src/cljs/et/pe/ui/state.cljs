@@ -50,8 +50,6 @@
                             :login-password ""
                             :login-email ""
                             :login-error nil
-                            :login-persona nil
-                            :show-password-modal false
                             :auth-token nil
                             :notification nil
                             :text-editor-mode :edit
@@ -547,10 +545,8 @@
   (swap! app-state assoc
          :auth-user persona
          :show-auth-modal false
-         :show-password-modal false
          :login-password ""
-         :login-error nil
-         :login-persona nil)
+         :login-error nil)
   (enter-persona persona))
 
 (defn switch-persona
@@ -565,10 +561,8 @@
   (swap! app-state assoc
          :auth-user admin-user
          :show-auth-modal false
-         :show-password-modal false
          :login-password ""
          :login-error nil
-         :login-persona nil
          :current-tab :settings)
   (save-auth-persona (:id admin-user)))
 
@@ -598,31 +592,15 @@
          :login-password "")
   (land-after-login preferred))
 
-(defn attempt-login []
-  (let [password (:login-password @app-state)
-        persona (:login-persona @app-state)]
+(defn attempt-login
+  "The only login there is. One identifier field, holding the account's email —
+   logging in by persona id is gone, and a machine user has no password to send
+   here at all."
+  []
+  (let [username (:login-email @app-state)
+        password (:login-password @app-state)]
     (POST (str api-base "/api/auth/login")
-      {:params {:id (:id persona) :password password}
-       :format :json
-       :response-format :json
-       :keywords? true
-       :handler (fn [res]
-                  (if (:success res)
-                    ;; the password was checked against the account, but the user
-                    ;; named a face — enter that one
-                    (login-succeeded res persona)
-                    (swap! app-state assoc :login-error "Invalid password")))
-       :error-handler (fn [_]
-                        (swap! app-state assoc :login-error "Invalid password"))})))
-
-(defn attempt-email-login []
-  (let [input (:login-email @app-state)
-        password (:login-password @app-state)
-        params (if (valid-email? input)
-                 {:email input :password password}
-                 {:id input :password password})]
-    (POST (str api-base "/api/auth/login")
-      {:params params
+      {:params {:username username :password password}
        :format :json
        :response-format :json
        :keywords? true
@@ -634,19 +612,13 @@
        :error-handler (fn [_]
                         (swap! app-state assoc :login-error "Invalid credentials"))})))
 
-(defn try-login [persona]
-  (if (:password-required @app-state)
-    (swap! app-state assoc
-           :show-password-modal true
-           :show-auth-modal false
-           :login-password ""
-           :login-error nil
-           :login-persona persona)
-    (do
-      ;; dev mode: no token is minted, so the persona just picked is also what
-      ;; tells the server which account to act as (see acting-as)
-      (save-auth-persona (:id persona))
-      (land-after-login persona))))
+(defn try-login
+  "Dev only (:dangerously-skip-logins?), where the auth modal offers the persona
+   list instead of a credentials form: no token is minted, and the persona just
+   picked is also what tells the server which account to act as (see acting-as)."
+  [persona]
+  (save-auth-persona (:id persona))
+  (land-after-login persona))
 
 (defn logout-user []
   (save-auth-token nil)

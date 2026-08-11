@@ -497,33 +497,39 @@
 
 (defn persona-login-handler
   "POST /api/auth/login — exchange credentials for a JWT. Takes
-   {:email ... :password ...} or {:id <persona-id> :password ...}; both forms
-   resolve to the same place, the account, because the password lives there and
-   a persona is only one of the faces it wears. The :id form stays because dev
-   uses it and prober sends {id, password} for this app. :id \"admin\" is
-   checked against ADMIN_PASSWORD rather than the database. Answers
-   {:success true :token ...}; the token carries {:account <account-id>} and is
-   what every write wants back as `Authorization: Bearer`. Public, necessarily.
-   401 on any bad credential, without saying whether the account was unknown or
-   the password wrong. In dev with :dangerously-skip-logins? it answers success
-   and no token, since nothing is guarded there either."
+   {:username ... :password ...}: one identifier field, and a human puts their
+   **email** in it. Logging in by persona id is gone — a persona is a public
+   address, not a login — and the field is `username` because five of the six
+   plurama apps already take {username, password}. The username \"admin\" is
+   checked against ADMIN_PASSWORD rather than the database.
+
+   A machine user never reaches this route. It holds no password and
+   authenticates by bearer token instead, so its name is answered with the same
+   flat 401 as a name nobody has ever used — the login route must not confirm
+   that a machine user exists.
+
+   Answers {:success true :token ...}; the token carries {:account <account-id>}
+   and is what every write wants back as `Authorization: Bearer`. Public,
+   necessarily. 401 on any bad credential, without saying whether the account
+   was unknown or the password wrong. In dev with :dangerously-skip-logins? it
+   answers success and no token, since nothing is guarded there either."
   [prod-mode?]
   (fn [req]
-    (let [{:keys [id email password]} (:body req)]
+    (let [{:keys [username password]} (:body req)]
       (if (allow-skip-logins? prod-mode?)
         {:status 200 :body {:success true :message "No password required"}}
-        (if (= (str->keyword id) :admin)
+        (if (= (str->keyword username) :admin)
           (let [admin-password (if prod-mode?
                                  (System/getenv "ADMIN_PASSWORD")
                                  "admin")]
             (if (and admin-password (= password admin-password))
               {:status 200 :body {:success true :token (create-admin-token)}}
               {:status 401 :body {:success false :error "Invalid credentials"}}))
-          (let [account (cond
-                          (seq id) (some->> (account-of-persona id)
-                                            (ds/get-account (ensure-conn)))
-                          (seq email) (ds/get-account-by-email (ensure-conn) email)
-                          :else nil)
+          ;; get-account-by-email answers for humans only, so a machine user's
+          ;; name finds nothing here and falls through to the same 401 as an
+          ;; unknown one — no branch of its own, nothing to tell apart by timing.
+          (let [account (when (seq username)
+                          (ds/get-account-by-email (ensure-conn) username))
                 stored-hash (when account
                               (ds/get-account-password-hash (ensure-conn) (:id account)))]
             (if (and stored-hash (string? password) (hashers/check password stored-hash))

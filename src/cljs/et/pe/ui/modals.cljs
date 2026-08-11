@@ -1,6 +1,6 @@
 (ns et.pe.ui.modals
   (:require [et.pe.ui.state :refer [app-state select-persona try-login
-                                    attempt-login attempt-email-login
+                                    attempt-login
                                     search-identities select-identity
                                     add-relation add-identity]]))
 
@@ -74,12 +74,12 @@
         [:h2 {:style {:margin-top 0}} "Login"]
         (if password-required
           [:<>
-           [:p {:style {:color "#666"}} "Enter your credentials:"]
+           [:p {:style {:color "#666"}} "Enter your email and password:"]
            [:input {:type "text"
                     :value login-email
-                    :placeholder "Email or Persona ID"
+                    :placeholder "Email"
                     :on-change #(swap! app-state assoc :login-email (.. % -target -value))
-                    :on-key-down #(when (= (.-key %) "Enter") (attempt-email-login))
+                    :on-key-down #(when (= (.-key %) "Enter") (attempt-login))
                     :style {:width "100%"
                             :padding "0.75rem"
                             :margin-bottom "0.5rem"
@@ -90,7 +90,7 @@
                     :value login-password
                     :placeholder "Password"
                     :on-change #(swap! app-state assoc :login-password (.. % -target -value))
-                    :on-key-down #(when (= (.-key %) "Enter") (attempt-email-login))
+                    :on-key-down #(when (= (.-key %) "Enter") (attempt-login))
                     :style {:width "100%"
                             :padding "0.75rem"
                             :margin-bottom "1rem"
@@ -100,7 +100,7 @@
            (when login-error
              [:p {:style {:color "red" :margin "0 0 1rem 0"}} login-error])
            [:div {:style {:display "flex" :gap "0.5rem"}}
-            [:button {:on-click attempt-email-login
+            [:button {:on-click attempt-login
                       :style {:padding "0.5rem 1rem"
                               :cursor "pointer"
                               :background "#4CAF50"
@@ -143,55 +143,6 @@
                              :padding "0.5rem 1rem"
                              :cursor "pointer"}}
             "Cancel"]])]])))
-
-(defn password-modal []
-  (let [{:keys [show-password-modal login-password login-error login-persona]} @app-state]
-    (when show-password-modal
-      [:div {:style {:position "fixed"
-                     :top 0
-                     :left 0
-                     :right 0
-                     :bottom 0
-                     :background "rgba(0,0,0,0.5)"
-                     :display "flex"
-                     :align-items "center"
-                     :justify-content "center"
-                     :z-index 1000}
-             :on-click #(swap! app-state assoc :show-password-modal false)}
-       [:div {:style {:background "white"
-                      :padding "2rem"
-                      :border-radius "8px"
-                      :min-width "300px"
-                      :max-width "400px"}
-              :on-click #(.stopPropagation %)}
-        [:h2 {:style {:margin-top 0}} (str "Login as " (or (:name login-persona) (:id login-persona)))]
-        [:p {:style {:color "#666"}} "Enter your password:"]
-        [:input {:type "password"
-                 :value login-password
-                 :placeholder "Password"
-                 :on-change #(swap! app-state assoc :login-password (.. % -target -value))
-                 :on-key-down #(when (= (.-key %) "Enter") (attempt-login))
-                 :style {:width "100%"
-                         :padding "0.75rem"
-                         :margin-bottom "1rem"
-                         :border "1px solid #ccc"
-                         :border-radius "4px"
-                         :box-sizing "border-box"}}]
-        (when login-error
-          [:p {:style {:color "red" :margin "0 0 1rem 0"}} login-error])
-        [:div {:style {:display "flex" :gap "0.5rem"}}
-         [:button {:on-click attempt-login
-                   :style {:padding "0.5rem 1rem"
-                           :cursor "pointer"
-                           :background "#4CAF50"
-                           :color "white"
-                           :border "none"
-                           :border-radius "4px"}}
-          "Login"]
-         [:button {:on-click #(swap! app-state assoc :show-password-modal false)
-                   :style {:padding "0.5rem 1rem"
-                           :cursor "pointer"}}
-          "Cancel"]]]])))
 
 (defn- date-to-instant [date-str]
   (when (seq date-str)

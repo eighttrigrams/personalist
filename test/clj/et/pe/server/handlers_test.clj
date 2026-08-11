@@ -42,32 +42,33 @@
   [res]
   (walk/keywordize-keys (:body res)))
 
-(deftest login-by-email-or-persona-id-both-resolve-to-the-account
+(deftest login-takes-one-username-field-holding-the-email
   (with-app
     (fn [conn]
       (let [acc (ds/add-account conn "d@et.n" (hashers/derive "sekrit"))]
         (ds/add-persona conn acc :first-face "First")
         (ds/add-persona conn acc :second-face "Second")
 
-        (testing "by email — the form the login screen offers"
-          (let [{:keys [status body]} (login {:email "d@et.n" :password "sekrit"})]
+        (testing "one field, and a human puts their email in it"
+          (let [{:keys [status body]} (login {:username "d@et.n" :password "sekrit"})]
             (is (= 200 status))
             (is (true? (:success body)))
             (is (= {:account acc} (handlers/verify-token-check (:token body)))
                 "the token names the account, not a persona")))
 
-        (testing "by persona id — dev uses it, and prober sends {id, password}"
+        (testing "logging in by persona id is gone — that identifier is not accepted at all"
           (doseq [id ["first-face" "second-face"]]
-            (let [{:keys [status body]} (login {:id id :password "sekrit"})]
-              (is (= 200 status) id)
-              (is (= {:account acc} (handlers/verify-token-check (:token body)))
-                  "either persona of one account mints the very same account token"))))
+            (is (= 401 (:status (login {:username id :password "sekrit"}))) id)))
+
+        (testing "and neither is the old wire shape, under either of its key names"
+          (is (= 401 (:status (login {:email "d@et.n" :password "sekrit"}))))
+          (is (= 401 (:status (login {:id "first-face" :password "sekrit"})))))
 
         (testing "every bad credential is one indistinguishable 401"
-          (doseq [body [{:email "d@et.n" :password "wrong"}
-                        {:email "nobody@et.n" :password "sekrit"}
-                        {:id "first-face" :password "wrong"}
-                        {:id "no-such-persona" :password "sekrit"}
+          (doseq [body [{:username "d@et.n" :password "wrong"}
+                        {:username "nobody@et.n" :password "sekrit"}
+                        {:username "first-face" :password "sekrit"}
+                        {:username "" :password "sekrit"}
                         {:password "sekrit"}]]
             (let [res (login body)]
               (is (= 401 (:status res)) (pr-str body))
@@ -77,8 +78,24 @@
         (testing "an account with no password at all cannot be entered"
           (let [no-pw (ds/add-account conn "e@et.n" nil)]
             (ds/add-persona conn no-pw :faceless nil)
-            (is (= 401 (:status (login {:email "e@et.n" :password ""}))))
-            (is (= 401 (:status (login {:id "faceless" :password ""}))))))))))
+            (is (= 401 (:status (login {:username "e@et.n" :password ""}))))))))))
+
+(deftest a-machine-user-never-reaches-the-login-route
+  (with-app
+    (fn [conn]
+      (let [acc (ds/add-account conn "d@et.n" (hashers/derive "sekrit"))]
+        (ds/add-persona conn acc :face "Face")
+        (ds/add-machine-user conn acc "daniel-machine" {})
+
+        (testing "its name is answered with the same flat 401 an unknown name gets"
+          (let [known (login {:username "daniel-machine" :password "anything"})
+                unknown (login {:username "no-such-name-at-all" :password "anything"})]
+            (is (= 401 (:status known)))
+            (is (= (:body unknown) (:body known))
+                "byte for byte, so the login route never confirms that a machine user exists")))
+
+        (testing "not with an empty password either, though it has none stored"
+          (is (= 401 (:status (login {:username "daniel-machine" :password ""})))))))))
 
 (deftest the-admin-login-is-the-only-mint-of-the-admin-claim
   (with-app
@@ -91,14 +108,14 @@
         ;; cannot set for itself. The login path taken is the same either way —
         ;; :dangerously-skip-logins? is off in this fixture.
         (testing "the ADMIN_PASSWORD login mints the un-mintable claim"
-          (let [{:keys [status body]} (login false {:id "admin" :password "admin"})]
+          (let [{:keys [status body]} (login false {:username "admin" :password "admin"})]
             (is (= 200 status))
             (is (true? (:admin (handlers/verify-token-check (:token body)))))))
         (testing "and an ordinary login never does"
-          (let [{:keys [body]} (login {:email "d@et.n" :password "sekrit"})]
+          (let [{:keys [body]} (login {:username "d@et.n" :password "sekrit"})]
             (is (nil? (:admin (handlers/verify-token-check (:token body)))))))
         (testing "a wrong admin password is the same 401 as any other"
-          (is (= 401 (:status (login false {:id "admin" :password "not-it"})))))))))
+          (is (= 401 (:status (login false {:username "admin" :password "not-it"})))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The privacy rule, and everything that follows from it: an anonymous reader
@@ -277,7 +294,7 @@
             (is (= [{:id :alice :name "Alice" :sort-order 0}]
                    (ds/list-personas-for-account conn (:id acc))))
             (testing "- and the password it can log in with"
-              (is (= 200 (:status (login {:email "alice@et.n" :password "pw"}))))))))
+              (is (= 200 (:status (login {:username "alice@et.n" :password "pw"}))))))))
 
       (testing "a taken email is refused, and leaves no half-made persona"
         (is (= 400 (:status ((handlers/add-account-handler true)

@@ -2,7 +2,7 @@
   (:require [reagent.dom.client :as rdc]
             [clojure.string :as string]
             [et.pe.ui.state :refer [app-state fetch-personas check-password-required logout-user dismiss-notification load-from-url parse-url fetch-recent-identities exit-fixed-mode open-search-modal restore-auth]]
-            [et.pe.ui.modals :refer [login-modal auth-modal password-modal
+            [et.pe.ui.modals :refer [login-modal auth-modal
                                      search-modal add-relation-modal
                                      add-identity-modal beta-modal]]
             [et.pe.ui.identity :refer [main-tab]]
@@ -221,7 +221,6 @@
      [fixed-mode-strip]
      [login-modal]
      [auth-modal]
-     [password-modal]
      [search-modal]
      [add-relation-modal]
      [add-identity-modal]
