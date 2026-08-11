@@ -173,6 +173,31 @@
            ["something-else-entirely"]
            (mapv :author (ds/get-identity-history conn dan odd))))))))
 
+(deftest two-versions-of-one-millisecond-still-have-a-latest
+  (testing-with-conn "the newest read answers with the one written last, not either of them"
+    ;; **The collision is constructed, not hoped for.** `valid_from` is epoch
+    ;; milliseconds and `Instant/now` is what stamps a version in the app, so
+    ;; the real case is an agent writing twice inside one millisecond — but a
+    ;; test that just writes three versions in a row and trusts them to collide
+    ;; is a test that passes whether or not the tie-break is there (it was:
+    ;; removing `[:id :desc]` left it green three runs running). Handing in one
+    ;; explicit instant for all three is the same condition, made to happen
+    ;; every time.
+    (let [dan (persona! :dan "d@et.n")
+          t (Instant/parse "2026-08-11T12:00:00Z")
+          id (ds/add-identity conn dan "notes" "v1" "human" {:valid-from t})]
+      (ds/save-identity-version conn dan id "notes" "v2" "a-machine" {:valid-from t})
+      (ds/save-identity-version conn dan id "notes" "v3" "human" {:valid-from t})
+      (testing "- the history keeps the order they were written in"
+        (are=
+         ["v1" "v2" "v3"] (mapv :text (ds/get-identity-history conn dan id))
+         ["human" "a-machine" "human"] (mapv :author (ds/get-identity-history conn dan id))))
+      (testing "- and the newest read is the one written last, not whichever the
+                database felt like handing back"
+        (are=
+         "v3" (:text (ds/get-identity conn dan id))
+         "v3" (:text (ds/get-identity-at conn dan id t)))))))
+
 (deftest identity-time-travel
   (testing-with-conn "identities change over time but history is preserved"
     (let [dan (persona! :dan "d@et.n")

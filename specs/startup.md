@@ -239,6 +239,39 @@ marker is a machine user's own name. In the UI the account that holds the
 persona gets a *Show provenance* button on its identities; nobody else is shown
 a control at all, not even a disabled one.
 
+### It rides along on the plain identity read
+
+That route is not the only way in. `GET /api/personas/:name/identities/:id` —
+the ordinary single-identity read, public as it always was — **carries the
+answer in the same body** for a caller entitled to it:
+
+```json
+{"identity": "…", "name": "…", "text": "…",
+ "provenance": {"legend": "1.00 is a stretch written wholly by hand …",
+                "ranges": [{"from": 1, "to": 3, "caution": 1.0},
+                           {"from": 4, "to": 5, "caution": 0.0}]}}
+```
+
+An agent about to rewrite a text reads that identity first, and what it needs
+to know — which lines are a person's — has to be *there*: a second call to find
+out what it may rewrite is a call it will not make. Cookbook rides `caution`
+along on `GET /api/recipes/:id` for the same reason and rhizome's REST
+`get-item` calls it the one number in that API written for an agent to act on.
+
+- Served to a **machine token on a persona it may write** — the grant is the
+  entitlement, the same grant that lets it PUT there — to the **account that
+  holds the persona**, and to **admin**.
+- **Absent, not empty**, for anyone else: a visitor, another account, a machine
+  token on a persona it was not granted. The ranges are not even computed for
+  them; the arithmetic is quadratic in lines and this is the app's
+  single-identity read.
+- **Never `:versions` here.** Per-version authorship names the account's machine
+  users, and this is the route a machine user reads; it is told nothing about
+  its siblings, which `GET /api/me` already refuses it. That key stays on the
+  guarded `/provenance` route, which is what the human's own view reads.
+- In dev with `:dangerously-skip-logins?` every caller counts as admin, so
+  every caller is served it — as with every other guarded read in that mode.
+
 ## Seeding
 
 When `pre-seed?` is `true` in `config.edn`:

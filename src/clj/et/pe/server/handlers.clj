@@ -776,19 +776,139 @@
       {:status 200 :body (serialize-response (ds/list-recent-identities (ensure-conn) persona limit offset))}
       {:status 404 :body {:error "Persona not found"}})))
 
+(defn- provenance-caller
+  "Whether a request may see who wrote an identity's versions, and as whom:
+   `:admin`, an account row, or a keyword naming the refusal.
+
+   Narrower than the write guard, deliberately. wrap-auth lets a machine token
+   write the personas it has been granted; here a machine token is refused even
+   on one of those. The owner asked for a view *logged-in human users* can see
+   provenance with, and there is nothing an agent would do with the answer that
+   the ranges do not already tell it in the text it reads anyway.
+
+   Admin is allowed anywhere, by the same authority that lets Settings edit
+   another account's persona.
+
+   `human-caller` is the pattern the /api/machine-users routes already use, and
+   it is reused rather than re-derived — but it answers nil for admin (those
+   routes have nothing coherent to do on admin's behalf), so admin is asked
+   about first here.
+
+   **:no-account covers both no token at all and a token naming an account that
+   is gone**, and both are answered 401 — /api/me's rule, not the machine-user
+   routes' 403, because this is a read *about an account* and there is no
+   account to answer about. A live token belonging to somebody else is a
+   different thing: it comes back as that account and is refused 403 further
+   down, where the persona is known."
+  [req prod-mode?]
+  (cond
+    (machine-token? (bearer-token req)) :not-for-machines
+    (admin-request? req prod-mode?) :admin
+    :else (or (human-caller req prod-mode?) :no-account)))
+
+(defn- machine-may-write-persona?
+  "Whether this request's Bearer token is a machine user's that has been granted
+   `persona`. The same question wrap-auth asks before letting it PUT there,
+   asked again here because the grant is also what entitles it to be told which
+   lines it may rewrite."
+  [req persona]
+  (boolean (when-let [token (bearer-token req)]
+             (when (machine-token? token)
+               (when-let [m (machine-user-for-token token)]
+                 (ds/machine-may-write? (ensure-conn) (:id m) (:id persona)))))))
+
+(defn- riding-provenance
+  "`{:legend :ranges}` for the single-identity read, or **nil for a caller not to
+   be served it** — the key is then absent from the body entirely, never null and
+   never an empty list. Cookbook's `caution-body` takes the same shape for the
+   same reason, and `tags`/`scopes` there set the precedent.
+
+   **The legend and the ranges are one key**, because neither half is meaningful
+   alone: the numbers need reading and the reading is about nothing without them.
+   Two sibling keys would also be two things to remember to leave off together,
+   and a rule that wants to be one omission would become a bug the day it took
+   away only one of them.
+
+   **:versions is not here, and its absence is the audience.** It names the
+   account's machine users, and this is the route a machine user reads — a
+   machine user is told nothing about its siblings, which /api/me already
+   refuses it in as many words. The dedicated /provenance route carries it, for
+   the human whose account it is.
+
+   Who is served: a **machine token on a persona it may write** (its grant is
+   the entitlement, exactly as it is for writing), the **account that holds the
+   persona**, and **admin**. Everyone else — a visitor, another account, a
+   machine token on a persona it was not granted — gets nothing, and the
+   arithmetic is not run for them at all. That is not only privacy: `assess` is
+   linear in versions and quadratic in lines, and this is the app's
+   single-identity read, so the audience question is asked *before* the fold and
+   not after it. `an-anonymous-read-does-not-even-compute-the-ranges` pins that.
+
+   It still costs a history read and a fold for everyone who *is* served,
+   including the owner's own browsing, which pays it on each identity opened
+   whether or not the view is showing. Cookbook says the same of its hottest
+   route and does it anyway. If this ever gets slow the answer is a cache keyed
+   on the newest `valid_from`, not a narrowing of who is served."
+  [req prod-mode? persona identity-id]
+  (when (or (machine-may-write-persona? req persona)
+            (let [caller (provenance-caller req prod-mode?)]
+              (or (= :admin caller)
+                  (and (map? caller) (= (:id caller) (:account-id persona))))))
+    (when-let [history (seq (ds/get-identity-history (ensure-conn) persona identity-id))]
+      {:legend provenance/legend
+       :ranges (provenance/ranges history)})))
+
 (defn get-identity-handler
   "GET /api/personas/:name/identities/:id — one identity at its latest version:
    {:identity :name :text}. Public, like every read here. 404 when either the
-   persona or the identity does not exist."
-  [req]
-  (let [persona-name (str->keyword (get-in req [:params :name]))
-        identity-id (str->keyword (get-in req [:params :id]))
-        persona (ds/get-persona-by-id (ensure-conn) persona-name)]
-    (if persona
-      (if-let [identity (ds/get-identity (ensure-conn) persona identity-id)]
-        {:status 200 :body (serialize-response identity)}
-        {:status 404 :body {:error "Identity not found"}})
-      {:status 404 :body {:error "Persona not found"}})))
+   persona or the identity does not exist.
+
+   **It carries `:provenance` for a caller entitled to it: which lines of this
+   text to leave alone.** This is the one number in this API written for an
+   agent to act on before it edits something, so read it before the PUT that
+   rewrites the text — in this body, rather than from a second request to
+   .../provenance, because a call an agent has to make separately to find out
+   what it may rewrite is a call it will not make.
+
+       \"provenance\": {
+         \"legend\": \"1.00 is a stretch written wholly by hand ...\",
+         \"ranges\": [{\"from\": 1, \"to\": 3, \"caution\": 1.0},
+                    {\"from\": 4, \"to\": 5, \"caution\": 0.0}]
+       }
+
+   `from` and `to` are line numbers in the text as it stands, one-based and
+   inclusive, and the ranges cover every line of it in order. `caution` runs
+   1.00 (written by a person's own hand, not yours to rewrite) to 0.00 (written
+   wholly by a machine user, free to edit); anything above 0.00 still has a
+   line of a person's in it. `legend` says that in words and rides with every
+   answer that has ranges, so a caller that fetched this identity and nothing
+   else can read the numbers.
+
+   Split the text on `\\n` **keeping trailing empty fields** to line up with
+   these numbers: a text ending in a newline is n+1 lines here, and a split that
+   discards the trailing empty one is off by one at the end.
+
+   **Not a version list.** GET .../history says what each whole *version* was;
+   this attributes the lines of the text as it now stands, so an identity a
+   person wrote once and an agent has since edited nineteen times still has
+   their opening paragraph at 1.00. Per-version authorship is on GET
+   .../provenance, which is guarded to the owning human — this key never carries
+   `:versions`, because it would name the account's other machine users.
+
+   **Absent — not empty — for anyone else**: a visitor, another account, or a
+   machine token on a persona it was not granted. See riding-provenance."
+  [prod-mode?]
+  (fn [req]
+    (let [persona-name (str->keyword (get-in req [:params :name]))
+          identity-id (str->keyword (get-in req [:params :id]))
+          persona (ds/get-persona-by-id (ensure-conn) persona-name)]
+      (if persona
+        (if-let [identity (ds/get-identity (ensure-conn) persona identity-id)]
+          (let [prov (riding-provenance req prod-mode? persona identity-id)]
+            {:status 200 :body (serialize-response
+                                (cond-> identity prov (assoc :provenance prov)))})
+          {:status 404 :body {:error "Identity not found"}})
+        {:status 404 :body {:error "Persona not found"}}))))
 
 (defn add-identity-handler
   "POST /api/personas/:name/identities — create an identity. Takes
@@ -889,36 +1009,6 @@
          :body (serialize-response
                 (mapv #(select-keys % [:identity :name :text :valid-from]) history))})
       {:status 404 :body {:error "Persona not found"}})))
-
-(defn- provenance-caller
-  "Whether a request may see who wrote an identity's versions, and as whom:
-   `:admin`, an account row, or a keyword naming the refusal.
-
-   Narrower than the write guard, deliberately. wrap-auth lets a machine token
-   write the personas it has been granted; here a machine token is refused even
-   on one of those. The owner asked for a view *logged-in human users* can see
-   provenance with, and there is nothing an agent would do with the answer that
-   the ranges do not already tell it in the text it reads anyway.
-
-   Admin is allowed anywhere, by the same authority that lets Settings edit
-   another account's persona.
-
-   `human-caller` is the pattern the /api/machine-users routes already use, and
-   it is reused rather than re-derived — but it answers nil for admin (those
-   routes have nothing coherent to do on admin's behalf), so admin is asked
-   about first here.
-
-   **:no-account covers both no token at all and a token naming an account that
-   is gone**, and both are answered 401 — /api/me's rule, not the machine-user
-   routes' 403, because this is a read *about an account* and there is no
-   account to answer about. A live token belonging to somebody else is a
-   different thing: it comes back as that account and is refused 403 further
-   down, where the persona is known."
-  [req prod-mode?]
-  (cond
-    (machine-token? (bearer-token req)) :not-for-machines
-    (admin-request? req prod-mode?) :admin
-    :else (or (human-caller req prod-mode?) :no-account)))
 
 (defn provenance-handler
   "GET /api/personas/:name/identities/:id/provenance — who wrote which lines of

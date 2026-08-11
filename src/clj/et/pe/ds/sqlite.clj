@@ -448,13 +448,28 @@
          results)))
 
 (defn get-identity
+  "The identity at its latest version.
+
+   **`[:id :desc]` breaks a tie on `valid_from`**, which is epoch milliseconds:
+   two versions saved in the same millisecond are both `max(valid_from)`, and
+   without the id this returned whichever SQLite felt like — the *older* text,
+   half the time, from a read whose whole job is to answer with the newest.
+   `relation-blob-at` has always tie-broken this way and `get-identity-history`
+   now does too.
+
+   It bites hardest since the provenance rides along on this read
+   (`handlers/get-identity-handler`): the ranges are computed over the whole
+   history and so describe the newest version, while `:text` came from this
+   query. Disagree, and one body carries a text and an attribution of a
+   *different* text — every line tinted with its neighbour's colour, and nothing
+   about the answer looking wrong."
   [conn {persona-id :id :as _persona} identity-id]
   (let [composite-id (make-composite-id persona-id identity-id)
         result (jdbc/execute-one! (:conn conn)
                                   (sql/format {:select [:identity_id :name :text]
                                                :from [:identities]
                                                :where [:= :composite_id composite-id]
-                                               :order-by [[:valid_from :desc]]
+                                               :order-by [[:valid_from :desc] [:id :desc]]
                                                :limit 1})
                                   {:builder-fn rs/as-unqualified-lower-maps})]
     (when result
@@ -525,6 +540,9 @@
         id))))
 
 (defn get-identity-at
+  "The version in effect at `time-point`. Tie-broken on `id` for the reason
+   `get-identity` gives: two versions of one millisecond are equally 'in effect'
+   by timestamp alone, and the later-written one is the one in effect."
   [conn {persona-id :id :as _persona} id time-point]
   (let [composite-id (make-composite-id persona-id id)
         time-epoch (instant->epoch time-point)
@@ -534,7 +552,7 @@
                                                :where [:and
                                                        [:= :composite_id composite-id]
                                                        [:<= :valid_from time-epoch]]
-                                               :order-by [[:valid_from :desc]]
+                                               :order-by [[:valid_from :desc] [:id :desc]]
                                                :limit 1})
                                   {:builder-fn rs/as-unqualified-lower-maps})]
     (when result

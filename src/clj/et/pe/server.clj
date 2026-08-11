@@ -100,7 +100,10 @@
     ;; protects. The history route above stays public and authorless.
     (GET "/personas/:name/identities/:id/provenance" [_name _id] (handlers/provenance-handler (prod-mode?)))
     (GET "/personas/:name/identities/:id/relations" [_name _id] handlers/list-relations-handler)
-    (GET "/personas/:name/identities/:id" [_name _id] handlers/get-identity-handler)))
+    ;; Public, and it stays public — but it now rides the caution ranges along
+    ;; for a caller entitled to them, which is why it needs prod-mode? to know
+    ;; who is asking. See handlers/riding-provenance.
+    (GET "/personas/:name/identities/:id" [_name _id] (handlers/get-identity-handler (prod-mode?)))))
 
 (defn- serve-index [_]
   {:status 200

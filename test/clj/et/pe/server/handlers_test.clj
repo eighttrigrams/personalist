@@ -1016,6 +1016,11 @@
 ;; owner asked for a view "with which logged in human users can use to see
 ;; provenance" — telling an agent which lines are the owner's is what the
 ;; *ranges* are for, and they travel with the text it reads anyway.
+;;
+;; That last clause is now literally true rather than a promise: the ranges ride
+;; along on GET .../identities/:id, and a machine token IS served them there.
+;; See the section further down. This route keeps its refusal, and what it
+;; refuses a machine user is `:versions` — the names of its siblings.
 ;; ---------------------------------------------------------------------------
 
 (defn- provenance-fixture
@@ -1108,6 +1113,113 @@
           (is (= 404 (:status ((handlers/provenance-handler true)
                                (as human-token :params {:name "no-such-persona"
                                                         :id "whatever"}))))))))))
+
+;; ---------------------------------------------------------------------------
+;; The provenance rides along on the plain single-identity read
+;;
+;; The dedicated route above is not the only way in any more. An agent about to
+;; rewrite an identity's text reads GET .../identities/:id first, and what it
+;; needs to know — which lines are the owner's — has to be in *that* body:
+;; a second call to find out what it may rewrite is a call it will not make.
+;; Cookbook rides :caution along on GET /api/recipes/:id for that reason and
+;; serves it to a machine token deliberately; rhizome's REST get-item does the
+;; same and calls it the one number in that API written for an agent to act on.
+;;
+;; Two things differ from the dedicated route, and both are the audience:
+;; a machine token is *served* here (its grant is the entitlement), and
+;; :versions is never sent here (it names the account's other machine users).
+;; ---------------------------------------------------------------------------
+
+(defn- read-identity [prod-mode? token identity-id]
+  ((handlers/get-identity-handler prod-mode?)
+   (as token :params {:name "face" :id identity-id})))
+
+(deftest the-plain-read-carries-provenance-for-an-agent-that-may-write-there
+  (with-app
+    (fn [conn]
+      (let [{:keys [identity-id machine-token]} (provenance-fixture conn)
+            res (read-identity true machine-token identity-id)
+            body (seen res)]
+        (is (= 200 (:status res)))
+
+        (testing "the identity itself, exactly as before"
+          (is (= "Notes" (:name body)))
+          (is (= "his first line\nthe agent's line" (:text body))))
+
+        (testing "and the ranges in the same body, without a second request"
+          (is (= [{:from 1 :to 1 :caution 1.0}
+                  {:from 2 :to 2 :caution 0.0}]
+                 (:ranges (:provenance body)))))
+
+        (testing "with the legend, which is what makes a bare 0.00 readable to a
+                  caller that fetched this identity and nothing else"
+          (is (= provenance/legend (:legend (:provenance body)))))
+
+        (testing "and never the per-version authorship: that names the account's
+                  machine users, and a machine user is told nothing about its
+                  siblings — /api/me already refuses it that"
+          (is (nil? (:versions (:provenance body))))
+          (is (not (str/includes? (pr-str (:body res)) "daniel-machine"))))))))
+
+(deftest the-plain-read-tells-a-stranger-nothing
+  (with-app
+    (fn [conn]
+      (let [{:keys [identity-id other-human-token]} (provenance-fixture conn)]
+
+        (testing "a machine token on a persona it may NOT write gets no key —
+                  the grant is the entitlement, exactly as it is for writing"
+          (ds/add-machine-user conn (ds/add-account conn "f@et.n" nil) "ungranted-machine" {})
+          (let [ungranted (handlers/mint-machine-token! "ungranted-machine")
+                body (seen (read-identity true ungranted identity-id))]
+            (is (= "Notes" (:name body)) "the identity itself is public, as it always was")
+            (is (nil? (:provenance body)))))
+
+        (testing "and neither does another account's human token"
+          (is (nil? (:provenance (seen (read-identity true other-human-token identity-id))))))))))
+
+(deftest the-plain-read-carries-provenance-for-the-account-that-holds-the-persona
+  (with-app
+    (fn [conn]
+      (let [{:keys [identity-id human-token]} (provenance-fixture conn)
+            body (seen (read-identity true human-token identity-id))]
+        (is (= [{:from 1 :to 1 :caution 1.0}
+                {:from 2 :to 2 :caution 0.0}]
+               (:ranges (:provenance body))))
+        (testing "- the same one-key shape as the agent's, :versions and all.
+                  The per-version authorship lives on the dedicated route, which
+                  is what the account's own view reads"
+          (is (nil? (:versions (:provenance body)))))
+        (testing "- and admin, which writes anywhere, reads it anywhere"
+          (is (some? (:provenance (seen (read-identity true (create-admin-token) identity-id))))))))))
+
+(deftest a-visitor-s-identity-read-is-exactly-what-it-always-was
+  (with-app
+    (fn [conn]
+      (let [{:keys [identity-id]} (provenance-fixture conn)
+            res (read-identity true nil identity-id)
+            body (seen res)]
+        (is (= 200 (:status res)))
+        (testing "three keys, and not one more — the public read is unchanged"
+          (is (= #{:identity :name :text} (set (keys body)))))
+        (testing "and nothing in it names a machine user"
+          (is (not (str/includes? (pr-str (:body res)) "daniel-machine"))))))))
+
+(deftest an-anonymous-read-does-not-even-compute-the-ranges
+  (with-app
+    (fn [conn]
+      (let [{:keys [identity-id]} (provenance-fixture conn)]
+        ;; Not only privacy. `assess` is linear in versions and quadratic in
+        ;; lines, and this is the app's single-identity read — the one the SPA
+        ;; hits on every identity a visitor opens. Answering the audience
+        ;; question *after* doing the arithmetic and then dropping the result
+        ;; would be invisible in every other test here: same body, same status,
+        ;; the work simply thrown away. So the pin is that the arithmetic is
+        ;; never reached at all.
+        (with-redefs [provenance/ranges (fn [& _]
+                                          (throw (ex-info "ranges computed for a visitor" {})))]
+          (let [res (read-identity true nil identity-id)]
+            (is (= 200 (:status res)))
+            (is (nil? (:provenance (seen res))))))))))
 
 (deftest a-machine-user-cannot-be-named-human
   (with-app
