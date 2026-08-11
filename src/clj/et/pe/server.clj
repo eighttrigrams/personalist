@@ -133,17 +133,29 @@
           codec/url-decode))
 
 (defn- owns-persona?
-  "Whether `claims` may write under `persona`. Since accounts sit above personas
-   this is a lookup, not a string comparison: the token carries an account id and
-   the URI a persona id, so the guard asks which account holds that persona. One
-   token therefore covers every persona of its account, and a persona nobody
-   holds is owned by nobody. Admin is exempt because the Settings tab edits other
-   accounts; the exemption keys on the un-mintable :admin claim
-   (create-admin-token) and is answered without touching the database."
-  [claims persona]
-  (or (true? (:admin claims))
-      (when-let [account (handlers/account-of-persona persona)]
-        (= (:account claims) account))))
+  "Whether `principal` may write under `persona`. Three kinds of credential
+   reach this now, and each answers the question differently:
+
+   - **admin** may write anywhere, because the Settings tab edits other
+     accounts. The exemption keys on the un-mintable :admin claim
+     (create-admin-token) and is answered without touching the database.
+   - a **human** may write under any persona of its own account. That is a
+     lookup, not a string comparison: the token carries an account id and the
+     URI a persona id, so the guard asks which account holds that persona.
+   - a **machine user** may write under exactly the personas it has been
+     granted — *not* everything under its parent account. That distinction is
+     the whole feature: one machine user for personas A and C, another for B
+     and C, both hanging off the same human.
+
+   A persona nobody holds is owned by nobody, and anything unrecognised is
+   refused."
+  [principal persona]
+  (case (:kind principal)
+    :admin true
+    :human (boolean (when-let [account (handlers/account-of-persona persona)]
+                      (= (:account principal) account)))
+    :machine (handlers/machine-grants-persona? (:id principal) persona)
+    false))
 
 (defn wrap-auth
   "Guard writes. Engages only in prod mode, only for mutating requests under
@@ -152,10 +164,17 @@
    token at all.
 
    A request must carry a verifying `Authorization: Bearer` token (401
-   otherwise) whose account holds the persona it writes under, or which is
-   admin's (403 otherwise). POST /api/personas names no persona in its URI, so
-   any valid token gets past here and the handler decides whose account it mints
-   under.
+   otherwise) that may write the persona it names, or be admin's (403
+   otherwise). Two kinds of credential arrive in that header — a human's signed
+   JWT and a machine user's opaque token — and owns-persona? answers for both.
+
+   A request that names **no persona in its URI** gets past here on any valid
+   token, and the handler decides. That is right for POST /api/personas, whose
+   handler mints under the caller's own account. It is emphatically not enough
+   for the /api/machine-users routes: a machine user reaching those could grant
+   itself every persona in the account, so each of those handlers verifies for
+   itself that the caller is a *human* owning the target. See
+   handlers/owning-account.
 
    Two GETs are guarded, but by themselves rather than here: /api/me and
    /api/accounts answer *about an account*, which is the one thing this app's
@@ -168,10 +187,10 @@
              (str/starts-with? (or (:uri req) "") "/api")
              (not (public-endpoint? req)))
       (if-let [token (extract-token req)]
-        (if-let [claims (handlers/verify-token-check token)]
+        (if-let [principal (handlers/principal-for-token token)]
           (let [persona (persona-in-uri req)]
             (if (or (nil? persona)
-                    (owns-persona? claims persona))
+                    (owns-persona? principal persona))
               (handler req)
               {:status 403
                :headers {"Content-Type" "application/json"}

@@ -131,6 +131,32 @@
   [persona-id]
   (:account-id (ds/get-persona-by-id (ensure-conn) (str->keyword persona-id))))
 
+(defn machine-grants-persona?
+  "Whether a machine user has been granted write on `persona-id`. The other half
+   of wrap-auth's ownership question, for the other kind of token."
+  [machine-account-id persona-id]
+  (ds/machine-may-write? (ensure-conn) machine-account-id (str->keyword persona-id)))
+
+(defn principal-for-token
+  "Who a presented Bearer token is, or nil when it is neither a verifying JWT
+   nor a live machine token. One place decides which of the two kinds arrived,
+   on the prefix rather than by trying to unsign and catching the failure:
+
+     {:kind :admin}
+     {:kind :human   :account <account-id>}
+     {:kind :machine :id <machine-account-id> :for-account-id ... :name ...}
+
+   A machine token that has been rotated away, or belongs to a machine user that
+   has been deleted, resolves to nil — the same nil a forged one gives, so both
+   are refused as unauthenticated rather than as forbidden."
+  [token]
+  (if (machine-token? token)
+    (some-> (machine-user-for-token token) (assoc :kind :machine))
+    (when-let [c (verify-token token)]
+      (if (true? (:admin c))
+        {:kind :admin}
+        {:kind :human :account (:account c)}))))
+
 ;; ---------------------------------------------------------------------------
 ;; The handlers that guard themselves
 ;;

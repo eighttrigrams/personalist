@@ -45,9 +45,13 @@
 (def ^:private enc "%74%61%72%67%65%74%78")   ; url-encoding of "targetx"
 
 (def ^:private accounts (atom nil))
+;; The machine-user tests write grants directly, so they need the connection the
+;; fixture opened; wrap-auth reaches the same one through handlers/ensure-conn.
+(def ^:private db (atom nil))
 
 (defn- seeded-db [f]
   (let [conn (ds/init-conn :sqlite-in-memory {})]
+    (reset! db conn)
     (handlers/set-conn! conn)
     (let [a (ds/add-account conn "a@et.n" nil)
           b (ds/add-account conn "b@et.n" nil)
@@ -66,7 +70,8 @@
       (f)
       (finally
         (handlers/set-conn! nil)
-        (ds/close-conn conn)))))
+        (ds/close-conn conn)
+        (reset! db nil)))))
 
 (use-fixtures :once seeded-db)
 
@@ -203,3 +208,81 @@
     (is (= 403 (:status (guarded (request :put "/api/personas/%zz" (token-for :a)))))))
   (testing "the account holding the verbatim id still writes under it"
     (is (= 200 (:status (guarded (request :put "/api/personas/%zz" (token-for :p))))))))
+
+;; ---------------------------------------------------------------------------
+;; The machine branch
+;;
+;; A human token may write under any persona of its account. A machine token may
+;; write under exactly the personas in its grant table — not "everything under
+;; its parent", which is the whole point of the feature: one machine user for
+;; personas A and C, another for B and C.
+;; ---------------------------------------------------------------------------
+
+(defn- machine-token-for
+  "Mint a machine user under account `k` with the given grants, and hand back its
+   token. Named per test so the :once fixture's rows do not leak between them."
+  [k nm grants & [opts]]
+  (ds/add-machine-user @db (get @accounts k) nm (or opts {}))
+  (let [m (ds/get-machine-user @db nm)]
+    (doseq [g grants] (ds/grant-persona @db (:id m) g))
+    (handlers/mint-machine-token! nm)))
+
+(deftest a-machine-token-writes-exactly-its-grants
+  (let [token (machine-token-for :a "writer-of-aaa" [:aaa])]
+    (testing "under a granted persona it writes"
+      (is (= 200 (:status (guarded (request :post "/api/personas/aaa/identities" token)))))
+      (is (= 200 (:status (guarded (request :put "/api/personas/aaa/identities/x" token))))))
+
+    (testing "under another persona of the very same account it does not —
+              a grant is per persona, not per account"
+      (is (= 403 (:status (guarded (request :post "/api/personas/also-mine/identities" token)))))
+      (is (= 403 (:status (guarded (request :put "/api/personas/also-mine" token))))))
+
+    (testing "and under a stranger's persona least of all"
+      (is (= 403 (:status (guarded (request :post "/api/personas/bbb/identities" token)))))
+      (is (= 403 (:status (guarded (request :put "/api/personas/targetx" token))))))
+
+    (testing "a persona nobody holds is not writable by it either"
+      (is (= 403 (:status (guarded (request :put "/api/personas/no-such-persona" token))))))
+
+    (testing "the human whose account it hangs off still writes everywhere in that account"
+      (is (= 200 (:status (guarded (request :post "/api/personas/also-mine/identities" (token-for :a)))))))
+
+    (testing "an unissued or forged machine token is 401, not 403 — it names nobody"
+      (is (= 401 (:status (guarded (request :post "/api/personas/aaa/identities" "pmu_nonsense")))))
+      (is (= 401 (:status (guarded (request :post "/api/personas/aaa/identities" (str token "x")))))))))
+
+(deftest a-machine-token-follows-its-grants-as-they-change
+  (let [token (machine-token-for :a "writer-that-changes" [:aaa])
+        m (ds/get-machine-user @db "writer-that-changes")]
+    (testing "granted, then revoked, the very next request is refused"
+      (is (= 200 (:status (guarded (request :put "/api/personas/aaa" token)))))
+      (ds/revoke-persona @db (:id m) :aaa)
+      (is (= 403 (:status (guarded (request :put "/api/personas/aaa" token))))))
+    (testing "and a grant added after the token was minted needs no new token"
+      (ds/grant-persona @db (:id m) :also-mine)
+      (is (= 200 (:status (guarded (request :put "/api/personas/also-mine" token))))))))
+
+(deftest a-rotated-away-machine-token-stops-writing-at-once
+  (let [old-token (machine-token-for :a "writer-to-rotate" [:aaa])]
+    (is (= 200 (:status (guarded (request :put "/api/personas/aaa" old-token)))))
+    (let [new-token (handlers/mint-machine-token! "writer-to-rotate")]
+      (testing "whatever was using the old token stops working the moment it is rotated"
+        (is (= 401 (:status (guarded (request :put "/api/personas/aaa" old-token))))))
+      (testing "and the new one carries the same grants"
+        (is (= 200 (:status (guarded (request :put "/api/personas/aaa" new-token)))))))))
+
+(deftest a-deleted-machine-user-cannot-write-with-the-token-it-had
+  (let [token (machine-token-for :a "writer-to-delete" [:aaa])]
+    (is (= 200 (:status (guarded (request :put "/api/personas/aaa" token)))))
+    (ds/delete-machine-user @db (:id (ds/get-machine-user @db "writer-to-delete")))
+    (testing "the row is gone, so the token names nobody"
+      (is (= 401 (:status (guarded (request :put "/api/personas/aaa" token))))))))
+
+(deftest a-machine-token-is-not-an-admin-token
+  (let [token (machine-token-for :a "writer-not-admin" [:aaa])]
+    (testing "the admin exemption keys on a claim a machine token cannot carry"
+      (is (= 403 (:status (guarded (request :put "/api/personas/bbb" token)))))
+      (is (= 403 (:status (guarded (request :put "/api/personas/no-such-persona" token))))))
+    (testing "and it is not readable as a JWT at all"
+      (is (nil? (handlers/verify-token-check token))))))
