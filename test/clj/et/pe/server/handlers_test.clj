@@ -4,6 +4,7 @@
             [clojure.walk :as walk]
             [buddy.hashers :as hashers]
             [et.pe.ds :as ds]
+            [et.pe.provenance :as provenance]
             [et.pe.server.handlers :as handlers]))
 
 (defn- with-app
@@ -1001,3 +1002,138 @@
 
           (testing "and no machine user's name appears anywhere in that body"
             (is (not (str/includes? (pr-str (:body res)) "daniel-machine")))))))))
+
+;; ---------------------------------------------------------------------------
+;; The provenance read
+;;
+;; The **third** guarded GET, after /api/me and /api/accounts, and guarded for
+;; the same reason those two are: it answers about an account rather than about
+;; the site. Specifically it names the account's machine users, which is the one
+;; thing this app's anonymity has always protected.
+;;
+;; It is narrower than the write guard on purpose. wrap-auth lets a machine
+;; token write the personas it was granted; this refuses it even there. The
+;; owner asked for a view "with which logged in human users can use to see
+;; provenance" — telling an agent which lines are the owner's is what the
+;; *ranges* are for, and they travel with the text it reads anyway.
+;; ---------------------------------------------------------------------------
+
+(defn- provenance-fixture
+  "An identity under `mine` whose text is half the owner's and half a machine
+   user's — the history this whole feature exists to describe."
+  [conn]
+  (let [mine (ds/add-account conn "d@et.n" nil)
+        theirs (ds/add-account conn "e@et.n" nil)]
+    (ds/add-persona conn mine :face "Face")
+    (ds/add-persona conn theirs :not-mine "Theirs")
+    (ds/add-machine-user conn mine "daniel-machine" {})
+    (let [m (ds/get-machine-user conn "daniel-machine")
+          machine-token (do (ds/grant-persona conn (:id m) :face)
+                            (handlers/mint-machine-token! "daniel-machine"))
+          human-token (create-token mine)
+          id (wrote-identity human-token :face {:name "Notes" :text "his first line"})]
+      (handlers/update-identity-handler
+       (acting machine-token :params {:name "face" :id (name id)}
+               :body {:name "Notes" :text "his first line\nthe agent's line"}))
+      {:identity-id (name id)
+       :human-token human-token
+       :other-human-token (create-token theirs)
+       :machine-token machine-token})))
+
+(defn- provenance-of [token identity-id]
+  ((handlers/provenance-handler true)
+   (as token :params {:name "face" :id identity-id})))
+
+(deftest provenance-answers-the-account-that-holds-the-persona
+  (with-app
+    (fn [conn]
+      (let [{:keys [identity-id human-token]} (provenance-fixture conn)
+            res (provenance-of human-token identity-id)
+            body (seen res)]
+        (is (= 200 (:status res)))
+
+        (testing "the ranges say which lines are his and which the agent's"
+          (is (= [{:from 1 :to 1 :caution 1.0}
+                  {:from 2 :to 2 :caution 0.0}]
+                 (mapv #(update-keys % keyword) (:ranges body)))))
+
+        (testing "the legend travels with them, because a bare 0.00 is unreadable
+                  to someone who has not read this codebase"
+          (is (= provenance/legend (:legend body))))
+
+        (testing "and each version says who wrote it, oldest first — this is where
+                  the machine user's own name is allowed to be seen"
+          (is (= ["human" "daniel-machine"] (mapv :author (:versions body))))
+          (is (every? :valid-from (:versions body))))))))
+
+(deftest provenance-is-refused-to-everyone-else
+  (with-app
+    (fn [conn]
+      (let [{:keys [identity-id other-human-token machine-token]} (provenance-fixture conn)]
+
+        (testing "anonymous is 401 — this is not one of the public reads"
+          (is (= 401 (:status (provenance-of nil identity-id)))))
+
+        (testing "another account's token is 403: authenticated, just not entitled"
+          (let [res (provenance-of other-human-token identity-id)]
+            (is (= 403 (:status res)))
+            (is (not (str/includes? (pr-str (:body res)) "daniel-machine")))))
+
+        (testing "a machine token is 403 **even for a persona it may write**, which
+                  is the case worth pinning: the write guard would wave it through
+                  here, and this read is for logged-in humans"
+          (let [res (provenance-of machine-token identity-id)]
+            (is (= 403 (:status res)))
+            (is (not (str/includes? (pr-str (:body res)) "daniel-machine")))))
+
+        (testing "a token that verifies but names an account that is gone is a 401"
+          (is (= 401 (:status (provenance-of (create-token 99999) identity-id)))))))))
+
+(deftest admin-sees-provenance-anywhere-as-it-writes-anywhere
+  (with-app
+    (fn [conn]
+      (let [{:keys [identity-id]} (provenance-fixture conn)
+            res (provenance-of (create-admin-token) identity-id)]
+        ;; The same authority by which Settings edits another account's persona.
+        (is (= 200 (:status res)))
+        (is (= ["human" "daniel-machine"] (mapv :author (:versions (seen res)))))))))
+
+(deftest provenance-of-nothing-is-a-404-rather-than-an-answer
+  (with-app
+    (fn [conn]
+      (let [{:keys [human-token]} (provenance-fixture conn)]
+        (testing "an identity with no versions has nothing to be careful in"
+          (is (= 404 (:status (provenance-of human-token "no-such-identity")))))
+        (testing "and a persona nobody holds is the same 404 every read here gives"
+          (is (= 404 (:status ((handlers/provenance-handler true)
+                               (as human-token :params {:name "no-such-persona"
+                                                        :id "whatever"}))))))))))
+
+(deftest a-machine-user-cannot-be-named-human
+  (with-app
+    (fn [conn]
+      (let [acc (ds/add-account conn "d@et.n" nil)
+            token (create-token acc)]
+        ;; Otherwise a machine user could be created whose versions are stamped
+        ;; with the marker et.pe.provenance/ours is a set of — an agent forging
+        ;; human authorship, which is the same class of hole as the escalation
+        ;; trap in 7d5fc8d. The name is unique across all accounts, so one
+        ;; machine user called "human" anywhere would do it everywhere.
+        (testing "the reserved name is refused with a 400, and nothing is created"
+          (let [res ((handlers/add-machine-user-handler true)
+                     (as token :body {:name "human"}))]
+            (is (= 400 (:status res)))
+            (is (nil? (ds/get-machine-user conn "human")))
+            (is (nil? (:token (seen res))) "and above all no token was minted for it")))
+
+        (testing "case and whitespace do not get round it either"
+          (doseq [nm ["Human" "HUMAN" " human" "human "]]
+            (is (= 400 (:status ((handlers/add-machine-user-handler true)
+                                 (as token :body {:name nm}))))
+                nm)
+            (is (nil? (ds/get-machine-user conn nm)) nm)))
+
+        (testing "an ordinary name still goes through"
+          (is (= 201 (:status ((handlers/add-machine-user-handler true)
+                               (as token :body {:name "daniel-machine"})))))
+          (is (some? (ds/get-machine-user conn "daniel-machine"))))))))

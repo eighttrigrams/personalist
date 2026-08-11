@@ -1,5 +1,6 @@
 (ns et.pe.server.handlers
   (:require [et.pe.ds :as ds]
+            [et.pe.provenance :as provenance]
             [et.pe.urbit :as urbit]
             [et.pe.middleware.rate-limit :as rate-limit]
             [clojure.string :as str]
@@ -600,11 +601,29 @@
             {:status 201 :body {:success true :id account-id}}
             {:status 400 :body {:success false :error "Email already exists"}}))))))
 
+;; The one name a machine user may not have. Its versions would be stamped with
+;; the very marker et.pe.provenance/ours is a set of, so an agent could forge
+;; human authorship — the same class of hole as the escalation trap in 7d5fc8d,
+;; and worse in one respect: the forgery would still read as the owner's own
+;; hand years later, in a view built to answer exactly that question. Names are
+;; unique across all accounts, so one machine user called "human" anywhere would
+;; do it everywhere.
+;;
+;; Compared case-insensitively and after trimming, unlike reserved-persona-ids:
+;; a persona id is compared against a keyword the caller sent verbatim, while
+;; this is a display name a person types, and " Human" is the same claim.
+(def ^:private reserved-machine-user-names #{"human"})
+
+(defn- reserved-machine-user-name? [nm]
+  (contains? reserved-machine-user-names (str/lower-case (str/trim (str nm)))))
+
 (defn add-machine-user-handler
   "POST /api/machine-users — create a machine user under the calling account and
    answer its first token. Takes {:name :can_create?}. The name is unique across
    all accounts, not per account: it is no longer a login identifier, but it is
-   how these get referred to in secrets.yaml and in conversation.
+   how these get referred to in secrets.yaml and in conversation — and, since
+   migration 005, it is also the authorship marker every version it writes
+   carries.
 
    Answers 201 {:success true :name ... :token \"pmu_...\"}. **The token is in
    that body and nowhere else, ever** — only its SHA-256 is kept, so the caller
@@ -613,7 +632,7 @@
    Managed by the owning human account only: 401 without a credential, 403 for a
    machine token or an admin token. A machine user calling this could otherwise
    mint a fresh identity with whatever grants it liked. 400 when the name is
-   blank or already taken."
+   blank, reserved (see reserved-machine-user-names), or already taken."
   [prod-mode?]
   (fn [req]
     (if-let [account (human-caller req prod-mode?)]
@@ -621,6 +640,9 @@
         (cond
           (not (seq name))
           {:status 400 :body {:success false :error "Name is required"}}
+
+          (reserved-machine-user-name? name)
+          {:status 400 :body {:success false :error "Reserved machine user name"}}
 
           (not (ds/add-machine-user (ensure-conn) (:id account) name
                                     {:can-create-personas? (boolean can_create)}))
@@ -867,6 +889,92 @@
          :body (serialize-response
                 (mapv #(select-keys % [:identity :name :text :valid-from]) history))})
       {:status 404 :body {:error "Persona not found"}})))
+
+(defn- provenance-caller
+  "Whether a request may see who wrote an identity's versions, and as whom:
+   `:admin`, an account row, or a keyword naming the refusal.
+
+   Narrower than the write guard, deliberately. wrap-auth lets a machine token
+   write the personas it has been granted; here a machine token is refused even
+   on one of those. The owner asked for a view *logged-in human users* can see
+   provenance with, and there is nothing an agent would do with the answer that
+   the ranges do not already tell it in the text it reads anyway.
+
+   Admin is allowed anywhere, by the same authority that lets Settings edit
+   another account's persona.
+
+   `human-caller` is the pattern the /api/machine-users routes already use, and
+   it is reused rather than re-derived — but it answers nil for admin (those
+   routes have nothing coherent to do on admin's behalf), so admin is asked
+   about first here.
+
+   **:no-account covers both no token at all and a token naming an account that
+   is gone**, and both are answered 401 — /api/me's rule, not the machine-user
+   routes' 403, because this is a read *about an account* and there is no
+   account to answer about. A live token belonging to somebody else is a
+   different thing: it comes back as that account and is refused 403 further
+   down, where the persona is known."
+  [req prod-mode?]
+  (cond
+    (machine-token? (bearer-token req)) :not-for-machines
+    (admin-request? req prod-mode?) :admin
+    :else (or (human-caller req prod-mode?) :no-account)))
+
+(defn provenance-handler
+  "GET /api/personas/:name/identities/:id/provenance — who wrote which lines of
+   an identity's text as it stands now: {:legend :ranges :versions}.
+
+   - `:ranges` is `[{:from :to :caution}]`, one-based and inclusive, `1.0` a
+     stretch written by hand and `0.0` one a machine user wrote — the
+     `us-vs-them` answer over this identity's version history. See
+     et.pe.provenance.
+   - `:legend` is what those numbers mean, in one line, handed out *with* them
+     because the reader may be an agent that fetched this and nothing else.
+   - `:versions` is `[{:valid-from :author}]`, oldest first, so the view can name
+     who wrote each version rather than only how the lines came out.
+
+   **This is the third guarded GET in the app**, after /api/me and
+   /api/accounts, and it is guarded for their reason: it answers about an
+   account rather than about the site. The account's machine users are named in
+   `:author`, and nothing about machine users is public — which is why the
+   public history read next door carries no author at all.
+
+   401 without a credential; 403 for another account's token, and 403 for a
+   machine token **even on a persona it may write**; 404 when the persona does
+   not exist or the identity has no versions under it — there is nothing to be
+   careful in, and an empty answer would be indistinguishable from a text nobody
+   has edited.
+
+   \"Their own personas\" needs no new ownership concept: a persona a machine
+   user created belongs to the parent account already (666bd50), so
+   `personas.account_id = the token's account` is the whole test."
+  [prod-mode?]
+  (fn [req]
+    (let [caller (provenance-caller req prod-mode?)]
+      (case caller
+        :no-account (unauthenticated)
+        :not-for-machines
+        {:status 403 :body {:success false :error "Provenance is for the account that holds the persona"}}
+
+        (let [persona-name (str->keyword (get-in req [:params :name]))
+              identity-id (str->keyword (get-in req [:params :id]))
+              persona (ds/get-persona-by-id (ensure-conn) persona-name)]
+          (cond
+            (nil? persona)
+            {:status 404 :body {:success false :error "Persona not found"}}
+
+            (not (or (= :admin caller) (= (:id caller) (:account-id persona))))
+            {:status 403 :body {:success false :error "Provenance is for the account that holds the persona"}}
+
+            :else
+            (let [history (ds/get-identity-history (ensure-conn) persona identity-id)]
+              (if (empty? history)
+                {:status 404 :body {:success false :error "Identity not found"}}
+                {:status 200
+                 :body (serialize-response
+                        {:legend provenance/legend
+                         :ranges (provenance/ranges history)
+                         :versions (mapv #(select-keys % [:valid-from :author]) history)})}))))))))
 
 (defn list-relations-handler
   "GET /api/personas/:name/identities/:id/relations — the identity's outgoing

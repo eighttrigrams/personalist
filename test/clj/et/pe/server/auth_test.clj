@@ -135,12 +135,14 @@
 
 (deftest reads-are-not-this-middleware-s-business
   (testing "wrap-auth lets every GET through, with no token and with a stranger's.
-            /api/me and /api/accounts are guarded too, but inside their handlers,
-            where the answer is about an account rather than about the site"
+            /api/me, /api/accounts and .../provenance are guarded too, but inside
+            their handlers, where the answer is about an account rather than
+            about the site"
     (doseq [uri ["/api/personas"
                  "/api/personas/bbb/identities"
                  "/api/personas/bbb/identities/x"
                  "/api/personas/bbb/identities/x/history"
+                 "/api/personas/bbb/identities/x/provenance"
                  "/api/me"
                  "/api/accounts"
                  "/api/describe"]]

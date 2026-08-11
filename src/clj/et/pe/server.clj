@@ -49,9 +49,9 @@
   discover the endpoints before calling them.
 
   Nearly every GET under /api is public by design — personalist serves what a
-  visitor of personalist.org sees. Writes are guarded by wrap-auth; the two GETs
-  that answer about an account rather than about the site, /api/me and
-  /api/accounts, guard themselves."
+  visitor of personalist.org sees. Writes are guarded by wrap-auth; the three
+  GETs that answer about an account rather than about the site — /api/me,
+  /api/accounts, and an identity's /provenance — guard themselves."
   [_req]
   {:status 200
    :body (->> describe-namespaces
@@ -95,6 +95,10 @@
     (PUT "/personas/:name/identities/:id" [_name _id] handlers/update-identity-handler)
     (GET "/personas/:name/identities/:id/at" [_name _id] handlers/get-identity-at-handler)
     (GET "/personas/:name/identities/:id/history" [_name _id] handlers/get-identity-history-handler)
+    ;; The third guarded GET, and it guards itself like the other two: it names
+    ;; the account's machine users, which is the one thing this app's anonymity
+    ;; protects. The history route above stays public and authorless.
+    (GET "/personas/:name/identities/:id/provenance" [_name _id] (handlers/provenance-handler (prod-mode?)))
     (GET "/personas/:name/identities/:id/relations" [_name _id] handlers/list-relations-handler)
     (GET "/personas/:name/identities/:id" [_name _id] handlers/get-identity-handler)))
 

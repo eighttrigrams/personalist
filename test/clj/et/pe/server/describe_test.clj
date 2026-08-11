@@ -28,6 +28,7 @@
     ["PUT"  "/api/personas/:name/identities/:id"]
     ["GET"  "/api/personas/:name/identities/:id/at"]
     ["GET"  "/api/personas/:name/identities/:id/history"]
+    ["GET"  "/api/personas/:name/identities/:id/provenance"]
     ["GET"  "/api/personas/:name/identities/:id/relations"]})
 
 (deftest describe-lists-every-route
