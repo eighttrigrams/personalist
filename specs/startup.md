@@ -123,10 +123,12 @@ used to be one row:
 
 | | is | holds |
 |---|---|---|
-| Account | an email and a password | one or more personas |
+| Account | an email and a password | any number of personas, including none |
 | Persona | a public address (`personalist.org/:persona-id`) and a display name | its identities |
 
-One email can therefore wear several faces. Which personas belong to the same
+One email can therefore wear several faces, or none at all — an account holding
+no personas is a legitimate state, not a degenerate one, and it lands on its
+profile page, which is where it makes one. Which personas belong to the same
 account is not public: `GET /api/personas` answers with ids and display names
 only, so an anonymous visitor sees a flat list of personas and learns nothing
 about who holds them or which of them share a login.
@@ -142,10 +144,15 @@ about who holds them or which of them share a login.
 - A logged-in user manages their own personas on the Profile tab: create one
   (a generated urbit id plus a display name), or remove one by hand-typing its
   urbit id. Removal destroys the persona and every version of every identity
-  under it, permanently, and an account's last persona cannot be removed.
-- The admin's Settings tab creates *accounts* (`POST /api/accounts`, which makes
-  the account and its first persona in one call) and lists them with their
-  personas.
+  under it, permanently. The account's **last** persona may be removed too; the
+  hand-typed confirmation is the whole guard, and the account is then simply an
+  account with none.
+- The admin's Settings tab creates *accounts* — `POST /api/accounts` takes an
+  email and a password and makes only the account — and lists them with their
+  personas. To give an account its first persona from outside it, admin passes
+  an `:account_id` to `POST /api/personas`; that field is admin's alone, and
+  anyone else naming an account is refused. It is what `scripts/seed-db.sh`
+  uses.
 
 Migrating an existing database needs no intervention: every persona row becomes
 one account carrying its email and password plus one persona carrying its id and
