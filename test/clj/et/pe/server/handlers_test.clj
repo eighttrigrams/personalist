@@ -442,3 +442,144 @@
            (handlers/machine-user-for-token nil)
            (handlers/machine-user-for-token "")
            (handlers/machine-user-for-token "pmu_")))))))
+
+;; ===========================================================================
+;; THE ESCALATION TESTS
+;;
+;; wrap-auth waves any valid token through a URI that names no persona. That is
+;; right for POST /api/personas, whose handler mints under the caller's own
+;; account. It is emphatically wrong for the machine-user management routes: a
+;; machine user that reached those could grant itself every persona in the
+;; account, mint itself a fresh token to survive being rotated by its owner, or
+;; create a second machine user with whatever grants it liked.
+;;
+;; So each of those handlers checks for itself that the caller is a *human*
+;; account and that the machine user named is one of its own. These tests exist
+;; to make that non-optional. A machine user escalating itself to full account
+;; rights is the one bug in this feature that actually matters.
+;; ===========================================================================
+
+(defn- machine-fixture
+  "A human account with two personas and a machine user granted one of them —
+   the shape every escalation test starts from. Answers the pieces by name."
+  [conn]
+  (let [mine (ds/add-account conn "d@et.n" (hashers/derive "pw"))
+        theirs (ds/add-account conn "e@et.n" (hashers/derive "pw"))]
+    (ds/add-persona conn mine :face-a "A")
+    (ds/add-persona conn mine :face-b "B")
+    (ds/add-persona conn theirs :not-mine "Theirs")
+    (ds/add-machine-user conn mine "daniel-machine" {})
+    (let [m (ds/get-machine-user conn "daniel-machine")]
+      (ds/grant-persona conn (:id m) :face-a)
+      {:account mine
+       :other-account theirs
+       :machine m
+       :machine-token (handlers/mint-machine-token! "daniel-machine")
+       :human-token (create-token mine)
+       :other-human-token (create-token theirs)})))
+
+(defn- management-calls
+  "Every machine-user management route, as a thunk taking a token. If a route is
+   added later and not listed here, the escalation tests below stop covering it
+   — which is why they are enumerated in one place."
+  [f]
+  {"POST /api/machine-users"
+   (fn [t] ((handlers/add-machine-user-handler true)
+            (as t :body {:name (str "minted-by-" (name f)) :can_create true})))
+
+   "POST /api/machine-users/:name/token"
+   (fn [t] ((handlers/rotate-machine-token-handler true)
+            (as t :params {:name "daniel-machine"})))
+
+   "PUT /api/machine-users/:name"
+   (fn [t] ((handlers/update-machine-user-handler true)
+            (as t :params {:name "daniel-machine"}
+                :body {:personas ["face-a" "face-b"] :can_create true})))
+
+   "DELETE /api/machine-users/:name"
+   (fn [t] ((handlers/delete-machine-user-handler true)
+            (as t :params {:name "daniel-machine"})))})
+
+(deftest a-machine-token-is-refused-by-every-management-route
+  (with-app
+    (fn [conn]
+      (let [{:keys [machine-token machine]} (machine-fixture conn)]
+        (doseq [[route call] (management-calls :machine)]
+          (testing route
+            (is (= 403 (:status (call machine-token)))
+                (str route " must refuse a machine token"))))
+
+        (testing "and nothing it tried actually happened"
+          (is (= [:face-a] (ds/granted-personas conn (:id machine)))
+              "it did not grant itself the account's other persona")
+          (is (false? (:can-create-personas? (ds/get-machine-user conn "daniel-machine")))
+              "nor give itself permission to create personas")
+          (is (= 1 (count (ds/list-machine-users conn (:for-account-id machine))))
+              "nor mint a second machine user")
+          (is (some? (ds/get-machine-user conn "daniel-machine"))
+              "nor delete itself"))))))
+
+(deftest a-machine-token-cannot-mint-itself-a-fresh-token
+  (with-app
+    (fn [conn]
+      (let [{:keys [machine-token machine]} (machine-fixture conn)
+            hash-before (:token-hash (ds/get-machine-user conn "daniel-machine"))]
+
+        (testing "the rotation route is the one that would let it outlive being revoked"
+          (let [res ((handlers/rotate-machine-token-handler true)
+                     (as machine-token :params {:name "daniel-machine"}))]
+            (is (= 403 (:status res)))
+            (is (nil? (:token (seen res))) "and above all it hands back no token")))
+
+        (testing "the stored hash is untouched, so the owner's rotation still governs"
+          (is (= hash-before (:token-hash (ds/get-machine-user conn "daniel-machine")))))
+
+        (testing "the machine user is still reachable only by the token it was given"
+          (is (= (:id machine) (:id (handlers/machine-user-for-token machine-token)))))))))
+
+(deftest one-account-s-human-cannot-manage-another-s-machine-user
+  (with-app
+    (fn [conn]
+      (let [{:keys [other-human-token machine]} (machine-fixture conn)]
+        (doseq [[route call] (management-calls :other-human)]
+          (when-not (= route "POST /api/machine-users")   ; that one creates under its own account, legitimately
+            (testing route
+              (is (= 404 (:status (call other-human-token)))
+                  (str route " must not confirm that another account's machine user exists")))))
+
+        (testing "nothing of the other account's machine user moved"
+          (is (= [:face-a] (ds/granted-personas conn (:id machine))))
+          (is (some? (ds/get-machine-user conn "daniel-machine"))))))))
+
+(deftest neither-anonymous-nor-admin-manages-machine-users
+  (with-app
+    (fn [conn]
+      (machine-fixture conn)
+      (doseq [[route call] (management-calls :anon)]
+        (testing (str route " — no token at all")
+          (is (= 401 (:status (call nil))))))
+      ;; Admin is exempt from wrap-auth everywhere, but a machine user hangs off
+      ;; an account and admin has none — there is no account for it to act as, so
+      ;; there is nothing coherent for these routes to do on its behalf.
+      (doseq [[route call] (management-calls :admin)]
+        (testing (str route " — admin has no account to own one under")
+          (is (= 403 (:status (call (create-admin-token))))))))))
+
+(deftest a-human-cannot-grant-its-machine-user-somebody-else-s-persona
+  (with-app
+    (fn [conn]
+      (let [{:keys [human-token machine]} (machine-fixture conn)]
+        (testing "a persona of another account is refused, not silently dropped —
+                  a grant the caller believes it made and did not is worse"
+          (let [res ((handlers/update-machine-user-handler true)
+                     (as human-token :params {:name "daniel-machine"}
+                         :body {:personas ["face-a" "not-mine"]}))]
+            (is (= 400 (:status res)))))
+
+        (testing "and no part of that request took effect"
+          (is (= [:face-a] (ds/granted-personas conn (:id machine)))))
+
+        (testing "a persona that does not exist at all is refused the same way"
+          (is (= 400 (:status ((handlers/update-machine-user-handler true)
+                               (as human-token :params {:name "daniel-machine"}
+                                   :body {:personas ["never-existed"]}))))))))))

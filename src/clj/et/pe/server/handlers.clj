@@ -225,6 +225,52 @@
 (defn- unauthenticated []
   {:status 401 :body {:success false :error "Authentication required"}})
 
+;; ---------------------------------------------------------------------------
+;; The gate on every machine-user management route
+;;
+;; wrap-auth waves any valid token through a URI that names no persona. That is
+;; correct for POST /api/personas, whose handler mints under the caller's own
+;; account. It is an escalation here: a machine user reaching these routes could
+;; grant itself every persona in the account, mint itself a fresh token to
+;; survive being rotated by its owner, or create a second machine user with
+;; whatever grants it liked.
+;;
+;; So the check lives in the handler, and it is a *positive* one — the caller
+;; must be a human account, not merely "not obviously a machine". A machine
+;; token does not happen to unsign as a JWT, so acting-account would refuse it
+;; anyway; that is a coincidence of representation and not something to build a
+;; security property on.
+;; ---------------------------------------------------------------------------
+
+(defn- human-caller
+  "The human account managing its machine users, or nil for anyone else — a
+   machine token, an admin token (admin has no account, so there is nothing
+   coherent for these routes to do on its behalf), or no token at all."
+  [req prod-mode?]
+  (when-not (machine-token? (bearer-token req))
+    (acting-account-row req prod-mode?)))
+
+(defn- refuse-non-human
+  "401 with no credential at all, 403 with one that is simply not entitled —
+   the same distinction wrap-auth draws for writes."
+  [req]
+  (if (or (bearer-token req) (claims req))
+    {:status 403 :body {:success false :error "Machine users are managed by their own account"}}
+    (unauthenticated)))
+
+(defn- owned-machine-user
+  "The named machine user, but only when `account-id` is its parent. Nil
+   otherwise, so one 404 covers both \"no such machine user\" and \"not yours\"
+   and a caller cannot map another account's machine users by probing names.
+   Tracker's own device (et.tr.server.user-handler/owned-machine-user)."
+  [nm account-id]
+  (let [m (ds/get-machine-user (ensure-conn) nm)]
+    (when (and m (= account-id (:for-account-id m)))
+      m)))
+
+(defn- not-found []
+  {:status 404 :body {:success false :error "Machine user not found"}})
+
 (defn list-personas-handler
   "GET /api/personas — every persona as {:id :name}. This is the whole of what
    an anonymous reader learns: that these personas exist, never who holds them
@@ -398,6 +444,122 @@
                 (do (ds/add-persona (ensure-conn) account id-kw name)
                     {:status 201 :body {:success true :id (clojure.core/name id-kw)}})
                 {:status 400 :body {:success false :error "Email already exists"}}))))))))
+
+(defn add-machine-user-handler
+  "POST /api/machine-users — create a machine user under the calling account and
+   answer its first token. Takes {:name :can_create?}. The name is unique across
+   all accounts, not per account: it is no longer a login identifier, but it is
+   how these get referred to in secrets.yaml and in conversation.
+
+   Answers 201 {:success true :name ... :token \"pmu_...\"}. **The token is in
+   that body and nowhere else, ever** — only its SHA-256 is kept, so the caller
+   has to show it to the user at once; losing it means rotating.
+
+   Managed by the owning human account only: 401 without a credential, 403 for a
+   machine token or an admin token. A machine user calling this could otherwise
+   mint a fresh identity with whatever grants it liked. 400 when the name is
+   blank or already taken."
+  [prod-mode?]
+  (fn [req]
+    (if-let [account (human-caller req prod-mode?)]
+      (let [{:keys [name can_create]} (:body req)]
+        (cond
+          (not (seq name))
+          {:status 400 :body {:success false :error "Name is required"}}
+
+          (not (ds/add-machine-user (ensure-conn) (:id account) name
+                                    {:can-create-personas? (boolean can_create)}))
+          {:status 400 :body {:success false :error "Machine user already exists"}}
+
+          :else
+          {:status 201 :body {:success true
+                              :name name
+                              :token (mint-machine-token! name)}}))
+      (refuse-non-human req))))
+
+(defn rotate-machine-token-handler
+  "POST /api/machine-users/:name/token — issue a new token for a machine user
+   and answer it, once. Whatever was using the previous token stops working the
+   moment this returns: there is one column holding the hash, so writing a new
+   one is the revocation.
+
+   Answers 200 {:success true :token \"pmu_...\"}. Owning human account only —
+   401 without a credential, 403 for a machine or admin token, 404 when the name
+   is not one of this account's. **A machine user must never reach this route**:
+   it is the one that would let it outlive being revoked by its owner.
+   404 rather than 403 for another account's machine user, so probing names
+   tells a caller nothing."
+  [prod-mode?]
+  (fn [req]
+    (if-let [account (human-caller req prod-mode?)]
+      (let [nm (get-in req [:params :name])]
+        (if (owned-machine-user nm (:id account))
+          {:status 200 :body {:success true :token (mint-machine-token! nm)}}
+          (not-found)))
+      (refuse-non-human req))))
+
+(defn update-machine-user-handler
+  "PUT /api/machine-users/:name — set which personas a machine user may write,
+   and whether it may create them. Takes {:personas [<persona-id>...]
+   :can_create?}; :personas is the grant list **in full** rather than a patch,
+   because that is what the checkbox grid on the profile page holds. A key
+   absent from the body is left alone.
+
+   Every named persona must belong to this account. One that does not — another
+   account's, or none at all — fails the whole request with a 400 rather than
+   being dropped from the list, because a grant the caller believes it made and
+   did not is worse than an error. Otherwise a human could hand its machine user
+   write on a stranger's persona.
+
+   Answers 200 {:success true}. Owning human account only: 401 without a
+   credential, 403 for a machine token (which would otherwise grant itself the
+   rest of the account) or an admin token, 404 for a name that is not this
+   account's."
+  [prod-mode?]
+  (fn [req]
+    (if-let [account (human-caller req prod-mode?)]
+      (let [nm (get-in req [:params :name])
+            {:keys [personas can_create] :as body} (:body req)]
+        (if-let [machine (owned-machine-user nm (:id account))]
+          (let [own (set (map :id (ds/list-personas-for-account (ensure-conn) (:id account))))
+                asked (map str->keyword (or personas []))
+                strangers (remove own asked)]
+            (if (and (contains? body :personas) (seq strangers))
+              {:status 400 :body {:success false
+                                  :error "Not this account's personas"
+                                  :personas (mapv clojure.core/name strangers)}}
+              (do
+                (when (contains? body :can_create)
+                  (ds/update-machine-user (ensure-conn) (:id machine)
+                                          {:can-create-personas? (boolean can_create)}))
+                (when (contains? body :personas)
+                  (let [wanted (set asked)
+                        held (set (ds/granted-personas (ensure-conn) (:id machine)))]
+                    (doseq [p (remove held wanted)] (ds/grant-persona (ensure-conn) (:id machine) p))
+                    (doseq [p (remove wanted held)] (ds/revoke-persona (ensure-conn) (:id machine) p))))
+                {:status 200 :body {:success true}})))
+          (not-found)))
+      (refuse-non-human req))))
+
+(defn delete-machine-user-handler
+  "DELETE /api/machine-users/:name — remove a machine user and every grant it
+   held. Its token dies with the row, so whatever was using it stops at once. No
+   hand-typed confirmation, unlike removing a persona: a machine user holds no
+   content of its own, and re-creating one is a name and a click.
+
+   Answers 200 {:success true}. Owning human account only: 401 without a
+   credential, 403 for a machine token (a machine user deleting a *sibling*
+   would be the escalation here) or an admin token, 404 for a name that is not
+   this account's."
+  [prod-mode?]
+  (fn [req]
+    (if-let [account (human-caller req prod-mode?)]
+      (let [nm (get-in req [:params :name])]
+        (if-let [machine (owned-machine-user nm (:id account))]
+          (do (ds/delete-machine-user (ensure-conn) (:id machine))
+              {:status 200 :body {:success true}})
+          (not-found)))
+      (refuse-non-human req))))
 
 (defn list-accounts-handler
   "GET /api/accounts — every account with its :email and its :personas

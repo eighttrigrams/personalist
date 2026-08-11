@@ -76,6 +76,13 @@
     (PUT "/personas/:name" [_name] handlers/update-persona-handler)
     (DELETE "/personas/:name" [_name] handlers/delete-persona-handler)
     (GET "/me" [] (handlers/me-handler (prod-mode?)))
+    ;; These name no persona in their URI, so wrap-auth waves any valid token
+    ;; through them — each handler gates itself on being a human account that
+    ;; owns the target. See handlers/human-caller.
+    (POST "/machine-users" [] (handlers/add-machine-user-handler (prod-mode?)))
+    (POST "/machine-users/:name/token" [_name] (handlers/rotate-machine-token-handler (prod-mode?)))
+    (PUT "/machine-users/:name" [_name] (handlers/update-machine-user-handler (prod-mode?)))
+    (DELETE "/machine-users/:name" [_name] (handlers/delete-machine-user-handler (prod-mode?)))
     (GET "/accounts" [] (handlers/list-accounts-handler (prod-mode?)))
     (POST "/accounts" [] (handlers/add-account-handler (prod-mode?)))
     (GET "/generate-id" [] handlers/generate-id-handler)
