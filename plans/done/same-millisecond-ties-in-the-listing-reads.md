@@ -1,3 +1,28 @@
+> **Done 2026-08-11**, one commit, `3d30cc1`. Suite green at 119 tests / 771
+> assertions; report in
+> `handoffs/personalist-same-millisecond-ties-in-the-listing-reads-report.md`.
+>
+> **What did the trick** was that the seam held: `latest-versions-subquery`
+> stopped answering *which timestamp* is an identity's latest and started
+> answering *which row* (`:latest_id`), so the three listing reads inherited the
+> rule by joining on the id and only search's `?valid_at` branch needed its own
+> touch — it never used the subquery, being `get-identity-at` asked once per
+> identity, so it took `get-identity-at`'s ordering.
+>
+> **The trap avoided** was `max(id)`, which is the fix that suggests itself:
+> `valid_from` is the caller's to set, so a version written later can carry an
+> earlier stamp and must not become the latest by having been inserted last.
+> Two levels — greatest timestamp, then greatest id among the rows holding it.
+> `a-row-written-later-with-an-earlier-stamp-is-not-the-latest` is what keeps
+> that from being simplified away.
+>
+> **One line is knowingly unpinned**: the id tie-break on
+> `list-recent-identities`' ordering. Removing it leaves the suite green three
+> runs running, because SQLite is stable for this query shape today — so the
+> claim is written into the docstring and the test instead of being dressed up
+> as a covered one. The opposite call to last round's vacuous pin, and for the
+> opposite reason: that claim could be constructed, this one cannot.
+
 # The same-millisecond tie in the three listing reads
 
 Its own round. The provenance work is done, green and filed; this is the defect
