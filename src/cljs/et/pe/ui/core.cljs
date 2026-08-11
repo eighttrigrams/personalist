@@ -1,11 +1,12 @@
 (ns et.pe.ui.core
   (:require [reagent.dom.client :as rdc]
             [clojure.string :as string]
-            [et.pe.ui.state :refer [app-state fetch-personas check-password-required logout-user dismiss-notification load-from-url parse-url fetch-recent-identities exit-fixed-mode open-search-modal]]
+            [et.pe.ui.state :refer [app-state fetch-personas check-password-required logout-user dismiss-notification load-from-url parse-url fetch-recent-identities exit-fixed-mode open-search-modal restore-auth]]
             [et.pe.ui.modals :refer [login-modal auth-modal password-modal
                                      search-modal add-relation-modal
                                      add-identity-modal beta-modal]]
             [et.pe.ui.identity :refer [main-tab]]
+            [et.pe.ui.profile :refer [profile-tab]]
             [et.pe.ui.settings :refer [settings-tab]]))
 
 (defn header []
@@ -57,6 +58,16 @@
           "Users"])
        (when (and logged-in? (not is-admin?))
          [:<>
+          ;; One login may hold several personas now; this is where you see them
+          ;; all, switch between them, and add or remove one.
+          [:button {:on-click #(swap! app-state assoc :current-tab :profile)
+                    :style {:padding "0.5rem 1rem"
+                            :cursor "pointer"
+                            :background (if (= current-tab :profile) "#555" "#333")
+                            :color "white"
+                            :border "1px solid #555"
+                            :border-radius "4px"}}
+           "Personas"]
           [:button {:on-click #(swap! app-state assoc :show-add-identity-modal true)
                     :style {:padding "0.5rem 1rem"
                             :cursor "pointer"
@@ -218,6 +229,7 @@
      [notification-bar]
      (case current-tab
        :settings [settings-tab]
+       :profile [profile-tab]
        [main-tab])]))
 
 (defonce root (rdc/create-root (.getElementById js/document "app")))
@@ -226,8 +238,12 @@
   (check-password-required)
   ;; browser back/forward: re-sync the whole view from the (now changed) URL
   (.addEventListener js/window "popstate" (fn [_] (load-from-url nil)))
-  (let [{:keys [persona-id]} (parse-url)]
-    (if persona-id
-      (load-from-url nil)
-      (fetch-personas)))
+  ;; Auth is restored first and the rest of the boot waits for it: it takes a
+  ;; round trip to /api/me now (the token names an account, not a persona), and
+  ;; what loads next depends on the answer — fixed mode is for visitors only.
+  (restore-auth (fn []
+                  (let [{:keys [persona-id]} (parse-url)]
+                    (if persona-id
+                      (load-from-url nil)
+                      (fetch-personas)))))
   (rdc/render root [app]))

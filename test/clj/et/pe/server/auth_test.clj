@@ -45,11 +45,9 @@
 (def ^:private enc "%74%61%72%67%65%74%78")   ; url-encoding of "targetx"
 
 (def ^:private accounts (atom nil))
-(def ^:private db (atom nil))
 
 (defn- seeded-db [f]
   (let [conn (ds/init-conn :sqlite-in-memory {})]
-    (reset! db conn)
     (handlers/set-conn! conn)
     (let [a (ds/add-account conn "a@et.n" nil)
           b (ds/add-account conn "b@et.n" nil)
@@ -68,8 +66,7 @@
       (f)
       (finally
         (handlers/set-conn! nil)
-        (ds/close-conn conn)
-        (reset! db nil)))))
+        (ds/close-conn conn)))))
 
 (use-fixtures :once seeded-db)
 

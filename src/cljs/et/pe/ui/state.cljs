@@ -6,6 +6,13 @@
 (defonce app-state (r/atom {:personas []
                             :current-user nil
                             :auth-user nil
+                            ;; The account behind the credentials: {:email :personas}
+                            ;; for an ordinary user, {:admin true} for admin, nil
+                            ;; when nobody is logged in. It comes from GET /api/me
+                            ;; and nowhere else — the public persona list stopped
+                            ;; saying who holds what.
+                            :account nil
+                            :accounts []
                             :current-tab :main
                             :show-login-modal false
                             :show-auth-modal false
@@ -68,18 +75,6 @@
 (defn- load-auth-persona []
   (.getItem js/localStorage "auth-persona"))
 
-(defn- extract-persona-from-token [token]
-  (when token
-    (try
-      (-> token
-          (str/split #"\.")
-          second
-          js/atob
-          js/JSON.parse
-          (js->clj :keywordize-keys true)
-          :persona)
-      (catch :default _ nil))))
-
 (defn valid-email? [email]
   (and (string? email)
        (re-matches #"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$" email)))
@@ -88,6 +83,35 @@
   (if-let [token (:auth-token @app-state)]
     {"Authorization" (str "Bearer " token)}
     {}))
+
+(defn- acting-as
+  "Every call that acts *as an account* goes through here. In prod the Bearer
+   token names it. In dev with :dangerously-skip-logins? nothing mints a token
+   at all, so the server takes the acting account off ?persona=<id> instead —
+   and this is the one place the client knows about that."
+  [url]
+  (if (:auth-token @app-state)
+    url
+    (str url (if (str/includes? url "?") "&" "?")
+         "persona=" (js/encodeURIComponent
+                     (or (:id (:auth-user @app-state)) (load-auth-persona) "")))))
+
+(defn fetch-me
+  "Load the account behind the current credentials into :account: its email and
+   its own personas, or {:admin true} for admin. This is the only thing that
+   knows who is logged in — the token names an account rather than a persona,
+   and the public persona list deliberately no longer says who holds what."
+  [on-success on-failure]
+  (GET (acting-as (str api-base "/api/me"))
+    {:handler (fn [res]
+                (swap! app-state assoc :account res)
+                (when on-success (on-success res)))
+     :headers (auth-headers)
+     :response-format :json
+     :keywords? true
+     :error-handler (fn [err]
+                      (swap! app-state assoc :account nil)
+                      (when on-failure (on-failure err)))}))
 
 (defn fetch-personas []
   (GET (str api-base "/api/personas")
@@ -274,16 +298,38 @@
      :fixed? fixed?
      :time time-param}))
 
-(defn- restore-auth-from-storage [personas]
-  (if-let [token (load-auth-token)]
-    (when-let [persona-id (extract-persona-from-token token)]
-      (when-let [persona (first (filter #(= (:id %) persona-id) personas))]
-        (swap! app-state assoc
-               :auth-token token
-               :auth-user persona)))
-    (when-let [persona-id (load-auth-persona)]
-      (when-let [persona (first (filter #(= (:id %) persona-id) personas))]
-        (swap! app-state assoc :auth-user persona)))))
+(def ^:private admin-user
+  "Admin has no account and therefore no persona; the header and the tabs still
+   want something to name."
+  {:id "admin" :name "Admin"})
+
+(defn restore-auth
+  "Re-establish who is logged in after a reload, then call `on-done` — the rest
+   of the boot depends on the answer (fixed mode is an exploring-user feature,
+   so it must know). The stored token names an account, not a persona, so this
+   asks /api/me and lands on the persona that was last active, or the account's
+   first. A token that no longer resolves is dropped rather than believed."
+  [on-done]
+  (if-not (or (load-auth-token) (load-auth-persona))
+    (on-done)
+    (do
+      (when-let [token (load-auth-token)]
+        (swap! app-state assoc :auth-token token))
+      (fetch-me
+       (fn [account]
+         (if (:admin account)
+           (swap! app-state assoc :auth-user admin-user)
+           (let [last-active (load-auth-persona)
+                 persona (or (first (filter #(= (:id %) last-active) (:personas account)))
+                             (first (:personas account)))]
+             (swap! app-state assoc :auth-user persona)
+             (save-auth-persona (:id persona))))
+         (on-done))
+       (fn [_]
+         (save-auth-token nil)
+         (save-auth-persona nil)
+         (swap! app-state assoc :auth-token nil :auth-user nil :account nil)
+         (on-done))))))
 
 (defn load-from-url [on-complete]
   (let [{:keys [persona-id identity-id editing? fixed? time]} (parse-url)]
@@ -291,7 +337,6 @@
     (GET (str api-base "/api/personas")
       {:handler (fn [personas]
                   (swap! app-state assoc :personas personas)
-                  (restore-auth-from-storage personas)
                   ;; fixed mode is an exploring-user feature; a logged-in user ignores it
                   (let [fixed? (and fixed? (nil? (:auth-user @app-state)))]
                     (swap! app-state assoc :fixed-mode? fixed? :fixed-time (when fixed? time)))
@@ -477,9 +522,6 @@
                            #(swap! app-state assoc :nav-search-results (take 5 %))))
       (swap! app-state assoc :show-search-modal true))))
 
-(defn- find-persona-by-id [persona-id]
-  (first (filter #(= (:id %) (if (keyword? persona-id) (name persona-id) persona-id)) (:personas @app-state))))
-
 (defn- enter-persona [persona]
   (swap! app-state assoc
          :current-user persona
@@ -497,16 +539,64 @@
   (swap! app-state assoc :show-login-modal false)
   (enter-persona persona))
 
-(defn login-user [persona]
-  (let [full-persona (or (find-persona-by-id (:id persona)) persona)]
-    (swap! app-state assoc
-           :auth-user full-persona
-           :show-auth-modal false
-           :show-password-modal false
-           :login-password ""
-           :login-error nil
-           :login-persona nil)
-    (enter-persona full-persona)))
+(defn login-user
+  "Enter `persona` as the logged-in face. One account may hold several, so this
+   only ever says which one is active; the account itself lives in :account."
+  [persona]
+  (save-auth-persona (:id persona))
+  (swap! app-state assoc
+         :auth-user persona
+         :show-auth-modal false
+         :show-password-modal false
+         :login-password ""
+         :login-error nil
+         :login-persona nil)
+  (enter-persona persona))
+
+(defn switch-persona
+  "Make another of the account's own personas the active one: the face the
+   header names, the /:id in the address bar, and the one a new identity is
+   written under."
+  [persona]
+  (swap! app-state assoc :current-tab :main)
+  (login-user persona))
+
+(defn- enter-admin []
+  (swap! app-state assoc
+         :auth-user admin-user
+         :show-auth-modal false
+         :show-password-modal false
+         :login-password ""
+         :login-error nil
+         :login-persona nil
+         :current-tab :settings)
+  (save-auth-persona (:id admin-user)))
+
+(defn- land-after-login
+  "Where a successful login puts you. The token names an account, so the client
+   has to ask which personas it holds and land on the first — the one the
+   account sorts first, not whichever id was typed at the login screen. When
+   `preferred` is given (dev mode, where you pick a face to log in as) that one
+   is entered instead."
+  ([] (land-after-login nil))
+  ([preferred]
+   (fetch-me
+    (fn [account]
+      (cond
+        (:admin account) (enter-admin)
+        (seq (:personas account)) (login-user (or preferred (first (:personas account))))
+        :else (swap! app-state assoc :login-error "This account holds no persona")))
+    (fn [_]
+      (swap! app-state assoc :login-error "Invalid credentials")))))
+
+(defn- login-succeeded [res preferred]
+  (save-auth-token (:token res))
+  (swap! app-state assoc
+         :auth-token (:token res)
+         :show-auth-modal false
+         :login-email ""
+         :login-password "")
+  (land-after-login preferred))
 
 (defn attempt-login []
   (let [password (:login-password @app-state)
@@ -518,10 +608,9 @@
        :keywords? true
        :handler (fn [res]
                   (if (:success res)
-                    (do
-                      (save-auth-token (:token res))
-                      (swap! app-state assoc :auth-token (:token res))
-                      (login-user persona))
+                    ;; the password was checked against the account, but the user
+                    ;; named a face — enter that one
+                    (login-succeeded res persona)
                     (swap! app-state assoc :login-error "Invalid password")))
        :error-handler (fn [_]
                         (swap! app-state assoc :login-error "Invalid password"))})))
@@ -539,16 +628,8 @@
        :keywords? true
        :handler (fn [res]
                   (if (:success res)
-                    (do
-                      (save-auth-token (:token res))
-                      (swap! app-state assoc
-                             :auth-token (:token res)
-                             :show-auth-modal false
-                             :login-email ""
-                             :login-password ""
-                             :login-error nil)
-                      (let [persona-id (extract-persona-from-token (:token res))]
-                        (login-user {:id persona-id})))
+                    (do (swap! app-state assoc :login-error nil)
+                        (login-succeeded res nil))
                     (swap! app-state assoc :login-error "Invalid credentials")))
        :error-handler (fn [_]
                         (swap! app-state assoc :login-error "Invalid credentials"))})))
@@ -562,8 +643,10 @@
            :login-error nil
            :login-persona persona)
     (do
+      ;; dev mode: no token is minted, so the persona just picked is also what
+      ;; tells the server which account to act as (see acting-as)
       (save-auth-persona (:id persona))
-      (login-user persona))))
+      (land-after-login persona))))
 
 (defn logout-user []
   (save-auth-token nil)
@@ -572,11 +655,83 @@
          :auth-user nil
          :current-user nil
          :auth-token nil
+         :account nil
+         :accounts []
          :current-tab :main
          :identities []
          :selected-identity nil
          :identity-history [])
   (.pushState js/history nil "" "/"))
+
+;; ---------------------------------------------------------------------------
+;; The account's own personas — the profile page
+;; ---------------------------------------------------------------------------
+
+(defn create-persona
+  "Mint another persona under the logged-in account. The server takes the
+   account off the token, so there is nothing here that could name someone
+   else's."
+  [id display-name on-success on-error]
+  (POST (acting-as (str api-base "/api/personas"))
+    {:params {:id id :name display-name}
+     :format :json
+     :response-format :json
+     :keywords? true
+     :headers (auth-headers)
+     :handler (fn [res]
+                (fetch-personas)
+                (fetch-me (fn [_] (on-success res)) nil))
+     :error-handler (fn [err]
+                      (on-error (or (get-in err [:response :error]) "Could not create persona")))}))
+
+(defn delete-persona
+  "Destroy one of the account's personas and everything under it. `confirm` is
+   the urbit id the user typed; the server checks it again, because the dialog
+   is not the authority on anything."
+  [persona-id confirm on-success on-error]
+  (DELETE (acting-as (str api-base "/api/personas/" persona-id))
+    {:params {:confirm confirm}
+     :format :json
+     :response-format :json
+     :keywords? true
+     :headers (auth-headers)
+     :handler (fn [res]
+                (fetch-personas)
+                ;; The face that just went cannot stay the active one, and in dev
+                ;; it is also what names the account to the server (see acting-as)
+                ;; — so it has to be replaced from the personas already in hand,
+                ;; before anything asks /api/me again with a dead id.
+                (when (= persona-id (:id (:auth-user @app-state)))
+                  (when-let [persona (first (remove #(= persona-id (:id %))
+                                                    (:personas (:account @app-state))))]
+                    (login-user persona)))
+                (fetch-me (fn [_] (on-success res))
+                          (fn [_] (on-success res))))
+     :error-handler (fn [err]
+                      (on-error (or (get-in err [:response :error]) "Could not remove persona")))}))
+
+(defn fetch-accounts
+  "The admin listing: every account with its email and its personas."
+  []
+  (GET (acting-as (str api-base "/api/accounts"))
+    {:handler (fn [res] (swap! app-state assoc :accounts res))
+     :headers (auth-headers)
+     :response-format :json
+     :keywords? true
+     :error-handler #(js/console.error "Error fetching accounts" %)}))
+
+(defn create-account
+  "Admin only: an account and its first persona in one call."
+  [params on-success on-error]
+  (POST (acting-as (str api-base "/api/accounts"))
+    {:params params
+     :format :json
+     :response-format :json
+     :keywords? true
+     :headers (auth-headers)
+     :handler (fn [res] (fetch-accounts) (fetch-personas) (on-success res))
+     :error-handler (fn [err]
+                      (on-error (or (get-in err [:response :error]) "Could not create account")))}))
 
 (defn generate-id [callback]
   (GET (str api-base "/api/generate-id")

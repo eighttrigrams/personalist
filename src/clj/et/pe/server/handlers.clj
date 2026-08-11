@@ -122,7 +122,10 @@
 
 (defn- admin-request?
   "Whether a request may act as admin. In dev with :dangerously-skip-logins?
-   nothing is guarded anywhere, so the admin screens are open there too."
+   there is no password anywhere, no token is minted, and every write is already
+   open — so the admin reads are open there too rather than pretending to a
+   protection the mode does not have. server/ensure-app-options refuses to start
+   prod with that flag set."
   [req prod-mode?]
   (if (allow-skip-logins? prod-mode?)
     true
@@ -281,7 +284,9 @@
    and may be omitted, which leaves the account with no way to log in, and :id
    defaults to a generated urbit-style two-word name. Answers 201
    {:success true :id <persona-id>}. Admin only: 401 without a token, 403 with
-   an ordinary account's. 400 when the email or the persona id is already taken,
+   an ordinary account's — except in dev with :dangerously-skip-logins?, where
+   nothing is guarded at all and the seed script uses this. 400 when the email
+   or the persona id is already taken,
    or the id is the reserved `admin`. The persona id is checked before the
    account is minted, so a refusal never leaves an email spent on nothing."
   [prod-mode?]
@@ -316,7 +321,8 @@
    [{:id :name :sort-order}]: the admin Settings listing, and the only read in
    the app that ties emails to personas in bulk. Admin only, and guarded here
    rather than in wrap-auth for the same reason as /api/me — 401 without a
-   token, 403 with an ordinary account's."
+   token, 403 with an ordinary account's. In dev with :dangerously-skip-logins?
+   it is open, like every other write in that mode."
   [prod-mode?]
   (fn [req]
     (if-not (admin-request? req prod-mode?)

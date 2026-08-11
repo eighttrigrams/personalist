@@ -51,6 +51,18 @@ Clicking should navigate to the logged-in user's splash page.
 
 Clicking should navigate to that persona's splash page.
 
+### "Personas" (when authenticated as a non-admin)
+
+Opens the Profile tab, which lists the personas of the logged-in account. It is
+a tab rather than a URL, so it adds no address of its own — but entering one of
+the listed personas navigates to that persona's splash page (`/:persona-id`) and
+makes it the active one: the persona the header names, and the one a new
+identity is written under.
+
+Since one account may hold several personas, "the logged-in user" means the
+active persona. It is remembered across a reload, and after removing the active
+persona the account falls back to another of its own.
+
 ### All header navigation actions should:
 - Clear any "not found" error states
 - Reset the identity selection
