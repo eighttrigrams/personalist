@@ -112,7 +112,7 @@
                              :color "white" :border "none" :border-radius "4px"}}
             "Remove permanently"]]]]))))
 
-(defn- persona-row [persona active? removable? on-remove]
+(defn- persona-row [persona active? on-remove]
   [:li {:style {:padding "0.75rem" :background (if active? "#e8f5e9" "#f5f5f5")
                 :border (if active? "1px solid #a5d6a7" "1px solid transparent")
                 :margin-bottom "0.5rem" :border-radius "4px"
@@ -125,14 +125,13 @@
      [:button {:on-click #(switch-persona persona)
                :style {:padding "0.25rem 0.5rem" :cursor "pointer"}}
       "Enter"])
-   ;; An account's last persona offers no remove at all: a login with no persona
-   ;; leads nowhere, and the server refuses it anyway.
-   (when removable?
-     [:button {:on-click #(on-remove persona)
-               :style {:padding "0.25rem 0.5rem" :cursor "pointer"
-                       :background "#fff" :color "#c62828"
-                       :border "1px solid #ef9a9a" :border-radius "4px"}}
-      "Remove"])])
+   ;; Every persona offers Remove, the last one included: an account may hold
+   ;; none. The hand-typed confirmation is the guard, and it is enough.
+   [:button {:on-click #(on-remove persona)
+             :style {:padding "0.25rem 0.5rem" :cursor "pointer"
+                     :background "#fff" :color "#c62828"
+                     :border "1px solid #ef9a9a" :border-radius "4px"}}
+    "Remove"]])
 
 
 ;; ---------------------------------------------------------------------------
@@ -343,7 +342,9 @@
          [:h2 {:style {:margin-top 0}} "Your Personas"]
          [:p {:style {:color "#666"}}
           "Signed in as " [:strong (:email account)] ". "
-          "Nobody else can tell that these personas belong together."]
+          (if (seq personas)
+            "Nobody else can tell that these personas belong together."
+            "An account is an email and a password; personas are what you make with it.")]
          (when @removing
            [remove-dialog @removing #(reset! removing nil)])
          [:div {:style {:margin-bottom "2rem"}}
@@ -353,9 +354,12 @@
                ^{:key (:id p)}
                [persona-row p
                 (= (:id p) (:id auth-user))
-                (> (count personas) 1)
                 #(reset! removing %)])]
-            [:p {:style {:color "#666" :font-style "italic"}} "No personas yet."])]
+            ;; Where the list would be. This is where a new account lands, so it
+            ;; reads as a starting point rather than as something having gone
+            ;; wrong — the Add form below is the next thing on the page.
+            [:p {:style {:color "#666" :font-style "italic"}}
+             "No personas yet. Make your first one below."])]
          [:div
           [:h3 "Add a Persona"]
           [:p {:style {:color "#666" :font-size "0.9rem" :margin-top 0}}

@@ -10,9 +10,13 @@
             [et.pe.ui.settings :refer [settings-tab]]))
 
 (defn header []
-  (let [{:keys [current-user auth-user current-tab]} @app-state
-        logged-in? (some? auth-user)
-        is-admin? (= (:id auth-user) "admin")]
+  (let [{:keys [current-user auth-user current-tab account]} @app-state
+        ;; Logged in is a property of the *account*, not of having a persona:
+        ;; an account may hold none, and it is still logged in — it just has no
+        ;; active persona, so nothing here that acts on one is offered.
+        logged-in? (some? account)
+        is-admin? (true? (:admin account))
+        active-persona? (some? auth-user)]
     [:div {:style {:display "flex"
                    :justify-content "space-between"
                    :align-items "center"
@@ -67,7 +71,9 @@
                             :color "white"
                             :border "1px solid #555"
                             :border-radius "4px"}}
-           "Personas"]
+           "Personas"]])
+       (when (and logged-in? (not is-admin?) active-persona?)
+         [:<>
           [:button {:on-click #(swap! app-state assoc :show-add-identity-modal true)
                     :style {:padding "0.5rem 1rem"
                             :cursor "pointer"
@@ -129,15 +135,20 @@
       (when logged-in?
         [:<>
          [:span {:style {:cursor "pointer"}
-                 :on-click #(do (swap! app-state assoc
-                                       :current-tab :main
-                                       :selected-identity nil
-                                       :not-found-persona nil
-                                       :not-found-identity nil
-                                       :current-user auth-user)
-                                (fetch-recent-identities (:id auth-user))
-                                (.pushState js/history nil "" (str "/" (:id auth-user))))}
-         (str "Logged in: " (or (:name auth-user) (:id auth-user)))]
+                 :on-click #(if active-persona?
+                              (do (swap! app-state assoc
+                                         :current-tab :main
+                                         :selected-identity nil
+                                         :not-found-persona nil
+                                         :not-found-identity nil
+                                         :current-user auth-user)
+                                  (fetch-recent-identities (:id auth-user))
+                                  (.pushState js/history nil "" (str "/" (:id auth-user))))
+                              ;; no active persona means no splash page to go to
+                              (swap! app-state assoc :current-tab :profile))}
+          (if active-persona?
+            (str "Logged in: " (or (:name auth-user) (:id auth-user)))
+            (str "Logged in: " (or (:email account) "")))]
          [:button {:on-click logout-user
                    :style {:padding "0.5rem 1rem" :cursor "pointer"}}
           "Logout"]])

@@ -320,6 +320,8 @@
            (let [last-active (load-auth-persona)
                  persona (or (first (filter #(= (:id %) last-active) (:personas account)))
                              (first (:personas account)))]
+             ;; An account may hold none. It is logged in all the same — :account
+             ;; is what says so — with no active persona until it makes one.
              (swap! app-state assoc :auth-user persona)
              (save-auth-persona (:id persona))))
          (on-done))
@@ -566,12 +568,34 @@
          :current-tab :settings)
   (save-auth-persona (:id admin-user)))
 
+(defn- enter-with-no-persona
+  "An account that holds no personas is logged in all the same, and lands on its
+   profile page — which is where it makes one, and the reason removing the last
+   persona is allowed. :auth-user stays nil, and everything in the header that
+   would act on an active persona is hidden while it is."
+  []
+  (save-auth-persona nil)
+  (swap! app-state assoc
+         :auth-user nil
+         :current-user nil
+         :selected-identity nil
+         :identities []
+         :recent-identities []
+         :identity-history []
+         :show-auth-modal false
+         :login-email ""
+         :login-password ""
+         :login-error nil
+         :current-tab :profile)
+  (.pushState js/history nil "" "/"))
+
 (defn- land-after-login
   "Where a successful login puts you. The token names an account, so the client
    has to ask which personas it holds and land on the first — the one the
    account sorts first, not whichever id was typed at the login screen. When
    `preferred` is given (dev mode, where you pick a face to log in as) that one
-   is entered instead."
+   is entered instead. An account holding none lands on its profile page rather
+   than being turned away: zero personas is a legitimate state."
   ([] (land-after-login nil))
   ([preferred]
    (fetch-me
@@ -579,7 +603,7 @@
       (cond
         (:admin account) (enter-admin)
         (seq (:personas account)) (login-user (or preferred (first (:personas account))))
-        :else (swap! app-state assoc :login-error "This account holds no persona")))
+        :else (enter-with-no-persona)))
     (fn [_]
       (swap! app-state assoc :login-error "Invalid credentials")))))
 
@@ -674,9 +698,12 @@
                 ;; — so it has to be replaced from the personas already in hand,
                 ;; before anything asks /api/me again with a dead id.
                 (when (= persona-id (:id (:auth-user @app-state)))
-                  (when-let [persona (first (remove #(= persona-id (:id %))
-                                                    (:personas (:account @app-state))))]
-                    (login-user persona)))
+                  (if-let [persona (first (remove #(= persona-id (:id %))
+                                                  (:personas (:account @app-state))))]
+                    (login-user persona)
+                    ;; that was the last one: stay logged in, stay on this page,
+                    ;; and show the empty state
+                    (enter-with-no-persona)))
                 (fetch-me (fn [_] (on-success res))
                           (fn [_] (on-success res))))
      :error-handler (fn [err]

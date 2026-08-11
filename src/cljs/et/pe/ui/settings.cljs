@@ -7,33 +7,22 @@
    left to check a new one against."
   (:require [reagent.core :as r]
             [et.pe.ui.state :refer [app-state valid-email? fetch-accounts
-                                    create-account update-persona generate-id]]))
+                                    create-account update-persona]]))
 
-(defn- account-form []
-  (let [generated-id (r/atom nil)
-        display-name-ref (atom nil)
-        email-ref (atom nil)
+(defn- account-form
+  "An account is an email and a password, and this form shows exactly those. It
+   used to carry a display name and a generated urbit id too, because creating
+   an account created its first persona in the same call; it does not any more —
+   an account may hold none, and its owner makes personas on their own profile
+   page."
+  []
+  (let [email-ref (atom nil)
         password-ref (atom nil)
-        error (r/atom nil)
-        regenerate! (fn [] (generate-id #(reset! generated-id %)))]
-    (regenerate!)
+        error (r/atom nil)]
     (fn []
       (let [accounts (:accounts @app-state)
             existing-emails (set (map :email accounts))]
         [:div {:style {:display "flex" :flex-direction "column" :gap "0.5rem" :max-width "300px"}}
-         [:div {:style {:display "flex" :gap "0.5rem" :align-items "center"}}
-          [:input {:type "text"
-                   :value (or @generated-id "")
-                   :read-only true
-                   :placeholder "Generating ID..."
-                   :style {:padding "0.5rem" :flex 1 :background "#f0f0f0" :color "#666"}}]
-          [:button {:on-click regenerate!
-                    :style {:padding "0.5rem" :cursor "pointer"}}
-           "Regenerate"]]
-         [:input {:type "text"
-                  :placeholder "Display Name"
-                  :ref #(reset! display-name-ref %)
-                  :style {:padding "0.5rem"}}]
          [:input {:type "email"
                   :placeholder "Email"
                   :ref #(reset! email-ref %)
@@ -45,15 +34,10 @@
          (when @error
            [:p {:style {:color "red" :margin "0" :font-size "0.85rem"}} @error])
          [:button {:on-click (fn []
-                               (let [id-val @generated-id
-                                     display-name-val (when @display-name-ref (.-value @display-name-ref))
-                                     email-val (when @email-ref (.-value @email-ref))
+                               (let [email-val (when @email-ref (.-value @email-ref))
                                      password-val (when @password-ref (.-value @password-ref))]
                                  (reset! error nil)
                                  (cond
-                                   (not (seq id-val))
-                                   (reset! error "ID not generated yet")
-
                                    (not (seq email-val))
                                    (reset! error "Email is required")
 
@@ -65,13 +49,8 @@
 
                                    :else
                                    (create-account
-                                    {:id id-val
-                                     :email email-val
-                                     :password password-val
-                                     :name (if (seq display-name-val) display-name-val id-val)}
+                                    {:email email-val :password password-val}
                                     (fn [_]
-                                      (regenerate!)
-                                      (when @display-name-ref (set! (.-value @display-name-ref) ""))
                                       (when @email-ref (set! (.-value @email-ref) ""))
                                       (when @password-ref (set! (.-value @password-ref) "")))
                                     #(reset! error %)))))
@@ -132,7 +111,10 @@
       (for [p (:personas a)]
         ^{:key (:id p)}
         [persona-row p])]
-     [:p {:style {:color "#666" :font-style "italic" :margin "0.25rem 0 0 0"}} "No personas."])])
+     ;; An account may hold none, which is a normal state rather than a gap —
+     ;; its owner makes personas on their own profile page.
+     [:p {:style {:color "#666" :font-style "italic" :margin "0.25rem 0 0 0"}}
+      "No personas yet."])])
 
 (defn settings-tab []
   (r/create-class
