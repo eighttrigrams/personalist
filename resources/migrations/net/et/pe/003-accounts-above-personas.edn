@@ -1,0 +1,80 @@
+{:id "003-accounts-above-personas"
+ ;; One table used to carry two ideas. `personas.id` is an urbit-style two-word
+ ;; name and it is the *public address* — personalist.org/namlys-lasduc/... —
+ ;; while `email` and `password_hash` on the same row were the *credential*. This
+ ;; migration cuts the row in two so one credential can own many addresses: an
+ ;; account is email + password and nothing a visitor ever sees, a persona is the
+ ;; address plus its own display name.
+ ;;
+ ;; `identities` is deliberately untouched. Its `persona_id` holds the urbit name
+ ;; and the urbit name survives the split unchanged, so not one identity row
+ ;; moves — which is the whole reason this is cheap.
+ ;;
+ ;; No foreign key on personas.account_id: nothing in this schema declares one
+ ;; (identities.persona_id is a bare TEXT too) and the app runs with SQLite's
+ ;; default PRAGMA foreign_keys=off, so a declaration would be decoration that
+ ;; changes behaviour the day somebody switches the pragma on.
+ :up [;; Accounts first, so the personas rebuild below has something to join to.
+      "CREATE TABLE IF NOT EXISTS accounts (
+         id INTEGER PRIMARY KEY AUTOINCREMENT,
+         email TEXT UNIQUE NOT NULL,
+         password_hash TEXT
+       )"
+      ;; personas.email is UNIQUE NOT NULL today, so one account per persona row
+      ;; is an exact 1-to-1 — no grouping, no survivor to pick. ORDER BY id only
+      ;; makes the minted account ids deterministic (they follow the personas in
+      ;; alphabetical order) so two runs of this migration on the same data give
+      ;; the same numbers.
+      "INSERT INTO accounts (email, password_hash)
+         SELECT email, password_hash FROM personas ORDER BY id"
+
+      ;; SQLite on an old file format cannot drop a column, so personas is
+      ;; rebuilt beside itself and renamed into place, the way 002 rewrote
+      ;; identities. personas has a TEXT primary key and no AUTOINCREMENT, so
+      ;; unlike an integer-keyed table there is no sqlite_sequence high-water
+      ;; mark that the rebuild could silently reset.
+      ;; IF EXISTS on the scratch table: :transactions is false, so a run that
+      ;; died halfway leaves its debris behind and the retry has to survive it.
+      "DROP TABLE IF EXISTS personas_rebuilt"
+      "CREATE TABLE personas_rebuilt (
+         id TEXT PRIMARY KEY,          -- unchanged: still the public address
+         account_id INTEGER NOT NULL,
+         name TEXT NOT NULL,           -- the display name, now the persona's own
+         sort_order INTEGER NOT NULL   -- position within its account
+       )"
+      ;; sort_order 0: the migrated persona is the first one of its account, and
+      ;; every persona created afterwards lands at max + 1.
+      "INSERT INTO personas_rebuilt (id, account_id, name, sort_order)
+         SELECT p.id, a.id, p.name, 0
+           FROM personas p
+           JOIN accounts a ON a.email = p.email"
+      "DROP TABLE personas"
+      "ALTER TABLE personas_rebuilt RENAME TO personas"
+      ;; New in this migration: reading an account's personas in order is now a
+      ;; request-path query (GET /api/me, the profile page).
+      "CREATE INDEX IF NOT EXISTS idx_personas_account ON personas(account_id, sort_order)"]
+
+ ;; The rollback can only be honest while every account still holds exactly one
+ ;; persona: two personas under one account cannot both carry that account's
+ ;; email into a column declared UNIQUE. It is written so that case hits the
+ ;; constraint and the migration fails — a rollback that quietly picked a
+ ;; survivor would destroy a persona and its whole public address.
+ ;; That is also why the INSERT comes before any DROP: with :transactions false
+ ;; there is nothing to roll back, so the failing statement must be one that has
+ ;; not yet destroyed anything.
+ :down ["DROP TABLE IF EXISTS personas_old"
+        "CREATE TABLE personas_old (
+           id TEXT PRIMARY KEY,
+           email TEXT UNIQUE NOT NULL,
+           name TEXT NOT NULL,
+           password_hash TEXT
+         )"
+        "INSERT INTO personas_old (id, email, name, password_hash)
+           SELECT p.id, a.email, p.name, a.password_hash
+             FROM personas p
+             JOIN accounts a ON a.id = p.account_id"
+        "DROP INDEX IF EXISTS idx_personas_account"
+        "DROP TABLE personas"
+        "ALTER TABLE personas_old RENAME TO personas"
+        "DROP TABLE IF EXISTS accounts"]
+ :transactions false}
