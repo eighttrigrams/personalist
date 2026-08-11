@@ -424,21 +424,55 @@
 (defn- make-composite-id [persona-id identity-id]
   (str (kw->str persona-id) "/" (kw->str identity-id)))
 
-(defn- latest-versions-subquery [persona-id]
-  {:select [:composite_id [[:max :valid_from] :max_valid]]
-   :from [:identities]
-   :where [:= :persona_id (kw->str persona-id)]
-   :group-by [:composite_id]})
+(defn- latest-versions-subquery
+  "**Which row is each identity's latest version** — `{:composite_id :latest_id}`,
+   exactly one row per identity of the persona. The three listing reads join on
+   `latest_id` and inherit the rule from here, which is the point of it being one
+   subquery rather than three joins that agree today.
+
+   THE RULE, and it is stated here because this is where the next reader will
+   look for it: **the latest version is the greatest `(valid_from, id)`.**
+
+   - Not the greatest `valid_from` alone, which is what this asked for until an
+     identity turned up with two versions of the same millisecond. `valid_from`
+     is epoch milliseconds, so both rows were `max(valid_from)`, the join matched
+     both, and the identity came back **twice** — in the list the SPA renders,
+     and counted against the page limit, so a page of five showed four. Not a
+     race, either: the API takes an explicit `valid_from`, so an importer
+     stamping a batch with one timestamp met it every time.
+   - Not the greatest `id` alone either. `valid_from` is the caller's to set, so
+     a version written *later* can carry an *earlier* timestamp — a backfilled
+     import, a corrected date — and must not become the latest by virtue of
+     having been inserted last. Hence the two levels: the inner query finds each
+     identity's greatest timestamp, and the outer takes the greatest id **among
+     the rows holding it**, which is the one written last.
+
+   It is the same rule `get-identity`, `get-identity-at` and
+   `get-identity-history` read by (`[[:valid_from :desc] [:id :desc]]`), asked of
+   many identities at once instead of one."
+  [persona-id]
+  {:select [:i.composite_id [[:max :i.id] :latest_id]]
+   :from [[:identities :i]]
+   :join [[{:select [:composite_id [[:max :valid_from] :max_valid]]
+            :from [:identities]
+            :where [:= :persona_id (kw->str persona-id)]
+            :group-by [:composite_id]} :m]
+          [:and
+           [:= :m.composite_id :i.composite_id]
+           [:= :i.valid_from :m.max_valid]]]
+   :where [:= :i.persona_id (kw->str persona-id)]
+   :group-by [:i.composite_id]})
 
 (defn list-identities
+  "Every identity of the persona at its latest version, one row each. The join is
+   on `latest_id` — the row — rather than on a timestamp two rows can share; see
+   latest-versions-subquery for the rule."
   [conn {persona-id :id :as _persona}]
   (let [results (jdbc/execute! (:conn conn)
                                (sql/format {:select [:iv.identity_id :iv.name :iv.text]
                                             :from [[:identities :iv]]
                                             :join [[(latest-versions-subquery persona-id) :latest]
-                                                   [:and
-                                                    [:= :iv.composite_id :latest.composite_id]
-                                                    [:= :iv.valid_from :latest.max_valid]]]
+                                                   [:= :iv.id :latest.latest_id]]
                                             :where [:= :iv.persona_id (kw->str persona-id)]})
                                {:builder-fn rs/as-unqualified-lower-maps})]
     (map (fn [r]
@@ -478,17 +512,36 @@
        :text (:text result)})))
 
 (defn list-recent-identities
+  "A page of the persona's identities, most recently versioned first.
+
+   **One row per identity, so a page of `limit` holds `limit` of them** and
+   `has-more` counts identities rather than rows. It did not, while the join
+   matched every row sharing the greatest timestamp: a duplicate ate a slot in
+   the page the client asked for, and this is the listing the SPA renders.
+
+   **The id also breaks the tie in the ordering**, which is a second use of the
+   same rule for a different reason. Two *different* identities can share a
+   `valid_from` — that is what a batch import is — and offset paging over an
+   order that cannot tell them apart may hand the same one back on two pages and
+   never hand back the other.
+
+   That second tie-break is **not pinned by a test, and knowingly so**: SQLite
+   returns these rows in a stable order for this query shape today, so removing
+   `[:iv.id :desc]` leaves the suite green (checked, three runs). What it guards
+   against is not a bug that reproduces now but a guarantee SQL does not make —
+   the order of rows with equal sort keys is undefined, and the plan for this
+   query can change with an index or with the size of the table. A test asserting
+   it would be a test that cannot fail, which is worse than none; this comment is
+   the record instead."
   [conn {persona-id :id :as _persona} limit offset]
   (let [fetch-limit (inc limit)
         results (jdbc/execute! (:conn conn)
                                (sql/format {:select [:iv.identity_id :iv.name :iv.valid_from]
                                             :from [[:identities :iv]]
                                             :join [[(latest-versions-subquery persona-id) :latest]
-                                                   [:and
-                                                    [:= :iv.composite_id :latest.composite_id]
-                                                    [:= :iv.valid_from :latest.max_valid]]]
+                                                   [:= :iv.id :latest.latest_id]]
                                             :where [:= :iv.persona_id (kw->str persona-id)]
-                                            :order-by [[:iv.valid_from :desc]]
+                                            :order-by [[:iv.valid_from :desc] [:iv.id :desc]]
                                             :limit fetch-limit
                                             :offset offset})
                                {:builder-fn rs/as-unqualified-lower-maps})
@@ -688,6 +741,14 @@
             :description description}))))
 
 (defn search-identities
+  "The persona's identities whose name contains `query`, at their latest version —
+   or, with `:at`, as of that instant.
+
+   Both branches read the latest version the same way the rest of this namespace
+   does: the `:at` branch is `get-identity-at` asked once per identity and so
+   takes its `[[:valid_from :desc] [:id :desc]]`, and the plain branch inherits
+   the rule from `latest-versions-subquery`. One identity comes back once from
+   either."
   [conn {persona-id :id :as _persona} query & [{:keys [at]}]]
   (let [query-lower (str/lower-case (or query ""))
         results (if at
@@ -706,7 +767,7 @@
                                                                         :where [:and
                                                                                 [:= :composite_id composite_id]
                                                                                 [:<= :valid_from time-epoch]]
-                                                                        :order-by [[:valid_from :desc]]
+                                                                        :order-by [[:valid_from :desc] [:id :desc]]
                                                                         :limit 1})
                                                            {:builder-fn rs/as-unqualified-lower-maps})]
                           :when version]
@@ -715,9 +776,7 @@
                                  (sql/format {:select [:iv.identity_id :iv.name :iv.text]
                                               :from [[:identities :iv]]
                                               :join [[(latest-versions-subquery persona-id) :latest]
-                                                     [:and
-                                                      [:= :iv.composite_id :latest.composite_id]
-                                                      [:= :iv.valid_from :latest.max_valid]]]
+                                                     [:= :iv.id :latest.latest_id]]
                                               :where [:= :iv.persona_id (kw->str persona-id)]})
                                  {:builder-fn rs/as-unqualified-lower-maps}))]
     (->> results

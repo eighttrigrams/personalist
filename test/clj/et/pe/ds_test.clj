@@ -198,6 +198,116 @@
          "v3" (:text (ds/get-identity conn dan id))
          "v3" (:text (ds/get-identity-at conn dan id t)))))))
 
+;; ---------------------------------------------------------------------------
+;; The same tie, asked of many identities at once
+;;
+;; `get-identity` and friends answer "the latest version of *this* identity" and
+;; tie-break on the id. The three listing reads ask the same question of every
+;; identity a persona holds, through `latest-versions-subquery`, and used to ask
+;; it as "the greatest valid_from" — which two rows can both satisfy. The join
+;; then matched both and the identity came back twice.
+;;
+;; Not a race. The API takes an explicit `valid_from`, so an importer stamping a
+;; batch with one timestamp meets this every time, deterministically — which is
+;; also how these tests construct it. `(:valid-from t)` everywhere below: a test
+;; that hoped two writes landed in one millisecond would be a test that cannot
+;; fail, which is exactly what happened to the first pin in the round before this
+;; one.
+;; ---------------------------------------------------------------------------
+
+(deftest two-versions-of-one-millisecond-do-not-duplicate-the-identity
+  (testing-with-conn "one identity, two versions of the same instant, one row back"
+    (let [dan (persona! :dan "d@et.n")
+          t (Instant/parse "2026-08-11T12:00:00Z")
+          id (ds/add-identity conn dan "notes" "v1" "human" {:valid-from t})]
+      (ds/save-identity-version conn dan id "notes" "v2" "daniel-machine" {:valid-from t})
+
+      (testing "- list-identities answers once, with the version written last"
+        (are=
+         [{:identity id :name "notes" :text "v2"}] (ds/list-identities conn dan)))
+
+      (testing "- and so does search"
+        (are=
+         [{:identity id :name "notes" :text "v2"}] (ds/search-identities conn dan "notes")
+         [{:identity id :name "notes" :text "v2"}] (ds/search-identities conn dan "")))
+
+      (testing "- and the recent listing, whose duplicate the SPA renders"
+        (let [{:keys [items has-more]} (ds/list-recent-identities conn dan 5 0)]
+          (are=
+           [id]  (mapv :identity items)
+           false has-more)))
+
+      (testing "- a third version of the same instant does not change that"
+        (ds/save-identity-version conn dan id "notes" "v3" "human" {:valid-from t})
+        (are=
+         [{:identity id :name "notes" :text "v3"}] (ds/list-identities conn dan)
+         [id] (mapv :identity (:items (ds/list-recent-identities conn dan 5 0))))))))
+
+(deftest a-row-written-later-with-an-earlier-stamp-is-not-the-latest
+  (testing-with-conn "the rule is the greatest (valid_from, id), not the greatest id"
+    ;; The reason the tie-break cannot simply be `max(id)`: `valid_from` is the
+    ;; caller's to set, so a version written *later* can carry an *earlier*
+    ;; timestamp — backfilling an import, correcting a date. It must not become
+    ;; the latest by virtue of having been inserted last.
+    (let [dan (persona! :dan "d@et.n")
+          early (Instant/parse "2020-01-01T00:00:00Z")
+          late (Instant/parse "2026-01-01T00:00:00Z")
+          id (ds/add-identity conn dan "notes" "the current text" "human" {:valid-from late})]
+      (ds/save-identity-version conn dan id "notes" "a backfilled older version" "human"
+                                {:valid-from early})
+      (are=
+       [{:identity id :name "notes" :text "the current text"}] (ds/list-identities conn dan)
+       "the current text" (:text (ds/get-identity conn dan id))
+       [id] (mapv :identity (:items (ds/list-recent-identities conn dan 5 0)))))))
+
+(deftest search-at-a-time-point-answers-the-version-written-last
+  (testing-with-conn "?valid_at is get-identity-at asked of every identity, and reads the same way"
+    (let [dan (persona! :dan "d@et.n")
+          t (Instant/parse "2026-08-11T12:00:00Z")
+          later (Instant/parse "2026-08-11T13:00:00Z")
+          id (ds/add-identity conn dan "notes" "v1" "human" {:valid-from t})]
+      (ds/save-identity-version conn dan id "notes" "v2" "daniel-machine" {:valid-from t})
+      (are=
+       [{:identity id :name "notes" :text "v2"}] (ds/search-identities conn dan "notes" {:at t})
+       [{:identity id :name "notes" :text "v2"}] (ds/search-identities conn dan "notes" {:at later})))))
+
+(deftest a-page-holds-that-many-distinct-identities
+  (testing-with-conn "the duplicate used to eat a slot in the page the SPA asked for"
+    (let [dan (persona! :dan "d@et.n")
+          t (Instant/parse "2026-08-11T12:00:00Z")
+          ;; three identities, each with a colliding second version — a batch
+          ;; import stamped with one timestamp, which is the workload this is about
+          ids (doall (for [n [1 2 3]]
+                       (let [id (ds/add-identity conn dan (str "note-" n) "v1" "human"
+                                                 {:valid-from t})]
+                         (ds/save-identity-version conn dan id (str "note-" n) "v2"
+                                                   "daniel-machine" {:valid-from t})
+                         id)))]
+      (testing "- a page of two holds two *distinct* identities, and says there is more"
+        (let [{:keys [items has-more]} (ds/list-recent-identities conn dan 2 0)]
+          (are=
+           2 (count items)
+           2 (count (distinct (map :identity items)))
+           true has-more)))
+
+      (testing "- and the whole persona is three, not six"
+        (are=
+         3 (count (ds/list-identities conn dan))
+         3 (count (:items (ds/list-recent-identities conn dan 5 0)))
+         (set ids) (set (map :identity (ds/list-identities conn dan)))))
+
+      (testing "- and one identity per page covers all three across three pages,
+                none twice. This one bites on the duplicate and *not* on the
+                ordering tie-break beside it — SQLite is stable for this shape
+                today, so `[:iv.id :desc]` can be removed and this stays green.
+                Said out loud rather than left to be assumed: see
+                list-recent-identities for why the line is there anyway."
+        (let [page (fn [offset] (mapv :identity (:items (ds/list-recent-identities conn dan 1 offset))))
+              [p0 p1 p2] [(page 0) (page 1) (page 2)]]
+          (are=
+           3 (count (distinct (concat p0 p1 p2)))
+           (set ids) (set (concat p0 p1 p2))))))))
+
 (deftest identity-time-travel
   (testing-with-conn "identities change over time but history is preserved"
     (let [dan (persona! :dan "d@et.n")
