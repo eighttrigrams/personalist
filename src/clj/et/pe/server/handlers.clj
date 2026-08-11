@@ -6,6 +6,9 @@
             [clojure.walk]
             [buddy.hashers :as hashers]
             [buddy.sign.jwt :as jwt]
+            [buddy.core.codecs :as codecs]
+            [buddy.core.hash :as hash]
+            [buddy.core.nonce :as nonce]
             [taoensso.telemere :as tel])
   (:import [java.time Instant ZonedDateTime]))
 
@@ -62,6 +65,60 @@
 
 (defn verify-token-check [token]
   (verify-token token))
+
+;; ---------------------------------------------------------------------------
+;; The machine-user token
+;;
+;; Two kinds of credential now arrive in the same `Authorization: Bearer`
+;; header. A human's is a signed JWT; a machine user's is an opaque random
+;; string, because a machine user has no password and no session — the token is
+;; its whole identity.
+;;
+;; Deliberately *not* bcrypt. Bcrypt is slow on purpose, to guard low-entropy
+;; human passwords against offline guessing; this is 256 bits from a secure
+;; random source, which needs no stretching, and a machine user hits the API in
+;; a loop. Paying ~100ms of key derivation per request to protect a string that
+;; cannot be guessed would be a cost with no benefit. A single SHA-256 is the
+;; right shape: it is only there so that a database dump does not hand out live
+;; credentials.
+;; ---------------------------------------------------------------------------
+
+(def ^:private machine-token-prefix
+  "Marks a machine token on sight, so the verifier can route it to the grant
+   lookup rather than discovering what it is by trying to unsign it and reading
+   the exception. It also makes a leaked token greppable in a log or a repo."
+  "pmu_")
+
+(defn- token-hash
+  "SHA-256, hex. The token is hashed on presentation and the row looked up by
+   the hash, so the token itself is never stored and never has to be."
+  [token]
+  (codecs/bytes->hex (hash/sha256 token)))
+
+(defn machine-token? [token]
+  (and (string? token) (str/starts-with? token machine-token-prefix)))
+
+(defn mint-machine-token!
+  "Issue a fresh token for the machine user named `nm` and store only its hash,
+   answering the token itself. This is also the rotation: there is one column to
+   hold the hash, so writing a new one is what makes the previous token stop
+   verifying. The caller must show the result to the user immediately — it
+   cannot be recovered afterwards, only replaced."
+  [nm]
+  (when-let [machine (ds/get-machine-user (ensure-conn) nm)]
+    (let [token (str machine-token-prefix
+                     (.encodeToString (.withoutPadding (java.util.Base64/getUrlEncoder))
+                                      (nonce/random-bytes 32)))]
+      (ds/set-machine-token-hash! (ensure-conn) (:id machine) (token-hash token))
+      token)))
+
+(defn machine-user-for-token
+  "The machine user a presented token belongs to, or nil. Only tokens wearing
+   the prefix are looked up at all, and a machine user that has never been
+   issued one has a NULL hash that nothing can match."
+  [token]
+  (when (machine-token? token)
+    (ds/get-machine-user-by-token-hash (ensure-conn) (token-hash token))))
 
 (defn- dangerously-skip-logins? []
   (true? (get-in @config [:devel :dangerously-skip-logins?])))

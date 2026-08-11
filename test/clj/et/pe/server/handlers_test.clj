@@ -1,5 +1,6 @@
 (ns et.pe.server.handlers-test
   (:require [clojure.test :refer [deftest testing is]]
+            [clojure.string :as str]
             [clojure.walk :as walk]
             [buddy.hashers :as hashers]
             [et.pe.ds :as ds]
@@ -33,6 +34,9 @@
   [token & {:as more}]
   (cond-> (or more {})
     token (assoc :headers {"authorization" (str "Bearer " token)})))
+
+(defmacro ^:private are-nil [& forms]
+  `(do ~@(map (fn [f] `(is (nil? ~f) (pr-str '~f))) forms)))
 
 (defn- seen
   "A response body the way the browser gets it. serialize-response names every
@@ -350,3 +354,91 @@
           (is (= 400 (:status ((handlers/add-persona-handler true)
                                (as (create-token (:id acc)) :body {:id "admin" :name "pwn"})))))
           (is (nil? (ds/get-persona-by-id conn :admin))))))))
+
+;; ---------------------------------------------------------------------------
+;; The machine token
+;;
+;; Two kinds of credential now arrive in the same Authorization: Bearer header —
+;; a signed JWT for a human, an opaque random string for a machine user. The
+;; machine one is stored only as a SHA-256, so it can be shown exactly once.
+;; ---------------------------------------------------------------------------
+
+(deftest a-machine-token-is-high-entropy-prefixed-and-stored-only-as-a-hash
+  (with-app
+    (fn [conn]
+      (let [acc (ds/add-account conn "d@et.n" nil)]
+        (ds/add-machine-user conn acc "daniel-machine" {})
+        (let [token (handlers/mint-machine-token! "daniel-machine")]
+
+          (testing "it wears a visible prefix, so a verifier can tell it from a JWT
+                    on sight and a leaked one is greppable"
+            (is (string? token))
+            (is (str/starts-with? token "pmu_")))
+
+          (testing "and carries 32 random bytes behind that"
+            (is (<= 43 (count (subs token 4)))
+                "base64url of 32 bytes is 43 characters unpadded")
+            (is (re-matches #"pmu_[A-Za-z0-9_-]+" token)
+                "base64url, so it survives a header and a yaml file untouched"))
+
+          (testing "two mints never collide"
+            (ds/add-machine-user conn acc "other-machine" {})
+            (is (not= token (handlers/mint-machine-token! "other-machine"))))
+
+          (testing "the token itself is nowhere in the database — only its hash"
+            (let [row (ds/get-machine-user conn "daniel-machine")]
+              (is (some? (:token-hash row)))
+              (is (not= token (:token-hash row)))
+              (is (= 64 (count (:token-hash row))) "hex sha-256")
+              (is (not (str/includes? (:token-hash row) (subs token 4))))))
+
+          (testing "presenting it finds the machine user it belongs to"
+            (let [found (handlers/machine-user-for-token token)]
+              (is (= "daniel-machine" (:name found)))
+              (is (= acc (:for-account-id found)))))
+
+          (testing "and anything else finds nobody"
+            (are-nil
+             (handlers/machine-user-for-token nil)
+             (handlers/machine-user-for-token "")
+             (handlers/machine-user-for-token "pmu_not-a-real-token")
+             (handlers/machine-user-for-token (str/upper-case token))
+             (handlers/machine-user-for-token (subs token 0 (dec (count token))))
+             (handlers/machine-user-for-token (subs token 4)))))))))
+
+(deftest rotating-a-token-stops-the-previous-one-verifying
+  (with-app
+    (fn [conn]
+      (let [acc (ds/add-account conn "d@et.n" nil)]
+        (ds/add-machine-user conn acc "daniel-machine" {})
+        (let [first-token (handlers/mint-machine-token! "daniel-machine")]
+          (is (some? (handlers/machine-user-for-token first-token)))
+
+          (let [second-token (handlers/mint-machine-token! "daniel-machine")]
+            (testing "rotation hands back a different token"
+              (is (not= first-token second-token)))
+            (testing "the new one verifies"
+              (is (= "daniel-machine" (:name (handlers/machine-user-for-token second-token)))))
+            ;; This is the assertion that proves "only the latest active". It is
+            ;; written out rather than trusted to the single-column overwrite,
+            ;; because the day someone adds a machine_tokens table to keep a
+            ;; history, this is the test that stops them.
+            (testing "and the previous one is dead the moment it is replaced"
+              (is (nil? (handlers/machine-user-for-token first-token))))
+
+            (testing "a third rotation kills the second in turn"
+              (let [third-token (handlers/mint-machine-token! "daniel-machine")]
+                (are-nil (handlers/machine-user-for-token first-token)
+                         (handlers/machine-user-for-token second-token))
+                (is (some? (handlers/machine-user-for-token third-token)))))))))))
+
+(deftest a-machine-user-with-no-token-yet-is-reachable-by-nothing
+  (with-app
+    (fn [conn]
+      (let [acc (ds/add-account conn "d@et.n" nil)]
+        (ds/add-machine-user conn acc "never-issued" {})
+        (testing "a NULL token_hash must not be matched by an absent or empty credential"
+          (are-nil
+           (handlers/machine-user-for-token nil)
+           (handlers/machine-user-for-token "")
+           (handlers/machine-user-for-token "pmu_")))))))
