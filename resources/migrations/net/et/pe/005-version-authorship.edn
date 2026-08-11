@@ -1,0 +1,59 @@
+{:id "005-version-authorship"
+ ;; Until here personalist recorded *nothing* about who wrote a version.
+ ;; `wrap-auth` built a principal, used it to answer "may you write this
+ ;; persona?", and threw it away; an identity version row carried content and a
+ ;; timestamp and no author. So `specs/startup.md` could say, truthfully, that
+ ;; "a persona written by a machine is indistinguishable from any other". This
+ ;; column is what removes that sentence.
+ ;;
+ ;; ONE COLUMN, HOLDING EITHER THE LITERAL `human` OR THE MACHINE USER'S NAME.
+ ;; A single string marker is what cookbook (`recipes.source`) and rhizome
+ ;; (`description_source`) both do, and it is exactly the shape
+ ;; `et.uvt.caution/assess` consumes — the library never asks what a marker
+ ;; *means*, only whether two of them are equal, which is what lets a name go in
+ ;; a column where those two apps keep a category. `et.pe.provenance/ours` is
+ ;; then `#{"human"}` and every machine name falls to *them* automatically,
+ ;; including a machine user created years after this migration, with no code to
+ ;; update and no enumeration to keep in step. An unrecognised marker landing on
+ ;; *them* is also the right direction to fail: at worst an agent is told to be
+ ;; careful where it need not have been.
+ :up [;; SQLite refuses NOT NULL on an added column only when there is no
+      ;; default; with one it is legal, and the column is written into every
+      ;; existing row as it is added. So the constraint and the retrofit are the
+      ;; same statement, and one ALTER TABLE stamps every version that exists
+      ;; today `human`.
+      ;;
+      ;; **That is recording the owner's answer, not a schema guessing one.** He
+      ;; was asked and said it in as many words: *retrofit that all old versions,
+      ;; everything is stamped human.* He is the one person in a position to
+      ;; settle it — nothing but his own hands and the seed script had written
+      ;; into this database when those versions were made — and a fact written
+      ;; down by the only party who knows it is a different act from a schema
+      ;; picking a plausible value. Cookbook's `010-backfill-version-source`
+      ;; draws exactly this distinction, at greater length, and against the same
+      ;; question.
+      ;;
+      ;; **But the default must not become the way authorship gets set.** A write
+      ;; path that forgot to pass an author would silently claim a human wrote it
+      ;; — a false claim, and in the dangerous direction: it would tell an agent
+      ;; a line is the owner's when it is the agent's own. The database cannot
+      ;; tell that apart from a real claim, so the loud failure lives in the
+      ;; function signature instead: `author` is a **required positional
+      ;; argument** of `ds/save-identity-version` and `ds/add-identity`, never an
+      ;; entry in their trailing opts map. Forgetting it is then an arity error
+      ;; where it is written, not a lie in a row nobody reads again.
+      ;;
+      ;; No table rebuild, which is the other half of why this is one statement:
+      ;; `identities` keeps its `sqlite_sequence` row, so none of the
+      ;; high-water-mark care 003 and 004 needed applies here. An identity id is
+      ;; never reused because nothing ever destroys the counter.
+      "ALTER TABLE identities ADD COLUMN author TEXT NOT NULL DEFAULT 'human'"]
+
+ ;; The column goes and nothing else does — `ALTER TABLE ... DROP COLUMN` has
+ ;; been legal since SQLite 3.35 and the driver here is well past that, so this
+ ;; needs no rebuild either. It destroys every attribution on the way down, and
+ ;; does not pretend otherwise: re-migrating afterwards stamps the whole table
+ ;; `human` again, including versions a machine user wrote in between. That is
+ ;; the honest consequence of rolling back the only place the fact was kept.
+ :down ["ALTER TABLE identities DROP COLUMN author"]
+ :transactions false}

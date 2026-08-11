@@ -297,4 +297,111 @@
         (testing "a rollback that reuses a deleted id is the same bug"
           (jdbc/execute! conn ["INSERT INTO accounts (email) VALUES ('new@et.n')"])
           (is (= (inc gone)
-                 (:id (first (q conn "SELECT id FROM accounts WHERE email = 'new@et.n'")))))))))) 
+                 (:id (first (q conn "SELECT id FROM accounts WHERE email = 'new@et.n'"))))))))))
+
+;; ---------------------------------------------------------------------------
+;; 005 — every identity version says who wrote it
+;;
+;; One ALTER TABLE, so the constraint and the retrofit are the same statement:
+;; every version that exists when it runs is stamped `human`, which is the
+;; owner's own answer about them and not a schema guessing one. There is no
+;; rebuild here, so none of the sqlite_sequence care 003 and 004 needed applies
+;; — which is itself worth a test, since a lost id counter is invisible.
+;; ---------------------------------------------------------------------------
+
+(defn- through-004!
+  "A database in the shape 004 left it: accounts, personas and the eight identity
+   versions seeded in the pre-003 shape, none of which any migration since has
+   touched."
+  [conn store]
+  (through-003! conn store)
+  (run-migrations! store ["004-machine-users"]))
+
+(deftest every-version-that-existed-is-stamped-human
+  (with-open [conn (fresh-db "mig005-up")]
+    (let [store (ragtime-jdbc/sql-database (jdbc/with-options conn {}))]
+      (through-004! conn store)
+      (let [identities-before (q conn (str "SELECT id, composite_id, persona_id, identity_id, name, text,"
+                                           " valid_from, relations FROM identities ORDER BY id"))]
+        (is (= 8 (count identities-before)) "the fixture wrote versions for the migration to stamp")
+
+        (run-migrations! store ["005-version-authorship"])
+
+        (testing "every version written before anybody was counting reads `human`"
+          (is (= (repeat 8 "human")
+                 (map :author (q conn "SELECT author FROM identities ORDER BY id")))))
+
+        (testing "and nothing else about those rows moved"
+          (is (= identities-before
+                 (q conn (str "SELECT id, composite_id, persona_id, identity_id, name, text,"
+                              " valid_from, relations FROM identities ORDER BY id")))))
+
+        (testing "the column is the only thing identities gained"
+          (is (= #{"id" "composite_id" "persona_id" "identity_id" "name" "text"
+                   "valid_from" "relations" "author"}
+                 (set (map :name (q conn "PRAGMA table_info(identities)"))))))
+
+        (testing "and it refuses a NULL — the retrofit is the constraint"
+          (is (thrown? Exception
+                       (jdbc/execute! conn [(str "INSERT INTO identities (composite_id, persona_id, identity_id,"
+                                                 " name, text, valid_from, relations, author)"
+                                                 " VALUES (?,?,?,?,?,?,?,NULL)")
+                                            "dilmul-socfus/ident-3" "dilmul-socfus" "ident-3"
+                                            "Identity 3" "text 3" 3000 "[]"]))))
+
+        (testing "a machine user's own name is what a machine's version carries — any
+                  string goes in, because the marker is a name and not an enumeration"
+          (jdbc/execute! conn [(str "INSERT INTO identities (composite_id, persona_id, identity_id,"
+                                    " name, text, valid_from, relations, author)"
+                                    " VALUES (?,?,?,?,?,?,?,?)")
+                               "dilmul-socfus/ident-3" "dilmul-socfus" "ident-3"
+                               "Identity 3" "text 3" 3000 "[]" "daniel-machine"])
+          (is (= "daniel-machine"
+                 (:author (first (q conn "SELECT author FROM identities WHERE identity_id = 'ident-3'"))))))
+
+        (testing "no rebuild, so the identity id counter is where it was — an ALTER
+                  TABLE cannot lose it, and this is what says so if one is ever
+                  turned into a rebuild"
+          (jdbc/execute! conn [(str "INSERT INTO identities (composite_id, persona_id, identity_id,"
+                                    " name, text, valid_from, relations, author)"
+                                    " VALUES (?,?,?,?,?,?,?,?)")
+                               "dilmul-socfus/ident-4" "dilmul-socfus" "ident-4"
+                               "Identity 4" "text 4" 4000 "[]" "human"])
+          (is (= 10 (:id (first (q conn "SELECT id FROM identities WHERE identity_id = 'ident-4'"))))
+              "the tenth row written gets the tenth id"))))))
+
+(deftest the-default-is-not-how-authorship-gets-set
+  (with-open [conn (fresh-db "mig005-default")]
+    (let [store (ragtime-jdbc/sql-database (jdbc/with-options conn {}))]
+      (through-004! conn store)
+      (run-migrations! store ["005-version-authorship"])
+
+      ;; The default is what makes one statement do both jobs, and it is also the
+      ;; one thing about this column that could quietly lie: a write path that
+      ;; forgot to pass an author would claim a human wrote it. The database
+      ;; cannot tell that apart from a real claim — this test pins that it
+      ;; *cannot*, which is the argument for the loud failure living in the
+      ;; function signature instead (ds/save-identity-version takes `author`
+      ;; positionally, so forgetting it is an arity error).
+      (testing "an INSERT that names no author is silently called a human's"
+        (jdbc/execute! conn [(str "INSERT INTO identities (composite_id, persona_id, identity_id,"
+                                  " name, text, valid_from, relations)"
+                                  " VALUES (?,?,?,?,?,?,?)")
+                             "dilmul-socfus/forgotten" "dilmul-socfus" "forgotten"
+                             "Forgotten" "text" 9000 "[]"])
+        (is (= "human"
+               (:author (first (q conn "SELECT author FROM identities WHERE identity_id = 'forgotten'")))))))))
+
+(deftest rollback-005-takes-the-column-back-off
+  (with-open [conn (fresh-db "mig005-down")]
+    (let [store (ragtime-jdbc/sql-database (jdbc/with-options conn {}))]
+      (through-004! conn store)
+      (let [identities-before (q conn "SELECT * FROM identities ORDER BY id")]
+        (run-migrations! store ["005-version-authorship"])
+        (rollback! store "005-version-authorship")
+
+        (testing "the rows are back exactly as they were, column and all"
+          (is (= #{"id" "composite_id" "persona_id" "identity_id" "name" "text"
+                   "valid_from" "relations"}
+                 (set (map :name (q conn "PRAGMA table_info(identities)")))))
+          (is (= identities-before (q conn "SELECT * FROM identities ORDER BY id"))))))))
