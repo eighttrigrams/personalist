@@ -131,9 +131,9 @@ account is not public: `GET /api/personas` answers with ids and display names
 only, so an anonymous visitor sees a flat list of personas and learns nothing
 about who holds them or which of them share a login.
 
-- Logging in takes either the email or *any* of the account's persona ids,
-  together with the account's password. Both resolve to the same account and
-  mint the same token, which carries the account id.
+- Logging in takes one identifier field, `{username, password}`, and a human
+  puts their **email** in it. Logging in by persona id is gone: a persona is a
+  public address, not a login. The token carries the account id.
 - A write under `/api/personas/:id/...` is allowed when the token's account
   holds that persona — so one login can edit every persona it owns.
 - `GET /api/me` answers with the account behind the token: its email and its
@@ -150,6 +150,42 @@ about who holds them or which of them share a login.
 Migrating an existing database needs no intervention: every persona row becomes
 one account carrying its email and password plus one persona carrying its id and
 display name, and no identity moves.
+
+## Machine Users
+
+Since migration `004-machine-users` an account may also hold *machine users*: a
+credential for something that writes through the API on the account's behalf. A
+machine user is an `accounts` row of its own, flagged `is_machine_user` and
+pointing at its parent — the same shape tracker uses — but unlike tracker's,
+**an account may hold as many as it likes**. That is the point of the feature:
+one machine user writing personas A and C, another writing B and C.
+
+- It **never logs in**. It holds no password, and `POST /api/auth/login`
+  answers its name with the same flat 401 as a name nobody has ever used.
+- Its whole credential is a **bearer token**, minted in the UI: 32 random bytes
+  with a `pmu_` prefix, of which only a SHA-256 is stored. So it is shown
+  exactly once, when created and when rotated. There is one column holding the
+  hash, which is why "only the latest token is active" is a property of the
+  schema rather than of any code — rotating overwrites, and whatever was using
+  the old token stops working at that instant.
+- What it may write is **exactly the personas granted to it**, one row per
+  grant, and not everything under its parent account. Removing a persona
+  removes the grants naming it.
+- With `can_create_personas` it may create a persona. The new persona belongs
+  to the **parent account**, and the machine user is granted write on it in the
+  same breath, so it may use what it just made. Deleting a persona stays with
+  the human account.
+- Every machine-user management route (`/api/machine-users`) refuses a machine
+  token. Those URIs name no persona, so the write guard alone would wave any
+  valid token through them; each handler therefore checks for itself that the
+  caller is a human account owning the target. Without that, a machine user
+  could grant itself the whole account or mint itself a token its owner could
+  not revoke.
+- `GET /api/me` answers a machine user about *itself* — its name, its
+  permission, its granted persona ids — and never the account's roster.
+
+Nothing about machine users is public. `GET /api/personas` is unchanged, and a
+persona written by a machine is indistinguishable from any other.
 
 ## Seeding
 
