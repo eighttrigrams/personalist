@@ -48,95 +48,176 @@
 (defn- str->kw [s]
   (when s (keyword s)))
 
+;; ---------------------------------------------------------------------------
+;; Accounts and personas
+;;
+;; Since migration 003 these are two tables. An account is an email and a
+;; password and nothing a visitor ever sees; a persona is the public address
+;; (personalist.org/<persona-id>/...) plus its own display name. One account
+;; holds many personas, and nothing anonymous ever reveals which ones belong
+;; together — that privacy rule is why no read here returns an email unless the
+;; caller has already proven it owns the account.
+;; ---------------------------------------------------------------------------
+
+(defn get-account
+  [conn account-id]
+  (let [result (jdbc/execute-one! (:conn conn)
+                                  (sql/format {:select [:id :email]
+                                               :from [:accounts]
+                                               :where [:= :id account-id]})
+                                  {:builder-fn rs/as-unqualified-lower-maps})]
+    (when result
+      {:id (:id result) :email (:email result)})))
+
+(defn get-account-by-email
+  [conn email]
+  (let [result (jdbc/execute-one! (:conn conn)
+                                  (sql/format {:select [:id :email]
+                                               :from [:accounts]
+                                               :where [:= :email email]})
+                                  {:builder-fn rs/as-unqualified-lower-maps})]
+    (when result
+      {:id (:id result) :email (:email result)})))
+
+(defn add-account
+  "Mint an account, answering its id — or false when the email is already spent.
+   Email is the only uniqueness left at this level; persona ids are checked
+   separately, because they are global."
+  [conn email password-hash]
+  (if (get-account-by-email conn email)
+    false
+    (do
+      (jdbc/execute! (:conn conn)
+                     (sql/format {:insert-into :accounts
+                                  :values [{:email email
+                                            :password_hash password-hash}]}))
+      ;; Read the key back off the UNIQUE email rather than through a driver's
+      ;; generated-keys shape, which differs per JDBC driver.
+      (:id (get-account-by-email conn email)))))
+
+(defn get-account-password-hash
+  [conn account-id]
+  (let [result (jdbc/execute-one! (:conn conn)
+                                  (sql/format {:select [:password_hash]
+                                               :from [:accounts]
+                                               :where [:= :id account-id]})
+                                  {:builder-fn rs/as-unqualified-lower-maps})]
+    (:password_hash result)))
+
 (defn get-persona-by-id
+  "A persona with the account that holds it. :account-id is what the ownership
+   guard compares against a token's :account claim."
   [conn id]
   (let [result (jdbc/execute-one! (:conn conn)
-                                  (sql/format {:select [:id :email :name]
+                                  (sql/format {:select [:id :account_id :name :sort_order]
                                                :from [:personas]
                                                :where [:= :id (kw->str id)]})
                                   {:builder-fn rs/as-unqualified-lower-maps})]
     (when result
       {:id (str->kw (:id result))
-       :email (:email result)
-       :name (:name result)})))
+       :name (:name result)
+       :account-id (:account_id result)
+       :sort-order (:sort_order result)})))
 
-(defn get-persona-by-email
-  [conn email]
+(defn- next-sort-order
+  "Where a new persona lands within its account: after the last one."
+  [conn account-id]
   (let [result (jdbc/execute-one! (:conn conn)
-                                  (sql/format {:select [:id :email :name]
+                                  (sql/format {:select [[[:max :sort_order] :max_order]]
                                                :from [:personas]
-                                               :where [:= :email email]})
+                                               :where [:= :account_id account-id]})
                                   {:builder-fn rs/as-unqualified-lower-maps})]
-    (when result
-      {:id (str->kw (:id result))
-       :email (:email result)
-       :name (:name result)})))
-
-(defn get-persona-by-id-or-email
-  [conn id email]
-  (let [results (jdbc/execute! (:conn conn)
-                               (sql/format {:select [:id :email :name]
-                                            :from [:personas]
-                                            :where [:or
-                                                    [:= :id (kw->str id)]
-                                                    [:= :email email]]})
-                               {:builder-fn rs/as-unqualified-lower-maps})]
-    (map (fn [r]
-           {:id (str->kw (:id r))
-            :email (:email r)
-            :name (:name r)})
-         results)))
+    (if-let [m (:max_order result)] (inc m) 0)))
 
 (defn add-persona
-  [conn id email password-hash persona-name]
-  (if (seq (get-persona-by-id-or-email conn id email))
+  "Mint a persona under `account-id`. False when the id is taken — ids are unique
+   across all accounts, not per account, because /:id is the public address and
+   must mean exactly one thing."
+  [conn account-id id persona-name]
+  (if (get-persona-by-id conn id)
     false
     (do
       (jdbc/execute! (:conn conn)
                      (sql/format {:insert-into :personas
                                   :values [{:id (kw->str id)
-                                            :email email
+                                            :account_id account-id
                                             :name (or persona-name (kw->str id))
-                                            :password_hash password-hash}]}))
+                                            :sort_order (next-sort-order conn account-id)}]}))
       true)))
 
 (defn update-persona
-  [conn id {:keys [email name]}]
+  "Change a persona's display name. Nil when there is no such persona. The email
+   is not reachable from here any more — it belongs to the account."
+  [conn id {:keys [name]}]
   (let [current (get-persona-by-id conn id)]
     (if-not current
       nil
-      (let [new-email (or email (:email current))
-            existing (when email (get-persona-by-email conn email))]
-        (if (and existing (not= (:id existing) id))
-          {:error :email-exists}
-          (do
-            (jdbc/execute! (:conn conn)
-                           (sql/format {:update :personas
-                                        :set {:email new-email
-                                              :name (or name (:name current))}
-                                        :where [:= :id (kw->str id)]}))
-            {:success true}))))))
+      (do
+        (jdbc/execute! (:conn conn)
+                       (sql/format {:update :personas
+                                    :set {:name (or name (:name current))}
+                                    :where [:= :id (kw->str id)]}))
+        {:success true}))))
 
-(defn get-persona-password-hash
+(defn delete-persona
+  "Hard-delete a persona and every version of every identity under it. There is
+   no history left afterwards and no undo. False when there is no such persona.
+
+   Identities go first: a half-done delete then leaves an empty persona, which
+   the owner can simply retry, rather than identity rows no persona points at."
   [conn id]
-  (let [result (jdbc/execute-one! (:conn conn)
-                                  (sql/format {:select [:password_hash]
-                                               :from [:personas]
-                                               :where [:= :id (kw->str id)]})
-                                  {:builder-fn rs/as-unqualified-lower-maps})]
-    (:password_hash result)))
+  (if-not (get-persona-by-id conn id)
+    false
+    (do
+      (jdbc/execute! (:conn conn)
+                     (sql/format {:delete-from :identities
+                                  :where [:= :persona_id (kw->str id)]}))
+      (jdbc/execute! (:conn conn)
+                     (sql/format {:delete-from :personas
+                                  :where [:= :id (kw->str id)]}))
+      true)))
 
 (defn list-personas
+  "Every persona, as an anonymous reader sees them: id and display name. No
+   email, and no hint of which personas share an account."
   [conn]
   (let [results (jdbc/execute! (:conn conn)
-                               (sql/format {:select [:id :email :name]
+                               (sql/format {:select [:id :name]
                                             :from [:personas]})
                                {:builder-fn rs/as-unqualified-lower-maps})]
     (map (fn [r]
            {:id (str->kw (:id r))
-            :email (:email r)
             :name (:name r)})
          results)))
+
+(defn list-personas-for-account
+  [conn account-id]
+  (let [results (jdbc/execute! (:conn conn)
+                               (sql/format {:select [:id :name :sort_order]
+                                            :from [:personas]
+                                            :where [:= :account_id account-id]
+                                            :order-by [[:sort_order :asc]]})
+                               {:builder-fn rs/as-unqualified-lower-maps})]
+    (mapv (fn [r]
+            {:id (str->kw (:id r))
+             :name (:name r)
+             :sort-order (:sort_order r)})
+          results)))
+
+(defn list-accounts
+  "Every account with its personas — the admin Settings listing, and the only
+   read in this namespace that pairs an email with anything public."
+  [conn]
+  (let [results (jdbc/execute! (:conn conn)
+                               (sql/format {:select [:id :email]
+                                            :from [:accounts]
+                                            :order-by [[:id :asc]]})
+                               {:builder-fn rs/as-unqualified-lower-maps})]
+    (mapv (fn [r]
+            {:id (:id r)
+             :email (:email r)
+             :personas (list-personas-for-account conn (:id r))})
+          results)))
 
 (defn- make-composite-id [persona-id identity-id]
   (str (kw->str persona-id) "/" (kw->str identity-id)))

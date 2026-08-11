@@ -48,8 +48,10 @@
   method, path and docstring. Read-only and unauthenticated; lets an agent
   discover the endpoints before calling them.
 
-  Every GET under /api is public here by design — personalist serves what a
-  visitor of personalist.org sees. Only writes are guarded (see wrap-auth)."
+  Nearly every GET under /api is public by design — personalist serves what a
+  visitor of personalist.org sees. Writes are guarded by wrap-auth; the two GETs
+  that answer about an account rather than about the site, /api/me and
+  /api/accounts, guard themselves."
   [_req]
   {:status 200
    :body (->> describe-namespaces
@@ -70,8 +72,12 @@
   (context "/api" []
     (GET "/describe" [] describe-handler)
     (GET "/personas" [] handlers/list-personas-handler)
-    (POST "/personas" [] handlers/add-persona-handler)
+    (POST "/personas" [] (handlers/add-persona-handler (prod-mode?)))
     (PUT "/personas/:name" [_name] handlers/update-persona-handler)
+    (DELETE "/personas/:name" [_name] handlers/delete-persona-handler)
+    (GET "/me" [] (handlers/me-handler (prod-mode?)))
+    (GET "/accounts" [] (handlers/list-accounts-handler (prod-mode?)))
+    (POST "/accounts" [] (handlers/add-account-handler (prod-mode?)))
     (GET "/generate-id" [] handlers/generate-id-handler)
     (GET "/auth/required" [] (handlers/password-required-handler (prod-mode?)))
     (POST "/auth/login" [] (handlers/persona-login-handler (prod-mode?)))
@@ -127,24 +133,34 @@
           codec/url-decode))
 
 (defn- owns-persona?
-  "Whether `claims` may write under `persona`. :persona is the persona id as a
-   string (create-token calls `name` on it), so it compares directly with the
-   URI segment. Admin is exempt because the Settings tab edits other personas;
-   the exemption keys on the un-mintable :admin claim (create-admin-token), never
-   on the string \"admin\", so a persona row named admin cannot claim it."
+  "Whether `claims` may write under `persona`. Since accounts sit above personas
+   this is a lookup, not a string comparison: the token carries an account id and
+   the URI a persona id, so the guard asks which account holds that persona. One
+   token therefore covers every persona of its account, and a persona nobody
+   holds is owned by nobody. Admin is exempt because the Settings tab edits other
+   accounts; the exemption keys on the un-mintable :admin claim
+   (create-admin-token) and is answered without touching the database."
   [claims persona]
   (or (true? (:admin claims))
-      (= (:persona claims) persona)))
+      (when-let [account (handlers/account-of-persona persona)]
+        (= (:account claims) account))))
 
 (defn wrap-auth
   "Guard writes. Engages only in prod mode, only for mutating requests under
-   /api, and only outside /api/auth/login — every GET is public by design, and
-   login has to be reachable for anyone to obtain a token at all.
+   /api, and only outside /api/auth/login — a GET is public unless its own
+   handler says otherwise, and login has to be reachable for anyone to obtain a
+   token at all.
 
    A request must carry a verifying `Authorization: Bearer` token (401
-   otherwise) that belongs either to the persona it writes under or to admin
-   (403 otherwise). POST /api/personas names no persona in its URI, so any
-   valid token may mint one."
+   otherwise) whose account holds the persona it writes under, or which is
+   admin's (403 otherwise). POST /api/personas names no persona in its URI, so
+   any valid token gets past here and the handler decides whose account it mints
+   under.
+
+   Two GETs are guarded, but by themselves rather than here: /api/me and
+   /api/accounts answer *about an account*, which is the one thing this app's
+   anonymity protects. Everything else under /api that a GET can reach is what a
+   visitor of personalist.org sees anyway."
   [handler]
   (fn [req]
     (if (and (prod-mode?)

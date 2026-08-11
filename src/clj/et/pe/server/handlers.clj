@@ -2,6 +2,7 @@
   (:require [et.pe.ds :as ds]
             [et.pe.urbit :as urbit]
             [et.pe.middleware.rate-limit :as rate-limit]
+            [clojure.string :as str]
             [clojure.walk]
             [buddy.hashers :as hashers]
             [buddy.sign.jwt :as jwt]
@@ -41,15 +42,18 @@
 (defn- jwt-secret []
   (or (System/getenv "ADMIN_PASSWORD") "dev-secret"))
 
-(defn- create-token [persona-name]
-  (jwt/sign {:persona (name persona-name)} (jwt-secret)))
+;; The token names the *account*, not a persona: the password lives on the
+;; account and a persona is only one of the faces it wears, so one token has to
+;; cover every persona the account holds.
+(defn- create-token [account-id]
+  (jwt/sign {:account account-id} (jwt-secret)))
 
 ;; The admin exemption (server/owns-persona?) keys on this :admin claim, never on
-;; the string "admin", so it cannot be minted by anyone who can create a persona
-;; row: only the ADMIN_PASSWORD login below calls this. Folding it back into
-;; create-token would re-open the admin-row escalation.
+;; a persona id or an account id, so it cannot be minted by anyone who can create
+;; a row: only the ADMIN_PASSWORD login below calls this. Folding it back into
+;; create-token would re-open the admin escalation.
 (defn- create-admin-token []
-  (jwt/sign {:persona "admin" :admin true} (jwt-secret)))
+  (jwt/sign {:admin true} (jwt-secret)))
 
 (defn- verify-token [token]
   (try
@@ -62,58 +66,262 @@
 (defn- dangerously-skip-logins? []
   (true? (get-in @config [:devel :dangerously-skip-logins?])))
 
+(defn account-of-persona
+  "The id of the account holding `persona-id`, or nil when no persona has that
+   id. This is what wrap-auth's ownership check became since accounts sit above
+   personas: a lookup rather than a string comparison. wrap-auth runs above the
+   routes and holds no connection of its own, so it asks here."
+  [persona-id]
+  (:account-id (ds/get-persona-by-id (ensure-conn) (str->keyword persona-id))))
+
+;; ---------------------------------------------------------------------------
+;; The handlers that guard themselves
+;;
+;; wrap-auth guards writes and lets every GET through, because a GET here serves
+;; what a visitor of personalist.org sees. /api/me and /api/accounts break that:
+;; they answer *about an account*, which is the one thing this app's anonymity
+;; protects. They verify the token here, in the handler, rather than widening
+;; wrap-auth's rule for everything else.
+;; ---------------------------------------------------------------------------
+
+(defn- bearer-token
+  "The Bearer token of a request, or nil. wrap-auth has its own copy for the
+   requests it guards; the handlers that guard themselves need it too."
+  [req]
+  (when-let [auth-header (get-in req [:headers "authorization"])]
+    (when (str/starts-with? auth-header "Bearer ")
+      (subs auth-header 7))))
+
+(defn- claims [req]
+  (some-> (bearer-token req) verify-token))
+
+(defn- dev-persona-param [req]
+  (or (get-in req [:query-params "persona"])
+      (get-in req [:params :persona])
+      (get-in req [:params "persona"])))
+
+(defn- acting-account
+  "The id of the account a request acts as, or nil.
+
+   In prod that is the :account claim of its Bearer token. In dev with
+   :dangerously-skip-logins? nothing mints a token at all, so ?persona=<id>
+   names the persona whose account to act as instead. That query parameter is
+   this app's one dev-only auth path: it is read nowhere but here, and only
+   while allow-skip-logins? is true — the same predicate every other handler
+   uses, and one server/ensure-app-options refuses to let prod see."
+  [req prod-mode?]
+  (if (allow-skip-logins? prod-mode?)
+    (some-> (dev-persona-param req) account-of-persona)
+    (:account (claims req))))
+
+(defn- acting-account-row
+  "As `acting-account`, but nil unless the account is still there — a token
+   outlives the row it names."
+  [req prod-mode?]
+  (some->> (acting-account req prod-mode?) (ds/get-account (ensure-conn))))
+
+(defn- admin-request?
+  "Whether a request may act as admin. In dev with :dangerously-skip-logins?
+   nothing is guarded anywhere, so the admin screens are open there too."
+  [req prod-mode?]
+  (if (allow-skip-logins? prod-mode?)
+    true
+    (true? (:admin (claims req)))))
+
+(defn- refuse-non-admin
+  "401 without a verifying token, 403 with one that is not admin's — the same
+   distinction wrap-auth draws for writes."
+  [req]
+  (if (claims req)
+    {:status 403 :body {:success false :error "Admin only"}}
+    {:status 401 :body {:success false :error "Authentication required"}}))
+
+(defn- unauthenticated []
+  {:status 401 :body {:success false :error "Authentication required"}})
+
 (defn list-personas-handler
-  "GET /api/personas — every persona as {:id :email :name}, the :email included.
-   Public and unauthenticated, like every read here. In dev with
+  "GET /api/personas — every persona as {:id :name}. This is the whole of what
+   an anonymous reader learns: that these personas exist, never who holds them
+   or which of them share a login. It used to hand out an :email per persona,
+   which is exactly what the accounts split exists to stop. Public and
+   unauthenticated, like nearly every read here. In dev with
    :dangerously-skip-logins? an extra :admin row is prepended so the persona
    switcher can offer it."
   [_req]
   (let [personas (ds/list-personas (ensure-conn))
         personas (if (dangerously-skip-logins?)
-                   (cons {:id :admin :email nil :name "Admin"} personas)
+                   (cons {:id :admin :name "Admin"} personas)
                    personas)]
     {:status 200
      :body (serialize-response personas)}))
 
 ;; Ids the auth layer special-cases and so must never become a persona row.
-;; "admin" logs in against ADMIN_PASSWORD rather than the persona table, so a row
-;; by that id can be entered by email login and — before this guard — minted a
-;; token the ownership check treated as admin's.
+;; "admin" logs in against ADMIN_PASSWORD rather than the database, so a row by
+;; that id could be entered by an ordinary login and — before this guard —
+;; minted a token the ownership check treated as admin's. The split closes that
+;; structurally as well (a persona holds no password at all now), but the latch
+;; stays: it costs one set membership and it is the thing that is easy to
+;; re-open by accident.
 (def ^:private reserved-persona-ids #{:admin})
 
-(defn add-persona-handler
-  "POST /api/personas — mint a persona. Takes {:id :email :password :name}; the
-   password is stored as a bcrypt hash and may be omitted, which leaves the
-   persona with no way to log in. Answers 201 {:success true}. In prod mode any
-   valid token will do, whosever it is — 401 without one. 400 when the id or the
-   email is already taken. The id `admin` is reserved and refused with 400."
-  [req]
-  (let [{:keys [id email password name]} (:body req)
-        id-kw (str->keyword id)]
-    (if (contains? reserved-persona-ids id-kw)
-      {:status 400 :body {:success false :error "Reserved persona id"}}
-      (let [password-hash (when (seq password) (hashers/derive password))
-            result (ds/add-persona (ensure-conn) id-kw email password-hash name)]
-        (if result
-          {:status 201 :body {:success true}}
-          {:status 400 :body {:success false :error "Persona already exists"}})))))
+(defn- generate-persona-id
+  "An unused urbit-style two-word persona id, or nil when 100 draws all collide
+   with an existing persona. Reserves nothing, so two callers can be handed the
+   same id and whoever writes second is refused."
+  []
+  (let [existing-ids (set (map :id (ds/list-personas (ensure-conn))))]
+    (loop [attempts 0]
+      (let [candidate (keyword (urbit/generate-name))]
+        (cond
+          (not (contains? existing-ids candidate)) candidate
+          (>= attempts 100) nil
+          :else (recur (inc attempts)))))))
 
-(defn update-persona-handler
-  "PUT /api/personas/:name — change a persona's :email and/or :name; a key absent
-   from the body is left alone. In prod mode the token must be :name's own or
-   admin's — 401 without a token, 403 with another persona's. 404 when the
-   persona does not exist, 400 when the email belongs to someone else."
+(defn me-handler
+  "GET /api/me — the account behind the request: {:email :personas [{:id :name
+   :sort-order}]}, its personas in the order the account holds them. Together
+   with GET /api/accounts this is one of the two guarded reads in the app: an
+   anonymous visitor learns that personas exist and nothing about who holds
+   them, so the one read that pairs an email with a persona list has to prove
+   it is that account's own. 401 without a verifying token, or when the account
+   the token names is gone. An admin token answers {:admin true} — admin has no
+   account of its own. In dev with :dangerously-skip-logins? nothing mints a
+   token, so ?persona=<id> names the persona whose account to answer for (and
+   ?persona=admin the admin screen); that branch exists only in that mode."
+  [prod-mode?]
+  (fn [req]
+    (let [dev? (allow-skip-logins? prod-mode?)
+          admin? (if dev?
+                   (= "admin" (dev-persona-param req))
+                   (true? (:admin (claims req))))]
+      (if admin?
+        {:status 200 :body {:admin true}}
+        (if-let [account (acting-account-row req prod-mode?)]
+          {:status 200
+           :body (serialize-response
+                  {:email (:email account)
+                   :personas (ds/list-personas-for-account (ensure-conn) (:id account))})}
+          (unauthenticated))))))
+
+(defn add-persona-handler
+  "POST /api/personas — mint a persona under the requesting account. Takes
+   {:name :id?}; :id defaults to a generated urbit-style two-word name and is
+   the public address, so it must be free across *all* accounts, not merely
+   this one. The new persona lands last in its account's order. Answers 201
+   {:success true :id ...}. The account is the token's own and the body cannot
+   name another, so there is no way to mint a persona into somebody else's
+   login. 401 without a token; 400 when the id is taken or reserved."
+  [prod-mode?]
+  (fn [req]
+    (let [{:keys [id name]} (:body req)]
+      (if-let [account (acting-account-row req prod-mode?)]
+        (let [id-kw (or (when (seq id) (str->keyword id)) (generate-persona-id))]
+          (cond
+            (nil? id-kw)
+            {:status 500 :body {:success false :error "Could not generate unique ID"}}
+
+            (contains? reserved-persona-ids id-kw)
+            {:status 400 :body {:success false :error "Reserved persona id"}}
+
+            (not (ds/add-persona (ensure-conn) (:id account) id-kw name))
+            {:status 400 :body {:success false :error "Persona already exists"}}
+
+            :else
+            {:status 201 :body {:success true :id (clojure.core/name id-kw)}}))
+        (unauthenticated)))))
+
+(defn delete-persona-handler
+  "DELETE /api/personas/:name — destroy a persona and every version of every
+   identity under it. Permanent, and the first endpoint in an app that has never
+   deleted anything: there is no history left afterwards and no undo.
+
+   The body must carry {:confirm \"<persona-id>\"} equal to the URI's id — the
+   hand-typed confirmation is enforced here and not only in the browser's
+   dialog, because the browser is not the authority on anything. Answers
+   {:success true}. 400 on a missing or mismatched :confirm, 404 when there is
+   no such persona, 409 on an account's last persona, since an account with no
+   persona is a login that leads nowhere. In prod mode the token's account must
+   hold the persona, or be admin's — 401 without a token, 403 with another
+   account's (see wrap-auth)."
   [req]
   (let [persona-id (str->keyword (get-in req [:params :name]))
-        {:keys [email name]} (:body req)
-        updates (cond-> {}
-                  email (assoc :email email)
-                  name (assoc :name name))
-        result (ds/update-persona (ensure-conn) persona-id updates)]
+        confirm (get-in req [:body :confirm])
+        persona (ds/get-persona-by-id (ensure-conn) persona-id)]
     (cond
-      (nil? result) {:status 404 :body {:success false :error "Persona not found"}}
-      (:error result) {:status 400 :body {:success false :error "Email already exists"}}
-      :else {:status 200 :body {:success true}})))
+      (nil? persona)
+      {:status 404 :body {:success false :error "Persona not found"}}
+
+      (not= confirm (clojure.core/name persona-id))
+      {:status 400 :body {:success false :error "Confirmation does not match the persona id"}}
+
+      (< (count (ds/list-personas-for-account (ensure-conn) (:account-id persona))) 2)
+      {:status 409 :body {:success false :error "An account must keep at least one persona"}}
+
+      :else
+      (do (ds/delete-persona (ensure-conn) persona-id)
+          {:status 200 :body {:success true}}))))
+
+(defn update-persona-handler
+  "PUT /api/personas/:name — change a persona's display :name, which since the
+   accounts split is the only thing a persona owns that can be edited: the email
+   and the password moved to the account. In prod mode the token's account must
+   hold :name, or be admin's — 401 without a token, 403 with another account's.
+   404 when the persona does not exist."
+  [req]
+  (let [persona-id (str->keyword (get-in req [:params :name]))
+        {:keys [name]} (:body req)
+        result (ds/update-persona (ensure-conn) persona-id (cond-> {} name (assoc :name name)))]
+    (if (nil? result)
+      {:status 404 :body {:success false :error "Persona not found"}}
+      {:status 200 :body {:success true}})))
+
+(defn add-account-handler
+  "POST /api/accounts — create an account and its first persona in one call.
+   Takes {:email :password :name :id?}; the password is stored as a bcrypt hash
+   and may be omitted, which leaves the account with no way to log in, and :id
+   defaults to a generated urbit-style two-word name. Answers 201
+   {:success true :id <persona-id>}. Admin only: 401 without a token, 403 with
+   an ordinary account's. 400 when the email or the persona id is already taken,
+   or the id is the reserved `admin`. The persona id is checked before the
+   account is minted, so a refusal never leaves an email spent on nothing."
+  [prod-mode?]
+  (fn [req]
+    (let [{:keys [id email password name]} (:body req)]
+      (if-not (admin-request? req prod-mode?)
+        (refuse-non-admin req)
+        (let [id-kw (or (when (seq id) (str->keyword id)) (generate-persona-id))]
+          (cond
+            (nil? id-kw)
+            {:status 500 :body {:success false :error "Could not generate unique ID"}}
+
+            (contains? reserved-persona-ids id-kw)
+            {:status 400 :body {:success false :error "Reserved persona id"}}
+
+            (not (seq email))
+            {:status 400 :body {:success false :error "Email is required"}}
+
+            (ds/get-persona-by-id (ensure-conn) id-kw)
+            {:status 400 :body {:success false :error "Persona already exists"}}
+
+            :else
+            (let [password-hash (when (seq password) (hashers/derive password))
+                  account (ds/add-account (ensure-conn) email password-hash)]
+              (if account
+                (do (ds/add-persona (ensure-conn) account id-kw name)
+                    {:status 201 :body {:success true :id (clojure.core/name id-kw)}})
+                {:status 400 :body {:success false :error "Email already exists"}}))))))))
+
+(defn list-accounts-handler
+  "GET /api/accounts — every account with its :email and its :personas
+   [{:id :name :sort-order}]: the admin Settings listing, and the only read in
+   the app that ties emails to personas in bulk. Admin only, and guarded here
+   rather than in wrap-auth for the same reason as /api/me — 401 without a
+   token, 403 with an ordinary account's."
+  [prod-mode?]
+  (fn [req]
+    (if-not (admin-request? req prod-mode?)
+      (refuse-non-admin req)
+      {:status 200 :body (serialize-response (ds/list-accounts (ensure-conn)))})))
 
 (defn list-identities-handler
   "GET /api/personas/:name/identities — the persona's identities at their latest
@@ -283,11 +491,14 @@
 
 (defn persona-login-handler
   "POST /api/auth/login — exchange credentials for a JWT. Takes
-   {:id <persona-id> :password ...} or {:email ... :password ...}, and :id
-   \"admin\" is checked against ADMIN_PASSWORD rather than the persona table.
-   Answers {:success true :token ...}; the token carries {:persona <id>} and is
+   {:email ... :password ...} or {:id <persona-id> :password ...}; both forms
+   resolve to the same place, the account, because the password lives there and
+   a persona is only one of the faces it wears. The :id form stays because dev
+   uses it and prober sends {id, password} for this app. :id \"admin\" is
+   checked against ADMIN_PASSWORD rather than the database. Answers
+   {:success true :token ...}; the token carries {:account <account-id>} and is
    what every write wants back as `Authorization: Bearer`. Public, necessarily.
-   401 on any bad credential, without saying whether the persona was unknown or
+   401 on any bad credential, without saying whether the account was unknown or
    the password wrong. In dev with :dangerously-skip-logins? it answers success
    and no token, since nothing is guarded there either."
   [prod-mode?]
@@ -299,20 +510,19 @@
           (let [admin-password (if prod-mode?
                                  (System/getenv "ADMIN_PASSWORD")
                                  "admin")]
-            (if (= password admin-password)
+            (if (and admin-password (= password admin-password))
               {:status 200 :body {:success true :token (create-admin-token)}}
               {:status 401 :body {:success false :error "Invalid credentials"}}))
-          (let [persona (cond
-                          (seq id) (ds/get-persona-by-id (ensure-conn) (str->keyword id))
-                          (seq email) (ds/get-persona-by-email (ensure-conn) email)
-                          :else nil)]
-            (if (nil? persona)
-              {:status 401 :body {:success false :error "Invalid credentials"}}
-              (let [persona-id (str->keyword (:id persona))
-                    stored-hash (ds/get-persona-password-hash (ensure-conn) persona-id)]
-                (if (and stored-hash (hashers/check password stored-hash))
-                  {:status 200 :body {:success true :token (create-token persona-id)}}
-                  {:status 401 :body {:success false :error "Invalid credentials"}})))))))))
+          (let [account (cond
+                          (seq id) (some->> (account-of-persona id)
+                                            (ds/get-account (ensure-conn)))
+                          (seq email) (ds/get-account-by-email (ensure-conn) email)
+                          :else nil)
+                stored-hash (when account
+                              (ds/get-account-password-hash (ensure-conn) (:id account)))]
+            (if (and stored-hash (string? password) (hashers/check password stored-hash))
+              {:status 200 :body {:success true :token (create-token (:id account))}}
+              {:status 401 :body {:success false :error "Invalid credentials"}})))))))
 
 (defn password-required-handler
   "GET /api/auth/required — whether this instance asks for a password at all:
@@ -324,22 +534,14 @@
 
 (defn generate-id-handler
   "GET /api/generate-id — propose an unused urbit-style two-word persona id for
-   the Settings form: {:id \"...\"}. Public, like every read here. It reserves
-   nothing, so two callers can be handed the same id and whoever POSTs second
-   gets the 400. 500 if 100 draws all collide with an existing persona."
+   the Settings and profile forms: {:id \"...\"}. Public, like nearly every read
+   here. It reserves nothing, so two callers can be handed the same id and
+   whoever writes second gets the 400. 500 if 100 draws all collide with an
+   existing persona."
   [_req]
-  (let [existing-ids (set (map :id (ds/list-personas (ensure-conn))))]
-    (loop [attempts 0]
-      (let [candidate (urbit/generate-name)]
-        (cond
-          (not (contains? existing-ids (keyword candidate)))
-          {:status 200 :body {:id candidate}}
-
-          (>= attempts 100)
-          {:status 500 :body {:error "Could not generate unique ID"}}
-
-          :else
-          (recur (inc attempts)))))))
+  (if-let [id (generate-persona-id)]
+    {:status 200 :body {:id (name id)}}
+    {:status 500 :body {:error "Could not generate unique ID"}}))
 
 (defn- get-client-ip [request]
   (or (get-in request [:headers "fly-client-ip"])

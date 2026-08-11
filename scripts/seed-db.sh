@@ -14,14 +14,19 @@ API_BASE="http://localhost:$PORT"
 
 echo "Seeding database..."
 
-echo "Creating personas..."
+# An account is the email and the password; a persona is the public address it
+# is reached at. POST /api/accounts makes both at once, so alice and bob come
+# out as one account each with one persona. (POST /api/personas adds a further
+# persona to an account that already exists, which is not what seeding wants.)
+# This runs in dev, where wrap-auth is off, so no token is needed.
+echo "Creating accounts and their first personas..."
 curl -s -X POST -H "Content-Type: application/json" \
   -d '{"id":"alice","email":"alice@example.com","name":"Alice Johnson"}' \
-  "$API_BASE/api/personas" > /dev/null
+  "$API_BASE/api/accounts" > /dev/null
 
 curl -s -X POST -H "Content-Type: application/json" \
   -d '{"id":"bob","email":"bob@example.com","name":"Bob Smith"}' \
-  "$API_BASE/api/personas" > /dev/null
+  "$API_BASE/api/accounts" > /dev/null
 
 echo "Creating identities for alice..."
 
@@ -88,11 +93,11 @@ curl -s -X POST -H "Content-Type: application/json" \
 echo "Database seeded successfully!"
 echo ""
 echo "Created:"
-echo "  - alice - Display: Alice Johnson"
+echo "  - alice@example.com - Persona: alice - Display: Alice Johnson"
 echo "    - x7k9m2 Biography: 3 versions"
 echo "    - p3n8v5 Career Goals: 3 versions"
 echo "    - Relation: Career Goals -> Biography"
-echo "  - bob - Display: Bob Smith"
+echo "  - bob@example.com - Persona: bob - Display: Bob Smith"
 echo "    - q4w2r8 About Me: 3 versions"
 echo "    - h6j1t9 Personal Motto: 3 versions"
 echo "    - Relation: Professional Profile -> My Core Belief"

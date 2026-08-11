@@ -24,44 +24,113 @@
 
 (use-fixtures :once sqlite-in-memory)
 
-(deftest personas
-  (testing-with-conn "add personas"
-   (ds/add-persona conn :dan "d@et.n" nil nil)
-   (testing "- can't add a persona with the same name"
-     (are=
-      false (ds/add-persona conn :dan "d2@et.n" nil nil)
-      1 (count (ds/list-personas conn))))
-   (testing "- can't add a persona with the same email"
-     (are=
-      false (ds/add-persona conn :dan2 "d@et.n" nil nil)
-      1 (count (ds/list-personas conn)))))
-  (testing-with-conn "retrieve personas"
-   (ds/add-persona conn :dan "d@et.n" nil nil)
-   (ds/add-persona conn :dan2 "d2@et.n" nil nil)
-   (sets-are=
-    [{:id  :dan
-      :email "d@et.n"
-      :name "dan"}
-     {:id  :dan2
-      :email "d2@et.n"
-      :name "dan2"}]
-    (ds/list-personas conn))
-   (are=
-    {:id  :dan
-     :email "d@et.n"
-     :name "dan"}
-    (ds/get-persona-by-id conn :dan)
-    {:id  :dan2
-     :email "d2@et.n"
-     :name "dan2"}
-    (ds/get-persona-by-email conn "d2@et.n"))))
+(defn- persona!
+  "An account with one persona under it, and that persona back. Most tests here
+   only want something to hang identities off; since 003 that takes two rows."
+  [id email]
+  (ds/add-persona conn (ds/add-account conn email nil) id nil)
+  (ds/get-persona-by-id conn id))
+
+(deftest accounts
+  (testing-with-conn "an account is an email and a password and nothing else"
+    (let [acc (ds/add-account conn "d@et.n" "hash-of-d")]
+      (testing "- minting one hands back its id"
+        (is (integer? acc)))
+      (testing "- an email can only be spent once"
+        (are=
+         false (ds/add-account conn "d@et.n" "hash-of-someone-else")
+         1 (count (ds/list-accounts conn))))
+      (testing "- and it is found by that email, or by its id"
+        (are=
+         {:id acc :email "d@et.n"} (ds/get-account-by-email conn "d@et.n")
+         {:id acc :email "d@et.n"} (ds/get-account conn acc)
+         nil                       (ds/get-account-by-email conn "nobody@et.n")))
+      (testing "- the password now hangs off the account, not off a persona"
+        (are=
+         "hash-of-d" (ds/get-account-password-hash conn acc)
+         nil         (ds/get-account-password-hash conn 9999))))))
+
+(deftest personas-belong-to-an-account
+  (testing-with-conn "many personas under one email"
+    (let [mine (ds/add-account conn "d@et.n" nil)
+          theirs (ds/add-account conn "e@et.n" nil)]
+      (are=
+       true (ds/add-persona conn mine :dan nil)
+       true (ds/add-persona conn mine :dan2 "Second Face")
+       true (ds/add-persona conn theirs :eve nil))
+      (testing "- a persona id is global, because it is the public address"
+        (are=
+         false (ds/add-persona conn theirs :dan "not yours")
+         3     (count (ds/list-personas conn))))
+      (testing "- what an anonymous reader gets carries no email at all"
+        (sets-are=
+         [{:id :dan :name "dan"} {:id :dan2 :name "Second Face"} {:id :eve :name "eve"}]
+         (ds/list-personas conn)))
+      (testing "- an account's own personas, in the order it holds them"
+        (are=
+         [{:id :dan :name "dan" :sort-order 0} {:id :dan2 :name "Second Face" :sort-order 1}]
+         (ds/list-personas-for-account conn mine)
+         [{:id :eve :name "eve" :sort-order 0}]
+         (ds/list-personas-for-account conn theirs)))
+      (testing "- a persona knows which account holds it; that is the ownership check"
+        (are=
+         {:id :dan :name "dan" :account-id mine :sort-order 0} (ds/get-persona-by-id conn :dan)
+         {:id :eve :name "eve" :account-id theirs :sort-order 0} (ds/get-persona-by-id conn :eve)
+         nil (ds/get-persona-by-id conn :nobody)))
+      (testing "- the display name is the persona's own, and the only thing editable"
+        (ds/update-persona conn :dan {:name "Renamed"})
+        (are=
+         "Renamed" (:name (ds/get-persona-by-id conn :dan))
+         nil       (ds/update-persona conn :nobody {:name "x"}))))))
+
+(deftest listing-accounts-for-the-admin
+  (testing-with-conn "the Settings listing: accounts, their emails, their personas"
+    (let [a (ds/add-account conn "a@et.n" nil)
+          b (ds/add-account conn "b@et.n" nil)]
+      (ds/add-persona conn a :one "One")
+      (ds/add-persona conn a :two "Two")
+      (ds/add-persona conn b :three "Three")
+      (are=
+       [{:id a :email "a@et.n" :personas [{:id :one :name "One" :sort-order 0}
+                                          {:id :two :name "Two" :sort-order 1}]}
+        {:id b :email "b@et.n" :personas [{:id :three :name "Three" :sort-order 0}]}]
+       (ds/list-accounts conn)))))
+
+(deftest deleting-a-persona-takes-its-identities-with-it
+  (testing-with-conn "removal is real destruction — no history, no undo"
+    (let [acc (ds/add-account conn "d@et.n" nil)
+          _ (ds/add-persona conn acc :doomed nil)
+          _ (ds/add-persona conn acc :spared nil)
+          doomed (ds/get-persona-by-id conn :doomed)
+          spared (ds/get-persona-by-id conn :spared)
+          gone (ds/add-identity conn doomed "goes" "away")
+          kept (ds/add-identity conn spared "stays" "put")]
+      ;; a second version, so it is the whole history that goes and not one row
+      (ds/update-identity conn doomed gone "goes" "away, edited")
+      (are=
+       2 (count (ds/get-identity-history conn doomed gone))
+       1 (count (ds/list-identities conn spared)))
+
+      (is (true? (ds/delete-persona conn :doomed)))
+
+      (testing "- the persona row is gone"
+        (are=
+         nil          (ds/get-persona-by-id conn :doomed)
+         [{:id :spared :name "spared"}] (ds/list-personas conn)))
+      (testing "- and every version of every identity under it"
+        (are=
+         []  (ds/get-identity-history conn doomed gone)
+         nil (ds/get-identity conn doomed gone)))
+      (testing "- while the account's other persona is untouched"
+        (are=
+         [{:identity kept :name "stays" :text "put"}] (ds/list-identities conn spared)))
+      (testing "- deleting what is not there is false, not an exception"
+        (is (false? (ds/delete-persona conn :doomed)))))))
 
 (deftest identities
   (testing-with-conn "add and retrieve identities"
-    (ds/add-persona conn :dan "d@et.n" nil nil)
-    (ds/add-persona conn :dan2 "d2@et.n" nil nil)
-    (let [dan (ds/get-persona-by-id conn :dan)
-          dan2 (ds/get-persona-by-id conn :dan2)
+    (let [dan (persona! :dan "d@et.n")
+          dan2 (persona! :dan2 "d2@et.n")
           id11 (ds/add-identity conn dan "name11" "text11")
           id12 (ds/add-identity conn dan "name12" "text12")
           id21 (ds/add-identity conn dan2 "name21" "text21")
@@ -84,8 +153,7 @@
 
 (deftest identity-time-travel
   (testing-with-conn "identities change over time but history is preserved"
-    (ds/add-persona conn :dan "d@et.n" nil nil)
-    (let [dan (ds/get-persona-by-id conn :dan)
+    (let [dan (persona! :dan "d@et.n")
           t1 (Instant/parse "2020-01-01T00:00:00Z")
           t2 (Instant/parse "2020-06-01T00:00:00Z")
           query-time (Instant/parse "2020-03-01T00:00:00Z")
@@ -101,8 +169,7 @@
 
 (deftest relations-time-travel
   (testing-with-conn "relations exist only during specific time periods"
-    (ds/add-persona conn :dan "d@et.n" nil nil)
-    (let [dan (ds/get-persona-by-id conn :dan)
+    (let [dan (persona! :dan "d@et.n")
           t1 (Instant/parse "2020-01-01T00:00:00Z")
           t2 (Instant/parse "2020-06-01T00:00:00Z")
           t3 (Instant/parse "2020-12-01T00:00:00Z")
@@ -129,8 +196,7 @@
 
 (deftest relations-delete-and-re-add
   (testing-with-conn "relations can be deleted and re-added at different times"
-    (ds/add-persona conn :dan "d@et.n" nil nil)
-    (let [dan (ds/get-persona-by-id conn :dan)
+    (let [dan (persona! :dan "d@et.n")
           t1 (Instant/parse "2020-01-01T00:00:00Z")
           t2 (Instant/parse "2020-03-01T00:00:00Z")
           t3 (Instant/parse "2020-06-01T00:00:00Z")
@@ -159,8 +225,7 @@
 
 (deftest relations-carried-forward-on-plain-edit
   (testing-with-conn "editing an identity's text keeps its existing relations"
-    (ds/add-persona conn :dan "d@et.n" nil nil)
-    (let [dan (ds/get-persona-by-id conn :dan)
+    (let [dan (persona! :dan "d@et.n")
           t1 (Instant/parse "2020-01-01T00:00:00Z")
           t2 (Instant/parse "2020-06-01T00:00:00Z")
           t3 (Instant/parse "2020-12-01T00:00:00Z")
@@ -175,8 +240,7 @@
 
 (deftest relation-description-round-trips
   (testing-with-conn "a relation carries an optional description"
-    (ds/add-persona conn :dan "d@et.n" nil nil)
-    (let [dan (ds/get-persona-by-id conn :dan)
+    (let [dan (persona! :dan "d@et.n")
           t1 (Instant/parse "2020-01-01T00:00:00Z")
           t2 (Instant/parse "2020-06-01T00:00:00Z")
           source-id (ds/add-identity conn dan "source" "v1" {:valid-from t1})
@@ -190,8 +254,7 @@
 
 (deftest save-identity-version-shares-relation-timeline
   (testing-with-conn "relations committed via save-identity-version share the version's valid-from"
-    (ds/add-persona conn :dan "d@et.n" nil nil)
-    (let [dan (ds/get-persona-by-id conn :dan)
+    (let [dan (persona! :dan "d@et.n")
           t1 (Instant/parse "2020-01-01T00:00:00Z")
           t2 (Instant/parse "2020-06-01T00:00:00Z")
           t3 (Instant/parse "2020-12-01T00:00:00Z")
@@ -218,8 +281,7 @@
 
 (deftest search-identities-time-travel
   (testing-with-conn "search identities with cutoff date returns versions at that time"
-    (ds/add-persona conn :dan "d@et.n" nil nil)
-    (let [dan (ds/get-persona-by-id conn :dan)
+    (let [dan (persona! :dan "d@et.n")
           t1 (Instant/parse "2020-01-01T00:00:00Z")
           t2 (Instant/parse "2020-06-01T00:00:00Z")
           query-before (Instant/parse "2020-03-01T00:00:00Z")

@@ -116,6 +116,41 @@ The admin user is special:
 - Password: value of `ADMIN_PASSWORD` env var (in production)
 - Has access to the Settings tab to manage personas
 
+## Accounts and Personas
+
+Since migration `003-accounts-above-personas` these are two things, where they
+used to be one row:
+
+| | is | holds |
+|---|---|---|
+| Account | an email and a password | one or more personas |
+| Persona | a public address (`personalist.org/:persona-id`) and a display name | its identities |
+
+One email can therefore wear several faces. Which personas belong to the same
+account is not public: `GET /api/personas` answers with ids and display names
+only, so an anonymous visitor sees a flat list of personas and learns nothing
+about who holds them or which of them share a login.
+
+- Logging in takes either the email or *any* of the account's persona ids,
+  together with the account's password. Both resolve to the same account and
+  mint the same token, which carries the account id.
+- A write under `/api/personas/:id/...` is allowed when the token's account
+  holds that persona — so one login can edit every persona it owns.
+- `GET /api/me` answers with the account behind the token: its email and its
+  personas in order. It and `GET /api/accounts` are the only reads that ask for
+  a token; everything else a `GET` can reach is what a visitor sees anyway.
+- A logged-in user manages their own personas on the Profile tab: create one
+  (a generated urbit id plus a display name), or remove one by hand-typing its
+  urbit id. Removal destroys the persona and every version of every identity
+  under it, permanently, and an account's last persona cannot be removed.
+- The admin's Settings tab creates *accounts* (`POST /api/accounts`, which makes
+  the account and its first persona in one call) and lists them with their
+  personas.
+
+Migrating an existing database needs no intervention: every persona row becomes
+one account carrying its email and password plus one persona carrying its id and
+display name, and no identity moves.
+
 ## Seeding
 
 When `pre-seed?` is `true` in `config.edn`:
