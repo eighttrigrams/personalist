@@ -1,0 +1,97 @@
+{:id "004-machine-users"
+ ;; A machine user is an `accounts` row, not a table of its own — the owner's
+ ;; call, and it mirrors what he built in tracker (`users.is_machine_user` +
+ ;; `users.for_user_id`). It sits under the human account whose personas it
+ ;; writes, and it holds no password: `token_hash` is its whole credential.
+ ;; "Only the latest token is active" then falls out of the schema rather than
+ ;; out of any code — there is exactly one column to hold it, so rotating
+ ;; overwrites and the previous token stops verifying the moment it does.
+ ;;
+ ;; ONE THING FROM TRACKER IS DELIBERATELY NOT COPIED. Tracker enforces one
+ ;; machine user per human with
+ ;;   CREATE UNIQUE INDEX ... ON users(for_user_id) WHERE is_machine_user = 1
+ ;; This feature is the opposite — an account is meant to hold several, one
+ ;; writing personas A and C, another B and C. There is no such index here, and
+ ;; adding one later would break the feature rather than tighten it.
+ :up [;; SQLite cannot relax a column constraint in place, and `email` has to
+      ;; lose both NOT NULL and its inline UNIQUE: a machine user has no email,
+      ;; and several of them would all carry NULL. So `accounts` is rebuilt
+      ;; beside itself and renamed, exactly as 003 rebuilt `personas`.
+      ;; IF EXISTS on the scratch table: :transactions is false, so a run that
+      ;; died halfway leaves its debris behind and the retry has to survive it.
+      "DROP TABLE IF EXISTS accounts_rebuilt"
+      "CREATE TABLE accounts_rebuilt (
+         id INTEGER PRIMARY KEY AUTOINCREMENT,
+         email TEXT,                                  -- NULL for a machine user
+         password_hash TEXT,                          -- always NULL for a machine user
+         name TEXT,                                   -- the machine user's name; NULL for a human
+         for_account_id INTEGER,                      -- its parent account; NULL for a human
+         is_machine_user INTEGER NOT NULL DEFAULT 0,
+         can_create_personas INTEGER NOT NULL DEFAULT 0,
+         token_hash TEXT                              -- SHA-256 of its one live token
+       )"
+      ;; Column lists written out on both sides: `INSERT INTO t SELECT * FROM
+      ;; old` would depend on a column order that is whatever earlier migrations
+      ;; happened to add things in. Every existing row is a human, so the four
+      ;; new columns take their defaults.
+      "INSERT INTO accounts_rebuilt (id, email, password_hash)
+         SELECT id, email, password_hash FROM accounts"
+      ;; The rebuild drops accounts' sqlite_sequence row and re-creates it at
+      ;; MAX(id) of what was copied. Every account row is copied here — nothing
+      ;; is filtered out — so the high-water mark is unchanged and the next
+      ;; insert cannot be handed a deleted account's id.
+      "DROP TABLE accounts"
+      "ALTER TABLE accounts_rebuilt RENAME TO accounts"
+
+      ;; Uniqueness moves from the column to two partial indexes, tracker's own
+      ;; device. WHERE is what makes them not collide: a human is simply not in
+      ;; the machine-name index, and a machine user is not in the email index,
+      ;; so neither kind's NULLs are ever compared with the other's.
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_email
+         ON accounts(email) WHERE is_machine_user = 0"
+      ;; Globally unique, not per account. It is no longer a login identifier,
+      ;; but it is how these get named in secrets.yaml and in conversation, and
+      ;; two `daniel-machine`s under different accounts would be a trap for a
+      ;; reader rather than for the code.
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_machine_name
+         ON accounts(name) WHERE is_machine_user = 1"
+      "CREATE INDEX IF NOT EXISTS idx_accounts_for_account
+         ON accounts(for_account_id) WHERE is_machine_user = 1"
+
+      ;; One row per persona a machine user may write. The composite primary key
+      ;; is the whole table: a grant either exists or it does not, and granting
+      ;; twice is the same grant. No foreign keys, for the reason 003 gives —
+      ;; nothing in this schema declares one and the app runs with SQLite's
+      ;; default PRAGMA foreign_keys=off. ds/delete-persona and the machine-user
+      ;; delete are what actually keep this table from accumulating orphans.
+      "CREATE TABLE IF NOT EXISTS machine_persona_grants (
+         machine_account_id INTEGER NOT NULL,
+         persona_id TEXT NOT NULL,
+         PRIMARY KEY (machine_account_id, persona_id)
+       )"
+      "CREATE INDEX IF NOT EXISTS idx_grants_persona ON machine_persona_grants(persona_id)"]
+
+ ;; The rollback restores the 003 shape, which has no room for a machine user:
+ ;; it has no email and the old column is NOT NULL. That statement is where this
+ ;; fails, on purpose — inventing an email or dropping the row would both be
+ ;; worse than refusing, and the grants would be orphaned either way. Delete the
+ ;; machine users first if a rollback is really what you want.
+ ;; As in 003, the INSERT comes before any DROP: with :transactions false there
+ ;; is nothing to undo, so the statement that fails must be one that has not yet
+ ;; destroyed anything.
+ :down ["DROP TABLE IF EXISTS accounts_old"
+        "CREATE TABLE accounts_old (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           email TEXT UNIQUE NOT NULL,
+           password_hash TEXT
+         )"
+        "INSERT INTO accounts_old (id, email, password_hash)
+           SELECT id, email, password_hash FROM accounts"
+        "DROP INDEX IF EXISTS idx_accounts_for_account"
+        "DROP INDEX IF EXISTS idx_accounts_machine_name"
+        "DROP INDEX IF EXISTS idx_accounts_email"
+        "DROP TABLE accounts"
+        "ALTER TABLE accounts_old RENAME TO accounts"
+        "DROP INDEX IF EXISTS idx_grants_persona"
+        "DROP TABLE IF EXISTS machine_persona_grants"]
+ :transactions false}

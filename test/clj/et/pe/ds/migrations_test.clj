@@ -132,3 +132,122 @@
       (testing "a rollback that would have to drop one of two personas fails loudly"
         (is (thrown? Exception (rollback! store "003-accounts-above-personas"))
             "email UNIQUE cannot hold two personas of one account; refusing beats silently losing one")))))
+
+;; ---------------------------------------------------------------------------
+;; 004 — machine users hang off the same accounts table, tracker's shape
+;; (is_machine_user + for_account_id) but explicitly *without* its
+;; one-machine-per-human unique index: the whole point here is that an account
+;; may hold several.
+;; ---------------------------------------------------------------------------
+
+(defn- through-003!
+  "A database in the shape 003 left it: the four prod accounts and their
+   personas, plus the identity rows 003 must never have touched."
+  [conn store]
+  (run-migrations! store ["001-initial-schema" "002-relations-in-identity"])
+  (seed-old-shape! conn)
+  (run-migrations! store ["003-accounts-above-personas"]))
+
+(deftest machine-users-on-accounts
+  (with-open [conn (fresh-db "mig004-up")]
+    (let [store (ragtime-jdbc/sql-database (jdbc/with-options conn {}))]
+      (through-003! conn store)
+      (let [accounts-before (q conn "SELECT id, email, password_hash FROM accounts ORDER BY id")
+            personas-before (q conn "SELECT id, account_id, name, sort_order FROM personas ORDER BY id")
+            identities-before (q conn "SELECT * FROM identities ORDER BY id")]
+
+        (run-migrations! store ["004-machine-users"])
+
+        (testing "every existing account came through untouched, and is a human"
+          (is (= accounts-before
+                 (q conn "SELECT id, email, password_hash FROM accounts ORDER BY id")))
+          (is (= [0 0 0 0] (map :is_machine_user (q conn "SELECT is_machine_user FROM accounts ORDER BY id")))
+              "the flag defaults to 0, so nobody was turned into a machine by the migration")
+          (is (every? nil? (map :for_account_id (q conn "SELECT for_account_id FROM accounts")))
+              "and no human points at a parent")
+          (is (= [0 0 0 0] (map :can_create_personas (q conn "SELECT can_create_personas FROM accounts ORDER BY id")))))
+
+        (testing "personas and identities are none of this migration's business"
+          (is (= personas-before (q conn "SELECT id, account_id, name, sort_order FROM personas ORDER BY id")))
+          (is (= identities-before (q conn "SELECT * FROM identities ORDER BY id"))))
+
+        (testing "the accounts table gained exactly the machine-user columns"
+          (is (= #{"id" "email" "password_hash" "name" "for_account_id"
+                   "is_machine_user" "can_create_personas" "token_hash"}
+                 (set (map :name (q conn "PRAGMA table_info(accounts)"))))))
+
+        (testing "email lost NOT NULL, because a machine user has none"
+          (jdbc/execute! conn [(str "INSERT INTO accounts (name, for_account_id, is_machine_user)"
+                                    " VALUES ('a-machine', 1, 1)")])
+          (is (= 1 (count (q conn "SELECT id FROM accounts WHERE name = 'a-machine'")))))
+
+        (testing "two humans still cannot share an email"
+          (is (thrown? Exception
+                       (jdbc/execute! conn ["INSERT INTO accounts (email) VALUES ('dan@eighttrigrams.net')"]))))
+
+        (testing "two machine users cannot share a name — globally, not per account"
+          (is (thrown? Exception
+                       (jdbc/execute! conn [(str "INSERT INTO accounts (name, for_account_id, is_machine_user)"
+                                                 " VALUES ('a-machine', 2, 1)")]))
+              "even under a different parent account"))
+
+        (testing "but one account may hold several machine users — the whole point,
+                  and the one thing tracker's shape must not be copied on"
+          (jdbc/execute! conn [(str "INSERT INTO accounts (name, for_account_id, is_machine_user)"
+                                    " VALUES ('second-machine', 1, 1)")])
+          (is (= 2 (count (q conn "SELECT id FROM accounts WHERE for_account_id = 1 AND is_machine_user = 1")))))
+
+        (testing "the two partial indexes do not collide across kinds"
+          ;; every machine user has a NULL email and every human a NULL name;
+          ;; a plain UNIQUE would be fine with that too, but only because SQLite
+          ;; lets NULLs repeat — the point of WHERE is that the *other* kind is
+          ;; not in the index at all
+          (jdbc/execute! conn [(str "INSERT INTO accounts (name, for_account_id, is_machine_user)"
+                                    " VALUES ('third-machine', 1, 1)")])
+          (jdbc/execute! conn ["INSERT INTO accounts (email) VALUES ('another-human@et.n')"])
+          (is (= 3 (count (q conn "SELECT id FROM accounts WHERE is_machine_user = 1"))))
+          (is (= 5 (count (q conn "SELECT id FROM accounts WHERE is_machine_user = 0")))))
+
+        (testing "grants are one row per persona a machine user may write"
+          (let [m (:id (first (q conn "SELECT id FROM accounts WHERE name = 'a-machine'")))]
+            (jdbc/execute! conn ["INSERT INTO machine_persona_grants (machine_account_id, persona_id) VALUES (?, ?)"
+                                 m "dilmul-socfus"])
+            (is (= 1 (count (q conn "SELECT * FROM machine_persona_grants"))))
+            (testing "- and the same grant cannot be written twice"
+              (is (thrown? Exception
+                           (jdbc/execute! conn [(str "INSERT INTO machine_persona_grants"
+                                                     " (machine_account_id, persona_id) VALUES (?, ?)")
+                                                m "dilmul-socfus"]))))))))))
+
+(deftest rollback-004-restores-the-account-shape
+  (with-open [conn (fresh-db "mig004-down")]
+    (let [store (ragtime-jdbc/sql-database (jdbc/with-options conn {}))]
+      (through-003! conn store)
+      (let [accounts-before (q conn "SELECT id, email, password_hash FROM accounts ORDER BY id")]
+        (run-migrations! store ["004-machine-users"])
+        (rollback! store "004-machine-users")
+
+        (testing "the human accounts are back in their 003 shape, unharmed"
+          (is (= #{"id" "email" "password_hash"}
+                 (set (map :name (q conn "PRAGMA table_info(accounts)")))))
+          (is (= accounts-before (q conn "SELECT id, email, password_hash FROM accounts ORDER BY id")))
+          (is (= "NOT NULL"
+                 (if (= 1 (:notnull (first (filter #(= "email" (:name %))
+                                                   (q conn "PRAGMA table_info(accounts)")))))
+                   "NOT NULL" "nullable"))
+              "email is NOT NULL again"))
+
+        (testing "the grants table is gone"
+          (is (empty? (q conn "SELECT name FROM sqlite_master WHERE type='table' AND name='machine_persona_grants'"))))))))
+
+(deftest rollback-004-refuses-while-machine-users-exist
+  (with-open [conn (fresh-db "mig004-down-conflict")]
+    (let [store (ragtime-jdbc/sql-database (jdbc/with-options conn {}))]
+      (through-003! conn store)
+      (run-migrations! store ["004-machine-users"])
+      (jdbc/execute! conn [(str "INSERT INTO accounts (name, for_account_id, is_machine_user)"
+                                " VALUES ('a-machine', 1, 1)")])
+
+      (testing "a machine user has no email, and the old shape demands one — so the
+                rollback hits NOT NULL rather than inventing one or dropping the row"
+        (is (thrown? Exception (rollback! store "004-machine-users")))))))
