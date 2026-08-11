@@ -261,11 +261,14 @@
               (is (nil? (ds/get-persona-by-id conn :doomed)))
               (is (= [] (ds/get-identity-history conn doomed ident)))))
 
-          (testing "an account's last persona is refused: a login that leads nowhere"
+          ;; This used to be a 409 — "an account with no persona is a login that
+          ;; leads nowhere". It leads to the profile page. The rule is gone, and
+          ;; the account's last persona goes like any other.
+          (testing "and so does the account's last persona"
             (let [{:keys [status]} (handlers/delete-persona-handler
                                      {:params {:name "keeper"} :body {:confirm "keeper"}})]
-              (is (= 409 status))
-              (is (some? (ds/get-persona-by-id conn :keeper)))))
+              (is (= 200 status))
+              (is (nil? (ds/get-persona-by-id conn :keeper)))))
 
           (testing "a persona that is not there is a 404"
             (is (= 404 (:status (handlers/delete-persona-handler
@@ -724,3 +727,44 @@
         (is (= 200 (:status ((handlers/me-handler true) (as machine-token)))))
         (handlers/mint-machine-token! "daniel-machine")
         (is (= 401 (:status ((handlers/me-handler true) (as machine-token)))))))))
+
+;; ===========================================================================
+;; Zero personas is a legitimate state
+;;
+;; An account is an email and a password; personas are things its owner makes,
+;; or does not. The rule this replaces — "an account with no persona is a login
+;; that leads nowhere" — was wrong: it leads to the profile page, which is
+;; exactly where a new account should land.
+;; ===========================================================================
+
+(deftest removing-an-account-s-only-persona-is-allowed
+  (with-app
+    (fn [conn]
+      (let [acc (ds/add-account conn "d@et.n" (hashers/derive "pw"))]
+        (ds/add-persona conn acc :only-face "The only one")
+        (let [persona (ds/get-persona-by-id conn :only-face)
+              ident (ds/add-identity conn persona "goes" "away")]
+
+          (testing "the last persona goes like any other — no 409, no special case"
+            (let [res (handlers/delete-persona-handler
+                       {:params {:name "only-face"} :body {:confirm "only-face"}})]
+              (is (= 200 (:status res)))
+              (is (true? (:success (seen res))))))
+
+          (testing "and it took its identities with it, as any removal does"
+            (is (nil? (ds/get-persona-by-id conn :only-face)))
+            (is (= [] (ds/get-identity-history conn persona ident))))
+
+          (testing "the account itself survives, holding nothing"
+            (is (= {:id acc :email "d@et.n"} (ds/get-account conn acc)))
+            (is (= [] (ds/list-personas-for-account conn acc))))
+
+          (testing "and it can still log in, which is the whole point —
+                    it lands on its profile page and makes a new one"
+            (is (= 200 (:status (login {:username "d@et.n" :password "pw"})))))
+
+          (testing "the hand-typed confirmation is still the guard, and still bites"
+            (ds/add-persona conn acc :second-try "Again")
+            (is (= 400 (:status (handlers/delete-persona-handler
+                                 {:params {:name "second-try"} :body {:confirm "wrong"}}))))
+            (is (some? (ds/get-persona-by-id conn :second-try)))))))))

@@ -447,12 +447,16 @@
 
    The body must carry {:confirm \"<persona-id>\"} equal to the URI's id — the
    hand-typed confirmation is enforced here and not only in the browser's
-   dialog, because the browser is not the authority on anything. Answers
-   {:success true}. 400 on a missing or mismatched :confirm, 404 when there is
-   no such persona, 409 on an account's last persona, since an account with no
-   persona is a login that leads nowhere. In prod mode the token's account must
-   hold the persona, or be admin's — 401 without a token, 403 with another
-   account's (see wrap-auth).
+   dialog, because the browser is not the authority on anything. It is the whole
+   guard, and it is enough: an account's **last** persona goes the same way as
+   any other. Zero personas is a legitimate state, not a degenerate one — an
+   account is an email and a password, and one holding none lands on its profile
+   page, which is where it makes another.
+
+   Answers {:success true}. 400 on a missing or mismatched :confirm, 404 when
+   there is no such persona. In prod mode the token's account must hold the
+   persona, or be admin's — 401 without a token, 403 with another account's
+   (see wrap-auth).
 
    **A machine user is refused regardless of its grants**, including on a
    persona it created itself. A grant is permission to *write*, and this feature
@@ -472,9 +476,6 @@
 
       (not= confirm (clojure.core/name persona-id))
       {:status 400 :body {:success false :error "Confirmation does not match the persona id"}}
-
-      (< (count (ds/list-personas-for-account (ensure-conn) (:account-id persona))) 2)
-      {:status 409 :body {:success false :error "An account must keep at least one persona"}}
 
       :else
       (do (ds/delete-persona (ensure-conn) persona-id)
