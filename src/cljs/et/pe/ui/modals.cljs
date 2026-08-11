@@ -1,5 +1,6 @@
 (ns et.pe.ui.modals
-  (:require [et.pe.ui.state :refer [app-state select-persona try-login
+  (:require [et.pe.ui.codemirror :as codemirror]
+            [et.pe.ui.state :refer [app-state select-persona try-login
                                     attempt-login
                                     search-identities select-identity
                                     add-relation add-identity]]))
@@ -335,16 +336,14 @@
                           :border-radius "4px"}}]]
         [:div {:style {:margin-bottom "1rem"}}
          [:label {:style {:display "block" :margin-bottom "0.5rem" :font-weight "bold"}} "Text"]
-         [:textarea {:placeholder "Describe this identity..."
-                     :value new-identity-text
-                     :on-change #(swap! app-state assoc :new-identity-text (-> % .-target .-value))
-                     :style {:width "100%"
+         ;; The same editor as the identity page's, so the text you type into a
+         ;; new identity behaves like the text you later edit. Not monospace here:
+         ;; this textarea never was.
+         [codemirror/editor {:value new-identity-text
+                             :on-change #(swap! app-state assoc :new-identity-text %)
+                             :placeholder "Describe this identity..."
                              :height "100px"
-                             :padding "0.75rem"
-                             :font-size "1rem"
-                             :border "1px solid #ccc"
-                             :border-radius "4px"
-                             :resize "vertical"}}]]
+                             :font-family "inherit"}]]
         [:div {:style {:display "flex" :gap "1rem" :justify-content "flex-end"}}
          [:button {:on-click #(swap! app-state assoc :show-add-identity-modal false :new-identity-name "" :new-identity-text "")
                    :style {:padding "0.5rem 1rem"

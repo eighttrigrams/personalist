@@ -1,6 +1,7 @@
 (ns et.pe.ui.identity
   (:require [clojure.string :as str]
             [reagent.core :as r]
+            [et.pe.ui.codemirror :as codemirror]
             [et.pe.ui.provenance :as provenance]
             [et.pe.ui.state :refer [app-state update-identity
                                     fetch-relations delete-relation select-identity
@@ -271,16 +272,13 @@
                            :margin-bottom "0.5rem"}}]
           [editor-tab-switcher]
           (if (= text-editor-mode :edit)
-            [:textarea {:value editing-text
-                        :on-change #(swap! app-state assoc :editing-text (-> % .-target .-value))
-                        :style {:width "100%"
-                                :height "200px"
-                                :padding "0.75rem"
-                                :font-size "1rem"
-                                :font-family "monospace"
-                                :border "1px solid #ccc"
-                                :border-radius "4px"
-                                :resize "vertical"}}]
+            ;; A CodeMirror with Daniel's IJKL bindings rather than a textarea.
+            ;; The height and the monospace are the textarea's, so the switch to
+            ;; preview and back does not move anything on the page. What is lost
+            ;; is the drag handle: CodeMirror does not resize.
+            [codemirror/editor {:value editing-text
+                                :on-change #(swap! app-state assoc :editing-text %)
+                                :height "200px"}]
             [markdown-preview editing-text])
           [:div {:style {:display "flex" :gap "0.5rem" :margin-top "1rem"}}
            [:button {:on-click #(swap! app-state assoc :show-add-relation-modal true)
