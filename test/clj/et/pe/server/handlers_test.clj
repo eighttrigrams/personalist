@@ -583,3 +583,78 @@
           (is (= 400 (:status ((handlers/update-machine-user-handler true)
                                (as human-token :params {:name "daniel-machine"}
                                    :body {:personas ["never-existed"]}))))))))))
+
+;; ---------------------------------------------------------------------------
+;; Creating personas, the third caller
+;; ---------------------------------------------------------------------------
+
+(deftest a-machine-user-with-can-create-mints-under-its-parent-and-self-grants
+  (with-app
+    (fn [conn]
+      (let [{:keys [account machine machine-token]} (machine-fixture conn)]
+        (ds/update-machine-user conn (:id machine) {:can-create-personas? true})
+
+        (let [res ((handlers/add-persona-handler true)
+                   (as machine-token :body {:id "made-by-machine" :name "Made by machine"}))]
+          (is (= 201 (:status res)))
+
+          (testing "the persona belongs to the parent account, not to the machine user —
+                    a machine user is a credential, not a place to hang content on"
+            (is (= account (:account-id (ds/get-persona-by-id conn :made-by-machine))))
+            (is (= #{:face-a :face-b :made-by-machine}
+                   (set (map :id (ds/list-personas-for-account conn account))))))
+
+          (testing "and it granted itself write on what it just made — the owner's
+                    'added to the list of personas from that moment on'"
+            (is (= [:face-a :made-by-machine] (ds/granted-personas conn (:id machine)))))
+
+          (testing "which the guard honours immediately, with the same token"
+            (is (true? (handlers/machine-grants-persona? (:id machine) "made-by-machine")))))
+
+        (testing "it still gains nothing on the personas it was not granted"
+          (is (false? (handlers/machine-grants-persona? (:id machine) "face-b"))))))))
+
+(deftest a-machine-user-without-can-create-is-refused
+  (with-app
+    (fn [conn]
+      (let [{:keys [account machine machine-token]} (machine-fixture conn)]
+        (is (false? (:can-create-personas? machine)) "the fixture's machine user has no such permission")
+
+        (let [res ((handlers/add-persona-handler true)
+                   (as machine-token :body {:id "should-not-exist" :name "Nope"}))]
+          (is (= 403 (:status res))))
+
+        (testing "and nothing was created under the parent account"
+          (is (nil? (ds/get-persona-by-id conn :should-not-exist)))
+          (is (= 2 (count (ds/list-personas-for-account conn account)))))))))
+
+(deftest deleting-a-persona-stays-with-the-human-account
+  (with-app
+    (fn [conn]
+      (let [{:keys [machine machine-token]} (machine-fixture conn)]
+        (ds/update-machine-user conn (:id machine) {:can-create-personas? true})
+
+        (testing "a machine user is refused even on a persona it holds a grant on"
+          (is (true? (handlers/machine-grants-persona? (:id machine) "face-a")))
+          (let [res (handlers/delete-persona-handler
+                     (as machine-token :params {:name "face-a"} :body {:confirm "face-a"}))]
+            (is (= 403 (:status res)))
+            (is (some? (ds/get-persona-by-id conn :face-a)))))
+
+        (testing "and even on one it created itself"
+          ((handlers/add-persona-handler true)
+           (as machine-token :body {:id "its-own" :name "Its own"}))
+          (let [res (handlers/delete-persona-handler
+                     (as machine-token :params {:name "its-own"} :body {:confirm "its-own"}))]
+            (is (= 403 (:status res)))
+            (is (some? (ds/get-persona-by-id conn :its-own)))))))))
+
+(deftest a-human-still-creates-under-its-own-account
+  (with-app
+    (fn [conn]
+      (let [{:keys [account human-token]} (machine-fixture conn)]
+        (is (= 201 (:status ((handlers/add-persona-handler true)
+                             (as human-token :body {:id "by-hand" :name "By hand"})))))
+        (is (= account (:account-id (ds/get-persona-by-id conn :by-hand))))
+        (testing "and grants nothing to any machine user by doing so"
+          (is (= [:face-a] (ds/granted-personas conn (:id (ds/get-machine-user conn "daniel-machine"))))))))))

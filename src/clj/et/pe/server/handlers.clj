@@ -335,18 +335,57 @@
                    :personas (ds/list-personas-for-account (ensure-conn) (:id account))})}
           (unauthenticated))))))
 
+(defn- creating-account
+  "Which account a POST /api/personas mints under, and whether the caller may at
+   all. Three callers now:
+
+   - a **human** — its own account, as before
+   - a **machine user with can_create_personas** — its *parent's* account. A
+     machine user is a credential, not a place to hang content on, so what it
+     creates belongs to the human it works for
+   - a **machine user without it** — :forbidden
+
+   nil means no usable credential at all."
+  [req prod-mode?]
+  (let [token (bearer-token req)]
+    (if (machine-token? token)
+      (when-let [m (machine-user-for-token token)]
+        (if (:can-create-personas? m)
+          {:account-id (:for-account-id m) :machine m}
+          :forbidden))
+      (when-let [account (acting-account-row req prod-mode?)]
+        {:account-id (:id account)}))))
+
 (defn add-persona-handler
-  "POST /api/personas — mint a persona under the requesting account. Takes
-   {:name :id?}; :id defaults to a generated urbit-style two-word name and is
-   the public address, so it must be free across *all* accounts, not merely
-   this one. The new persona lands last in its account's order. Answers 201
-   {:success true :id ...}. The account is the token's own and the body cannot
-   name another, so there is no way to mint a persona into somebody else's
-   login. 401 without a token; 400 when the id is taken or reserved."
+  "POST /api/personas — mint a persona. Takes {:name :id?}; :id defaults to a
+   generated urbit-style two-word name and is the public address, so it must be
+   free across *all* accounts, not merely this one. The new persona lands last
+   in its account's order. Answers 201 {:success true :id ...}.
+
+   A human mints under its own account. A machine user with
+   `can_create_personas` mints under its **parent's** account and is granted
+   write on what it just made, so it may use it from that moment on; without
+   that permission it gets a 403. Neither caller can name another account — the
+   body has no field for one.
+
+   401 without a credential; 400 when the id is taken or reserved.
+
+   The self-grant is a second statement rather than part of one transaction:
+   this codebase opens none anywhere, and the order is the safe one. A persona
+   created but not yet granted is one the owner can grant by hand; a grant
+   written first could name a persona that never appeared."
   [prod-mode?]
   (fn [req]
-    (let [{:keys [id name]} (:body req)]
-      (if-let [account (acting-account-row req prod-mode?)]
+    (let [{:keys [id name]} (:body req)
+          target (creating-account req prod-mode?)]
+      (cond
+        (= :forbidden target)
+        {:status 403 :body {:success false :error "Not allowed to create personas"}}
+
+        (nil? target)
+        (unauthenticated)
+
+        :else
         (let [id-kw (or (when (seq id) (str->keyword id)) (generate-persona-id))]
           (cond
             (nil? id-kw)
@@ -355,12 +394,14 @@
             (contains? reserved-persona-ids id-kw)
             {:status 400 :body {:success false :error "Reserved persona id"}}
 
-            (not (ds/add-persona (ensure-conn) (:id account) id-kw name))
+            (not (ds/add-persona (ensure-conn) (:account-id target) id-kw name))
             {:status 400 :body {:success false :error "Persona already exists"}}
 
             :else
-            {:status 201 :body {:success true :id (clojure.core/name id-kw)}}))
-        (unauthenticated)))))
+            (do
+              (when-let [machine (:machine target)]
+                (ds/grant-persona (ensure-conn) (:id machine) id-kw))
+              {:status 201 :body {:success true :id (clojure.core/name id-kw)}})))))))
 
 (defn delete-persona-handler
   "DELETE /api/personas/:name — destroy a persona and every version of every
@@ -374,12 +415,21 @@
    no such persona, 409 on an account's last persona, since an account with no
    persona is a login that leads nowhere. In prod mode the token's account must
    hold the persona, or be admin's — 401 without a token, 403 with another
-   account's (see wrap-auth)."
+   account's (see wrap-auth).
+
+   **A machine user is refused regardless of its grants**, including on a
+   persona it created itself. A grant is permission to *write*, and this feature
+   is about writing; destroying a public address and every identity under it
+   stays with the human whose account it is. That is a judgement call rather
+   than something the owner asked for, and it is cheap to reverse."
   [req]
   (let [persona-id (str->keyword (get-in req [:params :name]))
         confirm (get-in req [:body :confirm])
         persona (ds/get-persona-by-id (ensure-conn) persona-id)]
     (cond
+      (machine-token? (bearer-token req))
+      {:status 403 :body {:success false :error "Personas are removed by their own account"}}
+
       (nil? persona)
       {:status 404 :body {:success false :error "Persona not found"}}
 
