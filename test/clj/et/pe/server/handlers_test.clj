@@ -359,8 +359,11 @@
                                (as token :body {:id "admin" :name "pwn"})))))
           (is (nil? (ds/get-persona-by-id conn :admin))))
 
-        ;; The admin-with-:account_id case is added in the cycle that gives admin
-        ;; that power — there is no way for admin to reach add-persona-handler yet.
+        (testing "nor can admin mint it into somebody else's account"
+          (is (= 400 (:status ((handlers/add-persona-handler true)
+                               (as (create-admin-token)
+                                   :body {:id "admin" :name "pwn" :account_id acc})))))
+          (is (nil? (ds/get-persona-by-id conn :admin))))
 
         (testing "nor can a machine user that may create personas"
           (ds/add-machine-user conn acc "a-machine" {:can-create-personas? true})
@@ -727,3 +730,100 @@
           (is (= 401 (:status ((handlers/add-account-handler true)
                                (as nil :body {:email "eve@et.n" :password "pw"})))))
           (is (nil? (ds/get-account-by-email conn "eve@et.n"))))))))
+
+;; ---------------------------------------------------------------------------
+;; :account_id on POST /api/personas
+;;
+;; Once an account can exist with no personas, nobody can give it its first one
+;; from outside — POST /api/personas mints "under the caller's own account", and
+;; a fresh account has no caller yet. For its owner that is correct and is the
+;; point. For the seed script, which builds alice and bob without ever being
+;; either of them, it is a dead end.
+;;
+;; So admin may name the account. Admin already edits other accounts from
+;; Settings; this is the same authority, not a special case invented for a
+;; script. Everyone else naming somebody else's id must be REFUSED rather than
+;; quietly obeyed or quietly ignored.
+;; ---------------------------------------------------------------------------
+
+(deftest naming-another-account-is-refused-for-everyone-but-admin
+  (with-app
+    (fn [conn]
+      (let [mine (ds/add-account conn "d@et.n" nil)
+            theirs (ds/add-account conn "e@et.n" nil)]
+        (ds/add-persona conn mine :my-face "Mine")
+
+        (testing "a human naming another account's id is refused, not obeyed"
+          (let [res ((handlers/add-persona-handler true)
+                     (as (create-token mine) :body {:id "stolen" :name "S" :account_id theirs}))]
+            (is (= 403 (:status res)))
+            (is (nil? (ds/get-persona-by-id conn :stolen)))
+            (is (= [] (ds/list-personas-for-account conn theirs))
+                "and above all it did not land in the account it named")))
+
+        (testing "not even its own id — the field is admin's, full stop, so there is
+                  no shape of it a human token gets to use"
+          (let [res ((handlers/add-persona-handler true)
+                     (as (create-token mine) :body {:id "redundant" :name "R" :account_id mine}))]
+            (is (= 403 (:status res)))
+            (is (nil? (ds/get-persona-by-id conn :redundant)))))
+
+        (testing "a human without the field still mints under itself, as always"
+          (is (= 201 (:status ((handlers/add-persona-handler true)
+                               (as (create-token mine) :body {:id "ordinary" :name "O"})))))
+          (is (= mine (:account-id (ds/get-persona-by-id conn :ordinary)))))
+
+        (testing "a machine user is refused too, with and without can_create"
+          (ds/add-machine-user conn mine "a-machine" {:can-create-personas? true})
+          (let [mt (handlers/mint-machine-token! "a-machine")]
+            (is (= 403 (:status ((handlers/add-persona-handler true)
+                                 (as mt :body {:id "by-machine" :account_id theirs})))))
+            (is (nil? (ds/get-persona-by-id conn :by-machine)))
+            (testing "- while without the field it creates under its parent, as before"
+              (is (= 201 (:status ((handlers/add-persona-handler true)
+                                   (as mt :body {:id "under-parent" :name "P"})))))
+              (is (= mine (:account-id (ds/get-persona-by-id conn :under-parent)))))))))))
+
+(deftest admin-may-give-any-account-a-persona
+  (with-app
+    (fn [conn]
+      (let [fresh (ds/add-account conn "fresh@et.n" nil)]
+        (testing "the account starts with none, which is now a legitimate state"
+          (is (= [] (ds/list-personas-for-account conn fresh))))
+
+        (testing "admin names it and the persona lands there"
+          (let [res ((handlers/add-persona-handler true)
+                     (as (create-admin-token)
+                         :body {:id "alice" :name "Alice" :account_id fresh}))]
+            (is (= 201 (:status res)))
+            (is (= "alice" (:id (seen res))))
+            (is (= fresh (:account-id (ds/get-persona-by-id conn :alice))))
+            (is (= [{:id :alice :name "Alice" :sort-order 0}]
+                   (ds/list-personas-for-account conn fresh)))))
+
+        (testing "a second one lands after it in that account's order"
+          ((handlers/add-persona-handler true)
+           (as (create-admin-token) :body {:id "alice2" :name "Alice again" :account_id fresh}))
+          (is (= [0 1] (map :sort-order (ds/list-personas-for-account conn fresh)))))
+
+        (testing "the id is still global — a taken one is refused whoever asks"
+          (is (= 400 (:status ((handlers/add-persona-handler true)
+                               (as (create-admin-token)
+                                   :body {:id "alice" :name "X" :account_id fresh}))))))
+
+        (testing "and the reserved id is refused for admin as well"
+          (is (= 400 (:status ((handlers/add-persona-handler true)
+                               (as (create-admin-token)
+                                   :body {:id "admin" :name "pwn" :account_id fresh})))))
+          (is (nil? (ds/get-persona-by-id conn :admin))))
+
+        (testing "an :account_id naming no account is a 404, not a persona hanging off nothing"
+          (is (= 404 (:status ((handlers/add-persona-handler true)
+                               (as (create-admin-token)
+                                   :body {:id "orphan" :name "O" :account_id 99999})))))
+          (is (nil? (ds/get-persona-by-id conn :orphan))))
+
+        (testing "and admin without the field has no account of its own to mint under"
+          (is (= 400 (:status ((handlers/add-persona-handler true)
+                               (as (create-admin-token) :body {:id "nowhere" :name "N"})))))
+          (is (nil? (ds/get-persona-by-id conn :nowhere))))))))

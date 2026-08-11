@@ -374,38 +374,68 @@
 
 (defn- creating-account
   "Which account a POST /api/personas mints under, and whether the caller may at
-   all. Three callers now:
+   all. Answers {:account-id N}, or a keyword naming the refusal.
 
-   - a **human** — its own account, as before
-   - a **machine user with can_create_personas** — its *parent's* account. A
-     machine user is a credential, not a place to hang content on, so what it
-     creates belongs to the human it works for
-   - a **machine user without it** — :forbidden
+   - **:account_id in the body** is admin's field. Admin has no account of its
+     own, so it is also the only way admin creates a persona — and since an
+     account may now hold none, it is the only way a fresh one gets its first.
+     Anyone else naming an account is **refused**, not quietly obeyed and not
+     quietly ignored: a request that says where it wants the persona and gets
+     one somewhere else is worse than an error. That holds even when a human
+     names its *own* id — the field belongs to admin, so there is no shape of it
+     an ordinary token gets to use, and no ambiguity about what it means.
+   - a **machine user with can_create_personas** mints under its parent's
+     account, and is granted write on what it made
+   - a **human** mints under its own account
 
-   nil means no usable credential at all."
+   In dev with :dangerously-skip-logins? every caller counts as admin here, as
+   everywhere else in that mode — which is how scripts/seed-db.sh creates
+   personas for accounts it is not."
   [req prod-mode?]
-  (let [token (bearer-token req)]
-    (if (machine-token? token)
+  (let [token (bearer-token req)
+        named (get-in req [:body :account_id])]
+    (cond
+      (some? named)
+      (if-not (admin-request? req prod-mode?)
+        :not-yours
+        (if (ds/get-account (ensure-conn) named)
+          {:account-id named}
+          :no-such-account))
+
+      (machine-token? token)
       (when-let [m (machine-user-for-token token)]
         (if (:can-create-personas? m)
           {:account-id (:for-account-id m) :machine m}
           :forbidden))
-      (when-let [account (acting-account-row req prod-mode?)]
-        {:account-id (:id account)}))))
+
+      :else
+      (if-let [account (acting-account-row req prod-mode?)]
+        {:account-id (:id account)}
+        ;; An admin token is authenticated but has no account to mint under, so
+        ;; the honest answer is "your request is missing something", not "who
+        ;; are you".
+        (when (true? (:admin (claims req)))
+          :admin-must-name-an-account)))))
 
 (defn add-persona-handler
-  "POST /api/personas — mint a persona. Takes {:name :id?}; :id defaults to a
-   generated urbit-style two-word name and is the public address, so it must be
-   free across *all* accounts, not merely this one. The new persona lands last
-   in its account's order. Answers 201 {:success true :id ...}.
+  "POST /api/personas — mint a persona. Takes {:name :id? :account_id?}; :id
+   defaults to a generated urbit-style two-word name and is the public address,
+   so it must be free across *all* accounts, not merely one. The new persona
+   lands last in its account's order. Answers 201 {:success true :id ...}.
 
-   A human mints under its own account. A machine user with
-   `can_create_personas` mints under its **parent's** account and is granted
-   write on what it just made, so it may use it from that moment on; without
-   that permission it gets a 403. Neither caller can name another account — the
-   body has no field for one.
+   Three callers, and since accounts may hold no personas, a fourth way in:
 
-   401 without a credential; 400 when the id is taken or reserved.
+   - a **human** mints under its own account
+   - a **machine user with `can_create_personas`** mints under its **parent's**
+     account and is granted write on what it just made; without that permission
+     it gets a 403
+   - **admin** mints under the account named by :account_id — the same authority
+     by which it edits other accounts from Settings, and the only way an account
+     created with no personas gets its first from outside
+   - anyone else naming an :account_id is refused with 403
+
+   401 without a credential; 400 when the id is taken or reserved, or when admin
+   names no account; 404 when :account_id names no account.
 
    The self-grant is a second statement rather than part of one transaction:
    this codebase opens none anywhere, and the order is the safe one. A persona
@@ -418,6 +448,15 @@
       (cond
         (= :forbidden target)
         {:status 403 :body {:success false :error "Not allowed to create personas"}}
+
+        (= :not-yours target)
+        {:status 403 :body {:success false :error "Not your account"}}
+
+        (= :no-such-account target)
+        {:status 404 :body {:success false :error "Account not found"}}
+
+        (= :admin-must-name-an-account target)
+        {:status 400 :body {:success false :error "account_id is required"}}
 
         (nil? target)
         (unauthenticated)
