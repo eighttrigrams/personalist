@@ -1,7 +1,29 @@
-> **Re-opened 2026-08-11, same day**, for stage 7 below — the owner's follow-up:
-> a machine user must get the provenance back **in the body of the plain
-> single-identity read**, not from a second request. Not a new feature; the same
-> one, finished. The note below covers stages 1–6 and is left as it was written.
+> **Stage 7 done 2026-08-11**, same day, `04d50ed` → `bb4a60a` (+ the docs and
+> this re-filing). The owner's follow-up: a machine user gets the provenance
+> back **in the body of the plain single-identity read**, not from a second
+> request. Not a new feature; the same one, finished.
+>
+> **What did the trick** was reading what the two siblings actually do rather
+> than what stages 1–6 assumed: cookbook keeps the legend and the ranges in one
+> key and leaves the key *off* for a caller not served it, and rhizome's REST
+> `get-item` says in one sentence why it rides along at all — it is the number
+> an agent reads before the PUT that rewrites something, and a second call to
+> find it out is a call that will not be made.
+>
+> **And the same tie-break bug turned up one route over.** `ds/get-identity`
+> ordered `valid_from desc limit 1` with no tie-break, so of two versions saved
+> in one millisecond it returned whichever SQLite liked — a stale single-identity
+> read in its own right, and here a body whose `:text` and whose `:ranges` could
+> be about *different* versions. The test that caught it failed on its first run.
+> Its ds-level pin then had to be rewritten: as three plain writes trusting a
+> collision it passed with the fix removed, so it now hands one explicit instant
+> to all three versions and constructs the tie instead of hoping for it.
+>
+> Left over, reported not fixed: the three listing reads that join on
+> `max(valid_from)` return an identity **twice** under the same tie. Reproduction
+> in the report addendum.
+>
+> The note below covers stages 1–6 and is left as it was written.
 
 > **Done 2026-08-11.** Six commits, one per stage, `4a30cde` → `2a2cd82`:
 > migration 005 · the principal carried to the write · `et.pe.provenance` ·
