@@ -62,6 +62,10 @@
                             :login-error nil
                             :auth-token nil
                             :notification nil
+                            ;; Which reading of the selected identity's text is on
+                            ;; screen — :edit, :view, or :provenance. One tab row
+                            ;; over one field, so this is the whole answer and
+                            ;; there is no second flag saying the panel is open.
                             :text-editor-mode :edit
                             ;; Who wrote which lines of the selected identity's
                             ;; text: {:legend :ranges :versions} as the guarded
@@ -69,7 +73,6 @@
                             ;; been asked for. Only ever fetched for a persona the
                             ;; logged-in account holds — see own-persona?
                             :provenance nil
-                            :showing-provenance? false
                             :url-edit-mode false}))
 
 (def api-base "")
@@ -277,10 +280,10 @@
                       (some #(= (:id %) (:id current-user)) (:personas account)))))))
 
 (defn fetch-provenance
-  "Load the provenance of one identity into :provenance. Silent on failure and
-   the panel closes: the answer is the account's own, so a 401 or a 403 here
-   means the client offered a control it should not have, and the honest thing
-   on screen is nothing at all rather than an error about somebody else's
+  "Load the provenance of one identity into :provenance. Silent on failure, and
+   the field falls back to the rendered text: the answer is the account's own, so
+   a 401 or a 403 here means the client offered a tab it should not have, and the
+   honest thing on screen is the text rather than an error about somebody else's
    persona."
   [identity-id]
   (let [{:keys [current-user]} @app-state]
@@ -291,23 +294,23 @@
        :response-format :json
        :keywords? true
        :error-handler (fn [err]
-                        (swap! app-state assoc :provenance nil :showing-provenance? false)
+                        (swap! app-state assoc :provenance nil :text-editor-mode :view)
                         (js/console.error "Error fetching provenance" err))})))
 
-(defn toggle-provenance
-  "Show or hide the provenance panel for the selected identity, fetching the
-   answer the first time it is opened. Re-fetched on every open rather than
-   cached against the identity: a save writes a new version, which is exactly
-   when the answer changes, and a stale spectrum is a claim about who wrote
-   lines that are no longer there."
-  []
-  (let [{:keys [showing-provenance? selected-identity]} @app-state]
-    (if showing-provenance?
-      (swap! app-state assoc :showing-provenance? false)
-      (do
-        (swap! app-state assoc :showing-provenance? true)
-        (when selected-identity
-          (fetch-provenance (:identity selected-identity)))))))
+(defn select-text-mode
+  "Put one of the three readings of the text on screen: the editor, the rendered
+   markdown, or who wrote which lines. The tab row is the only thing that says
+   which, so this is the only thing that has to be set.
+
+   Choosing provenance fetches it, every time it is chosen rather than cached
+   against the identity: a save writes a new version, which is exactly when the
+   answer changes, and a stale spectrum is a claim about who wrote lines that are
+   no longer there."
+  [mode]
+  (let [{:keys [selected-identity]} @app-state]
+    (swap! app-state assoc :text-editor-mode mode)
+    (when (and (= mode :provenance) selected-identity)
+      (fetch-provenance (:identity selected-identity)))))
 
 (defn format-time-for-url [time-str]
   ;; Keep full (millisecond) precision: a version's valid-from can carry sub-second
@@ -467,7 +470,7 @@
 (defn select-identity
   ([identity] (select-identity identity nil))
   ([identity time-str]
-   (let [{:keys [current-user fixed-mode? fixed-time]} @app-state
+   (let [{:keys [current-user fixed-mode? fixed-time text-editor-mode]} @app-state
          ;; fixed mode keeps every identity pinned to the same time-slice
          time-str (if fixed-mode? fixed-time time-str)]
      (swap! app-state assoc
@@ -483,7 +486,10 @@
             ;; the answer is about one identity's text, so it goes with the
             ;; identity rather than lingering over the next one
             :provenance nil
-            :showing-provenance? false
+            ;; ...and neither does the tab that shows it: the next identity's
+            ;; answer has not been asked for, and may not even be the caller's to
+            ;; have. The edit/view choice does carry over.
+            :text-editor-mode (if (= :provenance text-editor-mode) :edit text-editor-mode)
             :not-found-identity nil)
      (update-url (:id current-user) (:identity identity) (can-edit?) time-str)
      (fetch-identity-history (:identity identity) time-str)
@@ -561,9 +567,9 @@
                   ;; the new version is now latest -> show its (current) relations
                   (fetch-relations identity-id)
                   ;; and it is a new version, which is precisely when who-wrote-what
-                  ;; changes — a panel left showing the previous answer would be a
+                  ;; changes — a field left showing the previous answer would be a
                   ;; claim about lines that are no longer there
-                  (when (:showing-provenance? @app-state)
+                  (when (= :provenance (:text-editor-mode @app-state))
                     (fetch-provenance identity-id)))
        :error-handler (fn [err]
                         (js/console.error "Error updating identity" err)
@@ -858,7 +864,8 @@
          :selected-identity nil
          :identity-history []
          :provenance nil
-         :showing-provenance? false)
+         ;; nobody's answer to show any more, so not the tab that shows it either
+         :text-editor-mode :edit)
   (.pushState js/history nil "" "/"))
 
 ;; ---------------------------------------------------------------------------

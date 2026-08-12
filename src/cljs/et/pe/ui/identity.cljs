@@ -9,7 +9,7 @@
                                     reorder-relation set-drag-relation
                                     set-drag-over-relation clear-relation-drag-state
                                     update-url-with-time fetch-more-recent-identities
-                                    own-persona? toggle-provenance]]
+                                    own-persona? select-text-mode]]
             ["marked" :refer [marked]]))
 
 (defn fixed-version-indicator []
@@ -63,44 +63,64 @@
               :else "Modified: ")
             (:valid-from current-entry)])]))))
 
-(defn editor-tab-switcher []
-  (let [{:keys [text-editor-mode]} @app-state]
+(defn editor-tab-switcher
+  "The row over the text field, saying which reading of the text is on screen.
+   `tabs` is [[mode label] ...] in the order they are offered rather than a fixed
+   pair: Edit is there only in edit mode and Provenance only for the account that
+   holds the persona, and the row is built from what is on offer so the corners
+   stay right however many that is. `active` is passed rather than read, because a
+   row without an Edit tab still has to show something as selected."
+  [active tabs]
+  (let [last-i (dec (count tabs))]
     [:div {:style {:display "flex" :margin-bottom "0.5rem"}}
-     [:button {:on-click #(swap! app-state assoc :text-editor-mode :edit)
-               :style {:padding "0.5rem 1rem"
-                       :cursor "pointer"
-                       :background (if (= text-editor-mode :edit) "#4CAF50" "#e0e0e0")
-                       :color (if (= text-editor-mode :edit) "white" "#333")
-                       :border "none"
-                       :border-radius "4px 0 0 4px"
-                       :font-size "0.9rem"}}
-      "Edit"]
-     [:button {:on-click #(swap! app-state assoc :text-editor-mode :view)
-               :style {:padding "0.5rem 1rem"
-                       :cursor "pointer"
-                       :background (if (= text-editor-mode :view) "#4CAF50" "#e0e0e0")
-                       :color (if (= text-editor-mode :view) "white" "#333")
-                       :border "none"
-                       :border-radius "0 4px 4px 0"
-                       :font-size "0.9rem"}}
-      "View"]]))
+     (doall
+      (map-indexed
+       (fn [i [mode label]]
+         (let [selected? (= active mode)]
+           ^{:key (name mode)}
+           [:button {:on-click #(select-text-mode mode)
+                     :style {:padding "0.5rem 1rem"
+                             :cursor "pointer"
+                             :background (if selected? "#4CAF50" "#e0e0e0")
+                             :color (if selected? "white" "#333")
+                             :border "none"
+                             :border-radius (cond
+                                              (= 0 i last-i) "4px"
+                                              (zero? i) "4px 0 0 4px"
+                                              (= i last-i) "0 4px 4px 0"
+                                              :else "0")
+                             :font-size "0.9rem"}}
+            label]))
+       tabs))]))
+
+(def ^:private text-field-style
+  "The field under the tab row, shared by the two readings that draw their own
+   frame — the editor brings CodeMirror's. Shared rather than repeated so that
+   switching tabs does not resize or recolour the box the text sits in."
+  {:width "100%"
+   :min-height "200px"
+   :padding "0.75rem"
+   :font-size "1rem"
+   :border "1px solid #ccc"
+   :border-radius "4px"
+   :background "#fafafa"
+   :overflow "auto"})
 
 (defn markdown-preview [text]
-  [:div {:style {:width "100%"
-                 :min-height "200px"
-                 :padding "0.75rem"
-                 :font-size "1rem"
-                 :border "1px solid #ccc"
-                 :border-radius "4px"
-                 :background "#fafafa"
-                 :overflow "auto"}
+  [:div {:style text-field-style
          :dangerouslySetInnerHTML (r/unsafe-html (marked (or text "")))}])
 
 ;; ---------------------------------------------------------------------------
 ;; Provenance — who wrote which lines
 ;;
+;; The third reading of the text, beside the editor and the rendered markdown:
+;; one tab row, one field, and this is what that field holds when the third tab
+;; is on. It is not a panel under the text — there is only ever one text on
+;; screen, and this one is a *different* text (see below), so showing them at
+;; once was showing two things that look like the same one.
+;;
 ;; Offered only to the account that holds the persona, and *not* rendered at all
-;; for anyone else: no greyed-out button, no empty panel. A control a visitor
+;; for anyone else: no greyed-out tab, no empty field. A control a visitor
 ;; cannot use is a statement that there is something here to be let in on, and
 ;; the whole point of the guarded read is that there is nothing to be learned
 ;; about an account's machine users from outside it.
@@ -108,21 +128,9 @@
 ;; What it draws is the text **as it stands now**, line by line, whatever the
 ;; version slider is showing: the ranges answer about the newest version, and
 ;; tinting an older text with them would attribute its lines to whoever wrote
-;; the version that displaced them. So the panel carries its own copy of the
-;; lines it is about, and says so in one line above them.
+;; the version that displaced them. So it carries its own copy of the lines it
+;; is about, and says so in one line above them.
 ;; ---------------------------------------------------------------------------
-
-(defn- provenance-toggle [showing?]
-  [:button {:on-click toggle-provenance
-            :title "Who wrote which lines of this text"
-            :style {:padding "0.5rem 1rem"
-                    :cursor "pointer"
-                    :background (if showing? "#555" "#e0e0e0")
-                    :color (if showing? "white" "#333")
-                    :border "none"
-                    :border-radius "4px"
-                    :font-size "0.9rem"}}
-   (if showing? "Hide provenance" "Show provenance")])
 
 (defn- provenance-line
   "One line of the text: its number, a bar coloured by how careful an agent
@@ -146,7 +154,8 @@
     line]])
 
 (defn provenance-panel
-  "The spectrum over the text, under the legend the server sent with it.
+  "The spectrum over the text, under the legend the server sent with it, in the
+   field the other two readings use.
 
    The legend is drawn rather than paraphrased. `1.00` and `0.00` are unreadable
    to anyone who has not read this codebase, and the words that make them
@@ -160,14 +169,14 @@
         text (:text (last identity-history))
         lines (provenance/split-lines text)
         cautions (provenance/line-cautions ranges (count lines))
-        ;; ...which is not what the editor above is showing while the slider is
-        ;; back in the history. Said out loud rather than left to be noticed: two
-        ;; texts on one screen, and only one of them is the one being attributed.
+        ;; ...which is not the version the picker is on while the slider is back
+        ;; in the history. Said out loud rather than left to be noticed: this tab
+        ;; answers about the latest text, and switching back to Edit or View while
+        ;; time-travelling shows a different one.
         time-travelling? (and (seq identity-history)
                               (< slider-value (dec (count identity-history))))]
     (when provenance
-      [:div {:style {:margin-top "1rem" :padding "1rem"
-                     :background "#fafafa" :border "1px solid #eee" :border-radius "4px"}}
+      [:div {:style text-field-style}
        [:div {:style {:font-size "0.8rem" :color "#666" :margin-bottom "0.75rem"}}
         legend]
        [:div {:style {:font-size "0.75rem" :color "#999" :margin-bottom "0.75rem"}}
@@ -177,8 +186,8 @@
              (->> versions (map :author) distinct sort (str/join ", "))
              "."
              (when time-travelling?
-               (str " You are looking at version " (inc slider-value) " of "
-                    (count identity-history) " above; this is the latest.")))]
+               (str " The picker above is on version " (inc slider-value) " of "
+                    (count identity-history) "; this is the latest.")))]
        [:div
         (doall
          (map-indexed (fn [i line]
@@ -301,33 +310,30 @@
 
 (defn identity-editor []
   (let [{:keys [selected-identity editing-name editing-text auth-user text-editor-mode
-                url-edit-mode showing-provenance?]} @app-state
+                url-edit-mode]} @app-state
         can-edit? (and (some? auth-user) url-edit-mode)
         ;; Not `can-edit?`: a machine user may write a persona and this is not for
         ;; it, and the account may be looking at its own persona without having
         ;; entered edit mode. Ownership is the question, and the server asks it
-        ;; again — this only decides whether to offer the control at all.
-        own? (own-persona?)]
+        ;; again — this only decides whether to offer the tab at all.
+        own? (own-persona?)
+        provenance-tab (when own? [[:provenance "Provenance"]])]
     (when selected-identity
       [:div {:style {:padding "2rem"
                      :max-width "800px"
                      :margin "0 auto"}}
-       (when (or can-edit? own?)
+       (when can-edit?
          [:div {:style {:display "flex"
                         :justify-content "flex-end"
-                        :gap "0.5rem"
                         :margin-bottom "1rem"}}
-          (when own?
-            [provenance-toggle showing-provenance?])
-          (when can-edit?
-            [:button {:on-click #(update-identity (:identity selected-identity) editing-name editing-text)
-                      :style {:padding "0.5rem 1rem"
-                              :cursor "pointer"
-                              :background "#4CAF50"
-                              :color "white"
-                              :border "none"
-                              :border-radius "4px"}}
-             "Save"])])
+          [:button {:on-click #(update-identity (:identity selected-identity) editing-name editing-text)
+                    :style {:padding "0.5rem 1rem"
+                            :cursor "pointer"
+                            :background "#4CAF50"
+                            :color "white"
+                            :border "none"
+                            :border-radius "4px"}}
+           "Save"]])
        [time-slider]
        [fixed-version-indicator]
        (if can-edit?
@@ -343,15 +349,20 @@
                            :border "1px solid #ccc"
                            :border-radius "4px"
                            :margin-bottom "0.5rem"}}]
-          [editor-tab-switcher]
-          (if (= text-editor-mode :edit)
+          [editor-tab-switcher text-editor-mode
+           (concat [[:edit "Edit"] [:view "View"]] provenance-tab)]
+          (case text-editor-mode
             ;; A CodeMirror with Daniel's IJKL bindings rather than a textarea.
             ;; The height and the monospace are the textarea's, so the switch to
             ;; preview and back does not move anything on the page. What is lost
             ;; is the drag handle: CodeMirror does not resize.
-            [codemirror/editor {:value editing-text
-                                :on-change #(swap! app-state assoc :editing-text %)
-                                :height "200px"}]
+            :edit [codemirror/editor {:value editing-text
+                                      :on-change #(swap! app-state assoc :editing-text %)
+                                      :height "200px"}]
+            ;; The answer is about the version that was *saved*, so an editor's
+            ;; unsaved draft is not what it is tinting. Saving refetches it
+            ;; (state/update-identity).
+            :provenance [provenance-panel]
             [markdown-preview editing-text])
           [:div {:style {:display "flex" :gap "0.5rem" :margin-top "1rem"}}
            [:button {:on-click #(swap! app-state assoc :show-add-relation-modal true)
@@ -367,13 +378,18 @@
                          :font-weight "bold"
                          :margin-bottom "0.5rem"}}
            editing-name]
-          [:div {:style {:font-size "1rem"}
-                 :dangerouslySetInnerHTML (r/unsafe-html (marked (or editing-text "")))}]])
-       ;; Below the text in both modes, and describing the stored text in both:
-       ;; the answer is about the version that was saved, so an editor's unsaved
-       ;; draft is not what it is tinting. Saving refetches it (state/update-identity).
-       (when (and own? showing-provenance?)
-         [provenance-panel])
+          ;; Reading an identity of one's own without having entered edit mode —
+          ;; arriving by a URL with no ?edit=true. There is no Edit tab to join
+          ;; here, and the row is worth having for the one tab that is left:
+          ;; provenance was reachable from this state before and stays reachable,
+          ;; rather than quietly becoming an edit-mode-only answer.
+          (when own?
+            [editor-tab-switcher (if (= :provenance text-editor-mode) :provenance :view)
+             (concat [[:view "View"]] provenance-tab)])
+          (if (and own? (= :provenance text-editor-mode))
+            [provenance-panel]
+            [:div {:style {:font-size "1rem"}
+                   :dangerouslySetInnerHTML (r/unsafe-html (marked (or editing-text "")))}])])
        [relations-list]])))
 
 (defn main-tab []
