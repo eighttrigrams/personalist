@@ -9,7 +9,9 @@
   wrong, which is why they are named rather than inlined into the component.
 
   Follows `et.cb.ui.provenance` in cookbook, which does the same job for a
-  Recipe's body."
+  Recipe's body — down to the two ends of the scale and the colour space they are
+  mixed in, though cookbook keeps them in CSS custom properties because it has
+  two themes to answer for and this app has one."
   (:require [clojure.string :as str]))
 
 (defn split-lines
@@ -46,18 +48,34 @@
                         ranges)]
     (mapv #(get by-line (inc %)) (range line-count))))
 
+(def ^:private human-end
+  "The hand-written end of the scale. Cookbook's `--provenance-human`, kept to the
+  same value on purpose: one spectrum means one thing across the suite, and a
+  reader who has learnt it on a Recipe should not have to learn it again here."
+  "#1d6fd4")
+
+(def ^:private agent-end
+  "The machine-written end. Cookbook's `--provenance-agent`."
+  "#d1344b")
+
 (defn tint
   "The colour of a line's marker, from its caution.
 
-  Green at `1.0` — the app's own accent, the colour every affirmative control
-  here already wears — through to a flat grey at `0.0`. Grey rather than a
-  second hue on purpose: this is one spectrum with two ends and not two
-  categories, and a red end would read as a warning about the *agent's* lines
-  when what it means is that they are the free ones.
+  Blue at `1.0` for the person's own writing, red at `0.0` for a machine user's,
+  and a real mix in between. The ends are cookbook's, and so is the reading: red
+  is not a warning about the line, it says the provenance is a machine's — which
+  is the thing this app weighs, and the same line is the *free* one to rewrite.
+
+  **`oklch` and not `oklab` or `srgb`**, which is cookbook's finding and worth
+  keeping in both places: oklch carries the hue round the wheel and keeps the
+  chroma up, where the other two cut straight across and lose it — the midpoint
+  of this blue and this red comes out a pale grey, so a half-and-half stretch
+  would read as fainter than both of the ends it sits between instead of as a
+  purple at the same strength.
 
   Nil is not a point on the spectrum — it is a line the answer says nothing
   about — so it gets neither end, and the caller draws it hollow."
   [caution]
   (when (number? caution)
     (let [pct (js/Math.round (* 100 caution))]
-      (str "color-mix(in srgb, #4CAF50 " pct "%, #c9c9c9)"))))
+      (str "color-mix(in oklch, " human-end " " pct "%, " agent-end ")"))))
