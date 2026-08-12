@@ -20,4 +20,5 @@ config.edn.*
 .editor-layouts.json
 volume-backup.*.tar.gz
 logs
+plans
 PLAN.md
