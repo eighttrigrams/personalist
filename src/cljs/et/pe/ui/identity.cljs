@@ -5,6 +5,9 @@
             [et.pe.ui.provenance :as provenance]
             [et.pe.ui.state :refer [app-state update-identity
                                     fetch-relations delete-relation select-identity
+                                    effective-relations relations-reordered?
+                                    reorder-relation set-drag-relation
+                                    set-drag-over-relation clear-relation-drag-state
                                     update-url-with-time fetch-more-recent-identities
                                     own-persona? toggle-provenance]]
             ["marked" :refer [marked]]))
@@ -182,48 +185,118 @@
                         ^{:key i} [provenance-line (inc i) line (nth cautions i nil)])
                       lines))]])))
 
-(defn relations-list []
-  (let [{:keys [relations auth-user url-edit-mode identity-history slider-value
-                pending-relation-adds pending-relation-removes]} @app-state
-        edit? (and (some? auth-user) url-edit-mode)
-        current-entry (get identity-history slider-value)
-        current-time (:valid-from current-entry)
-        ;; in edit mode the list previews the not-yet-saved state
-        effective (if edit?
-                    (concat (remove #(contains? pending-relation-removes (:id %)) relations)
-                            pending-relation-adds)
-                    relations)]
-    [:div {:style {:margin-top "1.5rem" :padding-top "1rem" :border-top "1px solid #eee"}}
-     [:h4 {:style {:margin 0 :margin-bottom "1rem"}} "Related Identities"]
-     (if (seq effective)
-       [:ul {:style {:list-style "none" :padding 0 :margin 0}}
-        (for [rel effective]
-          ^{:key (:id rel)}
-          [:li {:style {:padding "0.5rem"
+;; ---------------------------------------------------------------------------
+;; Related Identities — and their order, which is meant
+;;
+;; The list is ranked: it is the persona's view of which relations matter more,
+;; and in edit mode it can be dragged into another one. A drag stages the new
+;; ranking exactly as adding and removing stage theirs — nothing is written until
+;; Save makes the next version, and leaving the page discards it.
+;;
+;; The mechanics are tracker's (et.tr.ui.components.drag-drop): plain HTML5 drag
+;; events, and which half of the row the pointer is in decides whether the drop
+;; lands before or after it.
+;; ---------------------------------------------------------------------------
+
+(defn- drop-position
+  "Whether the pointer sits in the upper or the lower half of the row it is over,
+   which is what decides where a drop lands."
+  [e]
+  (let [rect (.getBoundingClientRect (.-currentTarget e))
+        mid-y (+ (.-top rect) (/ (.-height rect) 2))]
+    (if (< (.-clientY e) mid-y) "before" "after")))
+
+(defn- drag-attrs
+  "What makes one row a drag source and a drop target. Only ever mixed in when
+   the view is editable — outside edit mode there is nothing a drag could stage."
+  [rel]
+  {:draggable true
+   :on-drag-start (fn [e]
+                    ;; Firefox starts no drag at all without payload on the
+                    ;; transfer; the row's identity is the obvious thing to put
+                    ;; there, though the reorder reads it off the state atom.
+                    (.setData (.-dataTransfer e) "text/plain" (:id rel))
+                    (set-drag-relation (:id rel)))
+   :on-drag-end (fn [_] (clear-relation-drag-state))
+   :on-drag-over (fn [e]
+                   ;; a dragover that is not prevented is a refusal to be a drop
+                   ;; target, and then no drop event ever arrives
+                   (.preventDefault e)
+                   (set-drag-over-relation (:id rel) (drop-position e)))
+   :on-drag-leave (fn [_]
+                    (when (= (:id rel) (:id (:drag-over-relation @app-state)))
+                      (set-drag-over-relation nil nil)))
+   :on-drop (fn [e]
+              (.preventDefault e)
+              (reorder-relation (:drag-relation @app-state) (:id rel) (drop-position e)))})
+
+(defn- relation-row [rel {:keys [edit? current-time dragging? drop-side]}]
+  [:li (cond-> {:style {:padding "0.5rem"
                         :background (if (:pending rel) "#fff8e1" "#f5f5f5")
                         :border (if (:pending rel) "1px dashed #ffb300" "1px solid transparent")
                         :border-radius "4px"
                         :margin-bottom "0.5rem"
                         :display "flex"
                         :justify-content "space-between"
-                        :align-items "center"}}
-           [:span {:on-click (fn []
-                               (select-identity {:identity (:target rel) :name (:target-name rel)} current-time))
-                   :style {:cursor "pointer"}}
-            [:span (or (:target-name rel) (name (:target rel)))]
-            (when (:pending rel)
-              [:span {:style {:margin-left "0.5rem" :font-size "0.75rem" :color "#b28704" :font-style "italic"}}
-               "unsaved"])]
-           (when edit?
-             [:button {:on-click #(delete-relation (:id rel))
-                       :style {:padding "0.25rem 0.5rem"
-                               :cursor "pointer"
-                               :background "#ff5252"
-                               :color "white"
-                               :border "none"
-                               :border-radius "4px"
-                               :font-size "0.8rem"}}
-              "X"])])]
+                        :align-items "center"
+                        ;; the drop line is drawn as an inset shadow rather than a
+                        ;; border: the row already has a border, and a second one
+                        ;; would move everything below it by two pixels
+                        :box-shadow (case drop-side
+                                      "before" "inset 0 2px 0 0 #2196F3"
+                                      "after" "inset 0 -2px 0 0 #2196F3"
+                                      nil)
+                        :opacity (if dragging? 0.4 1)}}
+         edit? (merge (drag-attrs rel)))
+   [:span {:style {:display "flex" :align-items "center" :gap "0.5rem"}}
+    (when edit?
+      [:span {:title "Drag to reorder"
+              :style {:cursor "grab" :color "#bbb" :user-select "none" :font-size "0.9rem"}}
+       "⠇"])
+    [:span {:on-click (fn []
+                        (select-identity {:identity (:target rel) :name (:target-name rel)} current-time))
+            :style {:cursor "pointer"}}
+     [:span (or (:target-name rel) (name (:target rel)))]
+     (when (:pending rel)
+       [:span {:style {:margin-left "0.5rem" :font-size "0.75rem" :color "#b28704" :font-style "italic"}}
+        "unsaved"])]]
+   (when edit?
+     [:button {:on-click #(delete-relation (:id rel))
+               :style {:padding "0.25rem 0.5rem"
+                       :cursor "pointer"
+                       :background "#ff5252"
+                       :color "white"
+                       :border "none"
+                       :border-radius "4px"
+                       :font-size "0.8rem"}}
+      "X"])])
+
+(defn relations-list []
+  (let [{:keys [relations auth-user url-edit-mode identity-history slider-value
+                drag-relation drag-over-relation] :as state} @app-state
+        edit? (and (some? auth-user) url-edit-mode)
+        current-entry (get identity-history slider-value)
+        current-time (:valid-from current-entry)
+        ;; in edit mode the list previews the not-yet-saved state, ranking included
+        effective (if edit? (effective-relations state) relations)]
+    [:div {:style {:margin-top "1.5rem" :padding-top "1rem" :border-top "1px solid #eee"}}
+     [:div {:style {:display "flex" :align-items "baseline" :gap "0.5rem" :margin-bottom "1rem"}}
+      [:h4 {:style {:margin 0}} "Related Identities"]
+      (when (and edit? (relations-reordered? state))
+        [:span {:style {:font-size "0.75rem" :color "#b28704" :font-style "italic"}}
+         "new order unsaved"])]
+     (if (seq effective)
+       [:ul {:style {:list-style "none" :padding 0 :margin 0}}
+        (for [rel effective]
+          ^{:key (:id rel)}
+          [relation-row rel {:edit? edit?
+                             :current-time current-time
+                             :dragging? (= drag-relation (:id rel))
+                             ;; not on the row being dragged: a line under the
+                             ;; pointer's own row would point at itself
+                             :drop-side (when (and (not= drag-relation (:id rel))
+                                                   (= (:id drag-over-relation) (:id rel)))
+                                          (:position drag-over-relation))}])]
        [:p {:style {:color "#666" :font-style "italic" :margin 0}} "No Relations for this Identity at this point in time."])]))
 
 (defn identity-editor []

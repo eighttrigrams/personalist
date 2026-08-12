@@ -30,6 +30,16 @@
                             :relations []
                             :pending-relation-adds []
                             :pending-relation-removes #{}
+                            ;; The ranking the user has dragged the relations
+                            ;; into, as relation ids, or empty while they have
+                            ;; not dragged at all — which is not the same thing
+                            ;; as the default order, and only the first is
+                            ;; allowed to reach the server. See reorder-relation.
+                            :pending-relation-order []
+                            ;; the relation being dragged, and the one the pointer
+                            ;; is currently over, both by relation id
+                            :drag-relation nil
+                            :drag-over-relation nil
                             :show-add-relation-modal false
                             :show-search-modal false
                             :show-add-identity-modal false
@@ -467,6 +477,9 @@
             :relations []
             :pending-relation-adds []
             :pending-relation-removes #{}
+            :pending-relation-order []
+            :drag-relation nil
+            :drag-over-relation nil
             ;; the answer is about one identity's text, so it goes with the
             ;; identity rather than lingering over the next one
             :provenance nil
@@ -515,20 +528,33 @@
                         (swap! app-state assoc :notification {:message "Failed to add identity. Please try again." :type :error})
                         (js/setTimeout #(swap! app-state assoc :notification nil) 5000))})))))
 
+(defn- relation-target
+  "The target id in a relation id of the form \"source/target\". The server's own
+   helper by the same name is the authority on that shape (ds.sqlite)."
+  [rel-id]
+  (subs rel-id (inc (.indexOf rel-id "/"))))
+
 (defn update-identity [identity-id name text]
-  (let [{:keys [current-user pending-relation-adds pending-relation-removes]} @app-state]
+  (let [{:keys [current-user pending-relation-adds pending-relation-removes
+                pending-relation-order]} @app-state]
     (PUT (str api-base "/api/personas/" (:id current-user) "/identities/" identity-id)
       {:params {:name name
                 :text text
                 ;; commit pending relation changes tagged with this version's timestamp
                 :relation_adds (mapv :target pending-relation-adds)
-                :relation_removes (vec pending-relation-removes)}
+                :relation_removes (vec pending-relation-removes)
+                ;; ...and the ranking, but only if the user actually dragged
+                ;; something: an empty list says nothing about the order, and
+                ;; that is what every plain edit has to say, or saving twice
+                ;; would flatten a ranking nobody touched.
+                :relation_order (mapv relation-target pending-relation-order)}
        :format :json
        :headers (auth-headers)
        :handler (fn [_]
                   (swap! app-state assoc
                          :pending-relation-adds []
-                         :pending-relation-removes #{})
+                         :pending-relation-removes #{}
+                         :pending-relation-order [])
                   (fetch-identities (:id current-user))
                   (fetch-recent-identities (:id current-user))
                   (fetch-identity-history identity-id)
@@ -544,9 +570,80 @@
                         (swap! app-state assoc :notification {:message "Failed to save. Please try again." :type :error})
                         (js/setTimeout #(swap! app-state assoc :notification nil) 5000))})))
 
-;; Relations are committed together with the identity version on Save, so adding /
-;; removing a relation only stages a pending change here. Navigating away (which
-;; resets the pending sets) discards unsaved changes.
+;; Relations are committed together with the identity version on Save, so adding,
+;; removing and reordering a relation only stages a pending change here.
+;; Navigating away (which resets the pending sets) discards unsaved changes.
+
+(defn- base-relations
+  "The relation set as it will stand after Save, in the order it is stored in:
+   what the server sent, minus the ones staged for removal, plus the staged
+   additions at the end — which is exactly what the server will build out of
+   :relation_adds and :relation_removes."
+  [{:keys [relations pending-relation-adds pending-relation-removes]}]
+  (vec (concat (remove #(contains? pending-relation-removes (:id %)) relations)
+               pending-relation-adds)))
+
+(defn effective-relations
+  "The relation list as the edit view previews it: the set above, ranked the way
+   the user has dragged it.
+
+   The ranking is applied the way the server applies it — the ids named in
+   :pending-relation-order first, in that order, everything else keeping its
+   place after them on a stable sort — so that what is on screen before Save is
+   what comes back after it. A relation added *after* a drag is not named by it
+   and so lands at the end, in both places."
+  [{:keys [pending-relation-order] :as state}]
+  (let [base (base-relations state)]
+    (if (empty? pending-relation-order)
+      base
+      (let [rank (into {} (map-indexed (fn [i id] [id i]) pending-relation-order))]
+        (vec (sort-by #(get rank (:id %) js/Infinity) base))))))
+
+(defn relations-reordered?
+  "Whether the previewed ranking differs from the stored one, which is what the
+   view announces as unsaved. Dragging an item and putting it back is no change
+   and is not announced as one."
+  [state]
+  (and (seq (:pending-relation-order state))
+       (not= (mapv :id (effective-relations state))
+             (mapv :id (base-relations state)))))
+
+(defn- index-of [coll x]
+  (first (keep-indexed (fn [i v] (when (= v x) i)) coll)))
+
+(defn set-drag-relation [relation-id]
+  (swap! app-state assoc :drag-relation relation-id))
+
+(defn set-drag-over-relation
+  "Which relation the pointer is over, and which half of it — the view draws the
+   line where the drop would land, and the drop itself reads the same answer off
+   its own event."
+  [relation-id position]
+  (swap! app-state assoc :drag-over-relation (when relation-id
+                                               {:id relation-id :position position})))
+
+(defn clear-relation-drag-state []
+  (swap! app-state assoc :drag-relation nil :drag-over-relation nil))
+
+(defn reorder-relation
+  "Stage a ranking: `relation-id` moves to just before or just after
+   `target-id` (`position` is \"before\" or \"after\") in the list as it is
+   currently previewed.
+
+   What is remembered is the whole resulting order rather than the one move,
+   because the list on screen is what Save has to reproduce, and the server is
+   handed that same order to sort by."
+  [relation-id target-id position]
+  (when (and relation-id target-id (not= relation-id target-id))
+    (let [ids (mapv :id (effective-relations @app-state))
+          without (vec (remove #(= % relation-id) ids))]
+      (when-let [idx (index-of without target-id)]
+        (let [at (if (= position "after") (inc idx) idx)]
+          (swap! app-state assoc
+                 :pending-relation-order (vec (concat (subvec without 0 at)
+                                                     [relation-id]
+                                                     (subvec without at))))))))
+  (clear-relation-drag-state))
 
 (defn add-relation [target-id target-name]
   (let [{:keys [selected-identity relations pending-relation-adds pending-relation-removes]} @app-state
