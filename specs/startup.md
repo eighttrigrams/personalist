@@ -272,6 +272,86 @@ along on `GET /api/recipes/:id` for the same reason and rhizome's REST
 - In dev with `:dangerously-skip-logins?` every caller counts as admin, so
   every caller is served it — as with every other guarded read in that mode.
 
+## Private Personas
+
+Since migration `006-private-personas` a persona may be **private**. Until then
+a persona was one thing — a public address — and every `GET` under
+`/api/personas/:name/...` was unauthenticated by design, because personalist
+serves what a visitor of personalist.org sees. A private persona is where that
+stops being true of one of them.
+
+**Private means unreadable, not merely unlisted.** It is absent from
+`GET /api/personas` *and* its identities, history, relations, search and single
+reads answer exactly as an id nobody has ever used does. An index a persona is
+missing from while its address still serves anyone who guesses it would be a
+promise this app does not keep.
+
+**404, never 403, and the same 404 an unknown id gets** — body and status both.
+The existence of a private persona is part of what is private; a 403 would
+confirm it and let a stranger map an account by probing ids. `owned-machine-user`
+already draws that line for machine user names. This is also why the guarded
+`/provenance` route now asks *does this persona exist* before it asks *who are
+you*: it used to answer 401 for an unknown persona, which would have made 404
+there mean "private" and nothing else.
+
+Who may read one:
+
+- the **account that holds it**
+- **admin**, by the authority that lets Settings edit another account's persona
+- a **machine user granted it** — the grant is the entitlement, as it is for
+  writing and for the riding provenance. It would be a strange grant that let an
+  agent write a persona it cannot fetch. A *sibling* machine user of the same
+  account, granted only the public personas, is told nothing.
+
+Nothing about **writing** changes. `wrap-auth` already answers "may you write
+this persona?" and a private one is written by exactly the people who could write
+it before — and is still refused with a 403 rather than a 404, because being
+allowed to write is a different question from being allowed to know it is there.
+
+- The rule is **one middleware**, `wrap-private-personas`, not a line in each
+  handler: seven read routes hang under `/api/personas/:name` and the eighth
+  would have to remember. It is threaded *inside* `wrap-params`, unlike
+  `wrap-auth`, because in dev the acting account is named by `?persona=`.
+- **It engages in dev too**, which `wrap-auth` does not.
+  `:dangerously-skip-logins?` skips *logins* — it says no password is needed to
+  act as somebody, not that everybody is everybody — and privacy is the feature
+  itself rather than a credential check. A feature switched off on the owner's
+  own laptop is one he can never look at. That mode still names an actor, so
+  `?persona=<id>` and `?persona=admin` are how a dev caller says who is asking.
+  In that mode it is a **demonstration rather than a protection**, and it cannot
+  be otherwise: nothing authenticates there, so naming the private persona itself
+  in `?persona=` acts as its account and opens it — exactly as anyone can already
+  write any persona there. It is off in prod by `ensure-app-options`, which is
+  where the rule is a rule.
+- **`GET /api/personas` is the one thing that still bends in dev**, where it
+  lists every persona, private ones included. In that mode the list *is* the
+  login screen — the auth modal offers it and clicking a row is how you become
+  somebody — so filtering it would take away a way in rather than protect a
+  secret, and an account whose only persona is private could not be logged into
+  at all. The handler already bent that way for the same reason: it prepends an
+  `:admin` row so the switcher can offer it. The rows carry `private` either way,
+  and the UI badges them.
+- The **client now carries its credential on every persona-scoped read**, not
+  only on the three that ask about an account. Without it the owner's own browser
+  would be told his own persona does not exist.
+- A private persona's **id is still spent**. It is an address whether or not it
+  answers, and `GET /api/generate-id` handing it out again would leak its
+  existence to whoever asked next.
+- `POST /api/personas` takes `:private`, defaulting to false — what every persona
+  was before 006 — so one meant to be private is private from its first instant
+  rather than public for as long as it takes to toggle it. `PUT
+  /api/personas/:name` takes it too, and **a key absent from the body is left
+  alone**: a plain rename cannot publish a persona by omission.
+- Publishing and hiding are the same button and neither is confirmed by hand,
+  unlike removing a persona. Hiding destroys nothing and publishing is undone by
+  pressing it again; what the hand-typed confirmation guards is the step there is
+  no way back from.
+
+The rollback of `006` **publishes every private persona** — there is one column
+holding the fact, so dropping it cannot mean anything else. Unlike `005`, whose
+rollback loses a record, this one discloses what somebody chose to keep to
+themselves. Make them public by hand first if a rollback is really what you want.
+
 ## Seeding
 
 When `pre-seed?` is `true` in `config.edn`:
