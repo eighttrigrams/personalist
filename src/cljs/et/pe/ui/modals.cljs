@@ -23,6 +23,17 @@
 ;; window" is not a thing to make modality depend on. The declaration stays on
 ;; the sheet anyway: when it *is* the scroller, it should keep the overscroll at
 ;; its own ends too.
+;;
+;; **`overflow: hidden` on the root, and nothing else.** The document stops being
+;; scrollable and keeps the position it was at. The first version of this took the
+;; body out of flow and offset it by the scroll position, on the belief that hiding
+;; the overflow forces a scroller back to the top; that belief was wrong and the
+;; measurement behind it was bad — the test harness had scrolled the page to 0
+;; before the lock ever ran (Playwright's `click()` scrolls its target into view,
+;; and the button that opens a modal is up in the header). Cookbook is where it
+;; showed: the same trick there put an html element with no in-flow content
+;; underneath a surface, which stops the body's background reaching the canvas, and
+;; the band above that app's overlay went white.
 ;; ---------------------------------------------------------------------------
 
 ;; How many sheets are up. Nothing forbids two — the flags that open modals are
@@ -30,49 +41,21 @@
 ;; last, rather than by whichever closes first.
 (defonce ^:private open-sheets (atom 0))
 
-;; Where the page was when it was locked, to put it back there afterwards.
-(defonce ^:private locked-at (atom 0))
-
 (defn- lock-page! []
   (when (= 1 (swap! open-sheets inc))
-    (let [y (.-scrollY js/window)
-          style (.. js/document -body -style)
+    (let [style (.. js/document -documentElement -style)
           ;; What the scrollbar was taking, paid back as padding so the page does
           ;; not shift sideways underneath as the modal opens.
           gap (- (.-innerWidth js/window)
                  (.. js/document -documentElement -clientWidth))]
-      (reset! locked-at y)
-      ;; **Taken out of flow and offset by the scroll position**, rather than
-      ;; merely `overflow: hidden`. Hiding the overflow does lock it — measured,
-      ;; the wheel stops reaching the page — but a scroller whose overflow turns
-      ;; hidden is forced back to the top, so opening a modal threw the page to
-      ;; the top and closing it left it there. That is a worse thing than the bug
-      ;; being fixed. With no in-flow content the document has nothing to scroll,
-      ;; and `top` keeps it looking exactly where it was.
       (set! (.-paddingRight style) (str gap "px"))
-      (set! (.-position style) "fixed")
-      (set! (.-top style) (str "-" y "px"))
-      (set! (.-left style) "0")
-      (set! (.-right style) "0"))))
+      (set! (.-overflow style) "hidden"))))
 
 (defn- unlock-page! []
   (when (zero? (swap! open-sheets dec))
-    (let [style (.. js/document -body -style)]
-      (set! (.-position style) "")
-      (set! (.-top style) "")
-      (set! (.-left style) "")
-      (set! (.-right style) "")
-      (set! (.-paddingRight style) "")
-      ;; The offset was standing in for the scroll; give it back as scroll — but
-      ;; not before the document has its scroll range back. Setting the styles
-      ;; above does not reflow on its own, and a `scrollTo` against the collapsed
-      ;; range is clamped to 0, which lands the page at the top: exactly the
-      ;; behaviour this branch exists to avoid. Reading a layout property is what
-      ;; forces the reflow, so the range is read and then used to clamp, rather
-      ;; than read and thrown away where a compiler might drop it.
-      (let [range (- (.. js/document -documentElement -scrollHeight)
-                     (.-innerHeight js/window))]
-        (.scrollTo js/window 0 (min @locked-at (max range 0)))))))
+    (let [style (.. js/document -documentElement -style)]
+      (set! (.-overflow style) "")
+      (set! (.-paddingRight style) ""))))
 
 (def ^:private sheet-style
   "The dim sheet. Also its own scroll container, which is what lets a modal
