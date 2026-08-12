@@ -1,32 +1,156 @@
 (ns et.pe.ui.modals
-  (:require [et.pe.ui.codemirror :as codemirror]
+  (:require [reagent.core :as r]
+            [et.pe.ui.codemirror :as codemirror]
             [et.pe.ui.state :refer [app-state select-persona try-login
                                     attempt-login
                                     search-identities select-identity
                                     already-related? offerable-as-relation?
                                     add-relation add-identity]]))
 
+;; ---------------------------------------------------------------------------
+;; The sheet every modal sits on
+;;
+;; Six modals had this same block of inline style copied into them, and with it
+;; the same defect: the sheet covers the page, so no *click* can reach what is
+;; behind it, but a **wheel** over the sheet scrolled the page behind a dialog
+;; that is supposed to be modal. Fixed once here rather than six times.
+;;
+;; The fix is the page lock below and not `overscroll-behavior` on the sheet.
+;; That was tried first, being pure CSS, and measured: the page still scrolled
+;; its full 247px under the modal. Containment only binds a scroll container
+;; that can actually scroll, so a sheet whose content fits is skipped and the
+;; wheel goes to the document — and "the sheet happens to be taller than the
+;; window" is not a thing to make modality depend on. The declaration stays on
+;; the sheet anyway: when it *is* the scroller, it should keep the overscroll at
+;; its own ends too.
+;; ---------------------------------------------------------------------------
+
+;; How many sheets are up. Nothing forbids two — the flags that open modals are
+;; independent — so the page is locked by the first and handed back only by the
+;; last, rather than by whichever closes first.
+(defonce ^:private open-sheets (atom 0))
+
+;; Where the page was when it was locked, to put it back there afterwards.
+(defonce ^:private locked-at (atom 0))
+
+(defn- lock-page! []
+  (when (= 1 (swap! open-sheets inc))
+    (let [y (.-scrollY js/window)
+          style (.. js/document -body -style)
+          ;; What the scrollbar was taking, paid back as padding so the page does
+          ;; not shift sideways underneath as the modal opens.
+          gap (- (.-innerWidth js/window)
+                 (.. js/document -documentElement -clientWidth))]
+      (reset! locked-at y)
+      ;; **Taken out of flow and offset by the scroll position**, rather than
+      ;; merely `overflow: hidden`. Hiding the overflow does lock it — measured,
+      ;; the wheel stops reaching the page — but a scroller whose overflow turns
+      ;; hidden is forced back to the top, so opening a modal threw the page to
+      ;; the top and closing it left it there. That is a worse thing than the bug
+      ;; being fixed. With no in-flow content the document has nothing to scroll,
+      ;; and `top` keeps it looking exactly where it was.
+      (set! (.-paddingRight style) (str gap "px"))
+      (set! (.-position style) "fixed")
+      (set! (.-top style) (str "-" y "px"))
+      (set! (.-left style) "0")
+      (set! (.-right style) "0"))))
+
+(defn- unlock-page! []
+  (when (zero? (swap! open-sheets dec))
+    (let [style (.. js/document -body -style)]
+      (set! (.-position style) "")
+      (set! (.-top style) "")
+      (set! (.-left style) "")
+      (set! (.-right style) "")
+      (set! (.-paddingRight style) "")
+      ;; The offset was standing in for the scroll; give it back as scroll — but
+      ;; not before the document has its scroll range back. Setting the styles
+      ;; above does not reflow on its own, and a `scrollTo` against the collapsed
+      ;; range is clamped to 0, which lands the page at the top: exactly the
+      ;; behaviour this branch exists to avoid. Reading a layout property is what
+      ;; forces the reflow, so the range is read and then used to clamp, rather
+      ;; than read and thrown away where a compiler might drop it.
+      (let [range (- (.. js/document -documentElement -scrollHeight)
+                     (.-innerHeight js/window))]
+        (.scrollTo js/window 0 (min @locked-at (max range 0)))))))
+
+(def ^:private sheet-style
+  "The dim sheet. Also its own scroll container, which is what lets a modal
+   taller than a short window be scrolled inside the sheet instead of running off
+   the top of it."
+  {:position "fixed"
+   :top 0
+   :left 0
+   :right 0
+   :bottom 0
+   :background "rgba(0,0,0,0.5)"
+   :display "flex"
+   :justify-content "center"
+   :z-index 1000
+   :padding "2rem"
+   :box-sizing "border-box"
+   :overflow-y "auto"
+   :overscroll-behavior "contain"})
+
+(defn- focus-quietly
+  "Focus a field on mount **without scrolling to it**, as `:ref`.
+
+   `:auto-focus` cannot be used inside a sheet: the browser reveals the focused
+   field by scrolling, and a field in a fixed sheet is already in view, so what
+   moves instead is the page behind — it jumps to the top as the modal opens. It
+   was doing that before the page lock went in, and with the lock the sheet then
+   holds the jumped-to position for as long as it is up, which is how the lock
+   came to be blamed for it.
+
+   A named function rather than an inline one so its identity is stable across
+   renders, or React would detach and re-attach the ref — and so re-focus — on
+   every keystroke."
+  [^js el]
+  (when (and el (not= el (.-activeElement js/document)))
+    (.focus el #js {:preventScroll true})))
+
+(def ^:private box-style
+  "The white box. Centred by `margin: auto` rather than by the sheet's
+   `align-items: center`: a centred flex child that grows taller than its
+   container overflows in both directions and its top cannot be scrolled back
+   to, which is the one thing a modal holding an editor must not do."
+  {:background "white"
+   :padding "2rem"
+   :border-radius "8px"
+   :margin "auto"})
+
+(def ^:private overlay
+  "A modal: the sheet, and `children` in the box on it. While it is mounted the
+   page behind is locked, so the only things that reach the background are the
+   modal's own buttons.
+
+   `:on-dismiss` is what a click on the *sheet* does. Leaving it out is a
+   decision and not an oversight — a modal that holds something you are writing
+   is left by its own buttons, so that a click landing beside it cannot take the
+   draft with it. Clicks inside the box never reach the sheet either way.
+
+   A `def` and not a `defn`: `r/create-class` has to be evaluated once, or every
+   render would hand reagent a brand-new class, and a remounted sheet would
+   re-lock a page it never unlocked and take the editor's caret with it."
+  (r/create-class
+   {:display-name "modal-sheet"
+    :component-did-mount (fn [_] (lock-page!))
+    :component-will-unmount (fn [_] (unlock-page!))
+    :reagent-render
+    (fn [{:keys [on-dismiss box]} & children]
+      [:div (cond-> {:style sheet-style}
+              on-dismiss (assoc :on-click on-dismiss))
+       (into [:div {:style (merge box-style box)
+                    :on-click #(.stopPropagation %)}]
+             children)])}))
+
 (defn login-modal []
   (let [{:keys [personas show-login-modal]} @app-state
         explorable-personas (remove #(= (:id %) "admin") personas)]
     (when show-login-modal
-      [:div {:style {:position "fixed"
-                     :top 0
-                     :left 0
-                     :right 0
-                     :bottom 0
-                     :background "rgba(0,0,0,0.5)"
-                     :display "flex"
-                     :align-items "center"
-                     :justify-content "center"
-                     :z-index 1000}
-             :on-click #(swap! app-state assoc :show-login-modal false)}
-       [:div {:style {:background "white"
-                      :padding "2rem"
-                      :border-radius "8px"
-                      :min-width "300px"
-                      :max-width "400px"}
-              :on-click #(.stopPropagation %)}
+      [overlay {:on-dismiss #(swap! app-state assoc :show-login-modal false)
+                :box {:min-width "300px" :max-width "400px"}}
+       [:<>
         [:h2 {:style {:margin-top 0}} "Select Persona"]
         [:p {:style {:color "#666"}} "Choose a persona and explore their worldview:"]
         (if (seq explorable-personas)
@@ -56,23 +180,9 @@
 (defn auth-modal []
   (let [{:keys [personas show-auth-modal password-required login-email login-password login-error]} @app-state]
     (when show-auth-modal
-      [:div {:style {:position "fixed"
-                     :top 0
-                     :left 0
-                     :right 0
-                     :bottom 0
-                     :background "rgba(0,0,0,0.5)"
-                     :display "flex"
-                     :align-items "center"
-                     :justify-content "center"
-                     :z-index 1000}
-             :on-click #(swap! app-state assoc :show-auth-modal false :login-email "" :login-password "" :login-error nil)}
-       [:div {:style {:background "white"
-                      :padding "2rem"
-                      :border-radius "8px"
-                      :min-width "300px"
-                      :max-width "400px"}
-              :on-click #(.stopPropagation %)}
+      [overlay {:on-dismiss #(swap! app-state assoc :show-auth-modal false :login-email "" :login-password "" :login-error nil)
+                :box {:min-width "300px" :max-width "400px"}}
+       [:<>
         [:h2 {:style {:margin-top 0}} "Login"]
         (if password-required
           [:<>
@@ -159,31 +269,19 @@
 (defn search-modal []
   (let [{:keys [show-search-modal nav-search-query nav-search-results search-valid-at recent-identities]} @app-state]
     (when show-search-modal
-      [:div {:style {:position "fixed"
-                     :top 0
-                     :left 0
-                     :right 0
-                     :bottom 0
-                     :background "rgba(0,0,0,0.5)"
-                     :display "flex"
-                     :align-items "center"
-                     :justify-content "center"
-                     :z-index 1000}
-             :on-click #(swap! app-state assoc :show-search-modal false :nav-search-query "" :nav-search-results [] :search-valid-at nil)}
-       [:div {:style {:background "white"
-                      :padding "2rem"
-                      :border-radius "8px"
-                      :min-width "400px"
-                      :max-width "500px"
-                      :max-height "80vh"
-                      :overflow-y "auto"}
-              :on-click #(.stopPropagation %)}
+      [overlay {:on-dismiss #(swap! app-state assoc :show-search-modal false :nav-search-query "" :nav-search-results [] :search-valid-at nil)
+                :box {:min-width "400px" :max-width "500px"
+                      ;; its own scroller as well: a long result list is the
+                      ;; box's overflow, not the sheet's
+                      :max-height "80vh" :overflow-y "auto"
+                      :overscroll-behavior "contain"}}
+       [:<>
         [:h2 {:style {:margin-top 0}} "Search Identities"]
         [:div {:style {:display "flex" :gap "0.5rem" :margin-bottom "1rem"}}
          [:input {:type "text"
                   :placeholder "Search by name..."
                   :value nav-search-query
-                  :auto-focus true
+                  :ref focus-quietly
                   :on-change (fn [e]
                                (let [q (-> e .-target .-value)]
                                  (swap! app-state assoc :nav-search-query q)
@@ -258,32 +356,18 @@
                           (boolean (some #(already-related? state (:identity %))
                                          relation-search-results)))]
     (when show-add-relation-modal
-      [:div {:style {:position "fixed"
-                     :top 0
-                     :left 0
-                     :right 0
-                     :bottom 0
-                     :background "rgba(0,0,0,0.5)"
-                     :display "flex"
-                     :align-items "center"
-                     :justify-content "center"
-                     :z-index 1000}
-             :on-click #(swap! app-state assoc :show-add-relation-modal false :relation-search-query "" :relation-search-results [])}
-       [:div {:style {:background "white"
-                      :padding "2rem"
-                      :border-radius "8px"
-                      :min-width "400px"
-                      :max-width "500px"
-                      :max-height "80vh"
-                      :overflow-y "auto"}
-              :on-click #(.stopPropagation %)}
+      [overlay {:on-dismiss #(swap! app-state assoc :show-add-relation-modal false :relation-search-query "" :relation-search-results [])
+                :box {:min-width "400px" :max-width "500px"
+                      :max-height "80vh" :overflow-y "auto"
+                      :overscroll-behavior "contain"}}
+       [:<>
         [:h2 {:style {:margin-top 0}} "Add Relation"]
         [:p {:style {:color "#666" :margin-bottom "1rem"}}
          (str "Link an identity to: " (:name selected-identity))]
         [:input {:type "text"
                  :placeholder "Search by name..."
                  :value relation-search-query
-                 :auto-focus true
+                 :ref focus-quietly
                  :on-change (fn [e]
                               (let [q (-> e .-target .-value)]
                                 (swap! app-state assoc :relation-search-query q)
@@ -323,30 +407,26 @@
 (defn add-identity-modal []
   (let [{:keys [show-add-identity-modal new-identity-name new-identity-text]} @app-state]
     (when show-add-identity-modal
-      [:div {:style {:position "fixed"
-                     :top 0
-                     :left 0
-                     :right 0
-                     :bottom 0
-                     :background "rgba(0,0,0,0.5)"
-                     :display "flex"
-                     :align-items "center"
-                     :justify-content "center"
-                     :z-index 1000}
-             :on-click #(swap! app-state assoc :show-add-identity-modal false)}
-       [:div {:style {:background "white"
-                      :padding "2rem"
-                      :border-radius "8px"
-                      :min-width "400px"
-                      :max-width "500px"}
-              :on-click #(.stopPropagation %)}
+      ;; No :on-dismiss. This is the one modal you write a whole identity into,
+      ;; and a click that missed the box used to close it *without* clearing the
+      ;; draft — so the text was gone from the screen and still in the state,
+      ;; waiting to surprise the next Add. It is left by Cancel or by Create.
+      ;; Capped to the window with the sheet's padding subtracted, and its own
+      ;; scroller: the field below is a share of the viewport, so on a window too
+      ;; short to hold the whole dialog it is Cancel and Create that would go off
+      ;; the bottom edge, and they are the only way out of this one.
+      [overlay {:box {:width "min(900px, 92vw)"
+                      :max-height "calc(100vh - 4rem)"
+                      :overflow-y "auto"
+                      :overscroll-behavior "contain"}}
+       [:<>
         [:h2 {:style {:margin-top 0}} "Add Identity"]
         [:div {:style {:margin-bottom "1rem"}}
          [:label {:style {:display "block" :margin-bottom "0.5rem" :font-weight "bold"}} "Name"]
          [:input {:type "text"
                   :placeholder "Display name for this identity..."
                   :value new-identity-name
-                  :auto-focus true
+                  :ref focus-quietly
                   :on-change #(swap! app-state assoc :new-identity-name (-> % .-target .-value))
                   :style {:width "100%"
                           :padding "0.75rem"
@@ -358,10 +438,17 @@
          ;; The same editor as the identity page's, so the text you type into a
          ;; new identity behaves like the text you later edit. Not monospace here:
          ;; this textarea never was.
+         ;;
+         ;; A tall field rather than a resizable one. The textarea this replaced
+         ;; had a drag handle and CodeMirror has none, so the answer to "it is too
+         ;; small" cannot be "drag it bigger" any more — it has to be big to begin
+         ;; with, and it scrolls, which is what makes the fixed size bearable. In
+         ;; viewport units so a small window gets a field that still fits in it,
+         ;; and the sheet scrolls if even that is too tall.
          [codemirror/editor {:value new-identity-text
                              :on-change #(swap! app-state assoc :new-identity-text %)
                              :placeholder "Describe this identity..."
-                             :height "100px"
+                             :height "min(55vh, 640px)"
                              :font-family "inherit"}]]
         [:div {:style {:display "flex" :gap "1rem" :justify-content "flex-end"}}
          [:button {:on-click #(swap! app-state assoc :show-add-identity-modal false :new-identity-name "" :new-identity-text "")
@@ -384,24 +471,9 @@
 (defn beta-modal []
   (let [{:keys [show-beta-modal]} @app-state]
     (when show-beta-modal
-      [:div {:style {:position "fixed"
-                     :top 0
-                     :left 0
-                     :right 0
-                     :bottom 0
-                     :background "rgba(0,0,0,0.5)"
-                     :display "flex"
-                     :align-items "center"
-                     :justify-content "center"
-                     :z-index 1000}
-             :on-click #(swap! app-state assoc :show-beta-modal false)}
-       [:div {:style {:background "white"
-                      :padding "2rem"
-                      :border-radius "8px"
-                      :min-width "400px"
-                      :max-width "500px"
-                      :text-align "center"}
-              :on-click #(.stopPropagation %)}
+      [overlay {:on-dismiss #(swap! app-state assoc :show-beta-modal false)
+                :box {:min-width "400px" :max-width "500px" :text-align "center"}}
+       [:<>
         [:div {:style {:font-size "3rem" :margin-bottom "1rem"}} "\uD83D\uDE80"]
         [:h2 {:style {:margin-top 0 :margin-bottom "1rem"}} "Personalist Beta"]
         [:p {:style {:color "#666" :margin-bottom "1.5rem"}}
