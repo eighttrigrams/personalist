@@ -9,7 +9,7 @@
 (defn get-account-password-hash [conn account-id] (sqlite/get-account-password-hash conn account-id))
 (defn list-accounts [conn] (sqlite/list-accounts conn))
 (defn get-persona-by-id [conn id] (sqlite/get-persona-by-id conn id))
-(defn add-persona [conn account-id id persona-name] (sqlite/add-persona conn account-id id persona-name))
+(defn add-persona [conn account-id id persona-name & [opts]] (sqlite/add-persona conn account-id id persona-name opts))
 (defn update-persona [conn id updates] (sqlite/update-persona conn id updates))
 (defn delete-persona [conn id] (sqlite/delete-persona conn id))
 (defn list-personas [conn] (sqlite/list-personas conn))

@@ -392,6 +392,91 @@
         (is (= "human"
                (:author (first (q conn "SELECT author FROM identities WHERE identity_id = 'forgotten'")))))))))
 
+;; ---------------------------------------------------------------------------
+;; 006 — a persona may be private
+;;
+;; One ALTER TABLE again, so the constraint and the retrofit are the same
+;; statement. Unlike 005 there is nothing to decide about the past: every persona
+;; that exists when this runs has been a public address since the day it was
+;; made, so `public` is the only value that could be correct rather than somebody's
+;; recorded answer.
+;;
+;; The rollback is where this one differs from every migration before it. Dropping
+;; the column does not lose a record, it *discloses* one — every private persona
+;; is served to the world again. That is pinned below, because a rollback whose
+;; consequence is a disclosure should be a test somebody has to delete rather than
+;; a paragraph somebody can skip.
+;; ---------------------------------------------------------------------------
+
+(defn- through-005!
+  [conn store]
+  (through-004! conn store)
+  (run-migrations! store ["005-version-authorship"]))
+
+(deftest every-persona-that-existed-is-public
+  (with-open [conn (fresh-db "mig006-up")]
+    (let [store (ragtime-jdbc/sql-database (jdbc/with-options conn {}))]
+      (through-005! conn store)
+      (let [personas-before (q conn "SELECT id, account_id, name, sort_order FROM personas ORDER BY id")
+            identities-before (q conn "SELECT * FROM identities ORDER BY id")]
+        (is (= 4 (count personas-before)) "the fixture has personas for the migration to stamp")
+
+        (run-migrations! store ["006-private-personas"])
+
+        (testing "every address that has been served to the world stays served to it"
+          (is (= (repeat 4 0) (map :private (q conn "SELECT private FROM personas ORDER BY id")))))
+
+        (testing "and nothing else about those rows moved"
+          (is (= personas-before
+                 (q conn "SELECT id, account_id, name, sort_order FROM personas ORDER BY id"))))
+
+        (testing "identities are none of this migration's business"
+          (is (= identities-before (q conn "SELECT * FROM identities ORDER BY id"))))
+
+        (testing "the column is the only thing personas gained"
+          (is (= #{"id" "account_id" "name" "sort_order" "private"}
+                 (set (map :name (q conn "PRAGMA table_info(personas)"))))))
+
+        (testing "and it refuses a NULL — the retrofit is the constraint"
+          (is (thrown? Exception
+                       (jdbc/execute! conn [(str "INSERT INTO personas (id, account_id, name, sort_order, private)"
+                                                 " VALUES ('new-one', 1, 'New', 9, NULL)")]))))
+
+        (testing "a persona written without saying is public, which is what personas were"
+          (jdbc/execute! conn ["INSERT INTO personas (id, account_id, name, sort_order) VALUES ('unsaid', 1, 'Unsaid', 9)"])
+          (is (= 0 (:private (first (q conn "SELECT private FROM personas WHERE id = 'unsaid'"))))))
+
+        (testing "a private persona is an ordinary row otherwise — the id is spent
+                  the same way, because it is still an address"
+          (jdbc/execute! conn ["INSERT INTO personas (id, account_id, name, sort_order, private) VALUES ('hidden', 1, 'Hidden', 10, 1)"])
+          (is (= 1 (:private (first (q conn "SELECT private FROM personas WHERE id = 'hidden'")))))
+          (is (thrown? Exception
+                       (jdbc/execute! conn ["INSERT INTO personas (id, account_id, name, sort_order) VALUES ('hidden', 2, 'Collision', 0)"]))
+              "a taken id stays taken whether or not the persona holding it is visible"))))))
+
+(deftest rollback-006-publishes-every-private-persona
+  (with-open [conn (fresh-db "mig006-down")]
+    (let [store (ragtime-jdbc/sql-database (jdbc/with-options conn {}))]
+      (through-005! conn store)
+      (let [personas-before (q conn "SELECT id, account_id, name, sort_order FROM personas ORDER BY id")]
+        (run-migrations! store ["006-private-personas"])
+        (jdbc/execute! conn ["UPDATE personas SET private = 1 WHERE id = 'namlys-lasduc'"])
+
+        (rollback! store "006-private-personas")
+
+        (testing "the rows are back exactly as they were, column and all"
+          (is (= #{"id" "account_id" "name" "sort_order"}
+                 (set (map :name (q conn "PRAGMA table_info(personas)")))))
+          (is (= personas-before
+                 (q conn "SELECT id, account_id, name, sort_order FROM personas ORDER BY id"))))
+
+        (testing "and the persona somebody chose to keep to themselves is a public
+                  address again — there is one column holding that fact, so taking
+                  it away cannot mean anything else"
+          (run-migrations! store ["006-private-personas"])
+          (is (= (repeat 4 0) (map :private (q conn "SELECT private FROM personas ORDER BY id")))
+              "re-migrating stamps them public a second time rather than remembering"))))))
+
 (deftest rollback-005-takes-the-column-back-off
   (with-open [conn (fresh-db "mig005-down")]
     (let [store (ragtime-jdbc/sql-database (jdbc/with-options conn {}))]

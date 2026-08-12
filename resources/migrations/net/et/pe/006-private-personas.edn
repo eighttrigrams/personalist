@@ -1,0 +1,61 @@
+{:id "006-private-personas"
+ ;; A persona has been one thing since 003: a *public address*. `/:persona-id`
+ ;; serves anybody, and every GET under `/api/personas/:name/...` is
+ ;; unauthenticated by design — "personalist serves what a visitor of
+ ;; personalist.org sees", as server/describe-handler puts it. This column is
+ ;; where that stops being true of every persona.
+ ;;
+ ;; ONE FLAG, AND IT MEANS UNREADABLE RATHER THAN UNLISTED. An index a persona is
+ ;; missing from, still served to anyone who guesses the address, would be a
+ ;; promise this app does not keep — and this app is about provenance and trust
+ ;; before it is about anything else. So `private = 1` takes the persona out of
+ ;; the public list *and* answers its identities, history, relations and search
+ ;; with the same 404 an id nobody has ever used gets. The existence of a private
+ ;; persona is part of what is private; a 403 would confirm it and let a stranger
+ ;; map an account by probing ids.
+ ;;
+ ;; Nothing about *writing* is touched. `wrap-auth` already answers "may you
+ ;; write this persona?" and a private one is written by exactly the people who
+ ;; could write it yesterday. This is a read rule.
+ :up [;; SQLite refuses NOT NULL on an added column only when there is no
+      ;; default; with one it is legal, and the column is written into every
+      ;; existing row as it is added. So the constraint and the retrofit are one
+      ;; statement, exactly as 005's `author` was, and every persona that exists
+      ;; when this runs is stamped public.
+      ;;
+      ;; **Public is what they have been**, so unlike 005 this is not recording
+      ;; anybody's answer about the past — it is the only value that could be
+      ;; correct. Every one of these addresses has been served to the world since
+      ;; the day it was made; a migration that guessed `private` would be
+      ;; inventing a history in which they were not.
+      ;;
+      ;; **And unlike 005, the default is fine as a write path too.** A forgotten
+      ;; `author` would have been a false claim about a person, in the dangerous
+      ;; direction. A forgotten `private` says the persona is what personas were
+      ;; before this migration, and the fact is mutable: the owner flips it from
+      ;; the profile page whenever they like, which is not true of who wrote a
+      ;; line. So `ds/add-persona` takes it in a trailing opts map rather than as
+      ;; a required positional argument.
+      ;;
+      ;; No table rebuild, which is also why this is one statement. `personas`
+      ;; has a TEXT primary key and no AUTOINCREMENT, so there was no
+      ;; sqlite_sequence high-water mark to lose even in 003's rebuild, and there
+      ;; is certainly none here.
+      "ALTER TABLE personas ADD COLUMN private INTEGER NOT NULL DEFAULT 0"]
+
+ ;; The column goes and nothing else does — ALTER TABLE ... DROP COLUMN has been
+ ;; legal since SQLite 3.35 and the driver here is well past that, as 005 already
+ ;; relies on.
+ ;;
+ ;; **It publishes every private persona.** There is one column holding the fact
+ ;; and dropping it cannot mean anything else: after a rollback each of these
+ ;; addresses is served to the world again, and re-migrating afterwards stamps
+ ;; them public a second time rather than remembering what they were. That is the
+ ;; honest consequence of rolling back the only place the fact is kept, and it is
+ ;; the same shape as 005 destroying every attribution on the way down — but it
+ ;; is worse in one respect, which is worth saying plainly: 005's rollback loses
+ ;; a record, this one *discloses* what somebody chose to keep to themselves.
+ ;; Make the personas public by hand first if a rollback is really what you want,
+ ;; so that the disclosure is somebody's decision rather than a side effect.
+ :down ["ALTER TABLE personas DROP COLUMN private"]
+ :transactions false}

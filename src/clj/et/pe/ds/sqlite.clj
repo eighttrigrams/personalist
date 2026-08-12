@@ -122,10 +122,13 @@
 
 (defn get-persona-by-id
   "A persona with the account that holds it. :account-id is what the ownership
-   guard compares against a token's :account claim."
+   guard compares against a token's :account claim, and since 006 :private? is
+   what the *read* guard asks about — server/wrap-private-personas resolves the
+   persona named in a URI through here before deciding whether the caller is told
+   it exists at all."
   [conn id]
   (let [result (jdbc/execute-one! (:conn conn)
-                                  (sql/format {:select [:id :account_id :name :sort_order]
+                                  (sql/format {:select [:id :account_id :name :sort_order :private]
                                                :from [:personas]
                                                :where [:= :id (kw->str id)]})
                                   {:builder-fn rs/as-unqualified-lower-maps})]
@@ -133,7 +136,8 @@
       {:id (str->kw (:id result))
        :name (:name result)
        :account-id (:account_id result)
-       :sort-order (:sort_order result)})))
+       :sort-order (:sort_order result)
+       :private? (= 1 (:private result))})))
 
 (defn- next-sort-order
   "Where a new persona lands within its account: after the last one."
@@ -148,31 +152,59 @@
 (defn add-persona
   "Mint a persona under `account-id`. False when the id is taken — ids are unique
    across all accounts, not per account, because /:id is the public address and
-   must mean exactly one thing."
-  [conn account-id id persona-name]
-  (if (get-persona-by-id conn id)
-    false
-    (do
-      (jdbc/execute! (:conn conn)
-                     (sql/format {:insert-into :personas
-                                  :values [{:id (kw->str id)
-                                            :account_id account-id
-                                            :name (or persona-name (kw->str id))
-                                            :sort_order (next-sort-order conn account-id)}]}))
-      true)))
+   must mean exactly one thing. That stays true of a private one: the id is spent
+   either way, and a taken id that answered \"free\" would leak the private
+   persona's existence to whoever asked for it next.
+
+   `:private?` in the trailing opts **defaults to public**, which is what every
+   persona was before 006 and what the create form promises. It is an opt rather
+   than a required positional argument, unlike `author` on the writes below — a
+   forgotten author is a false claim about a person that no later edit can
+   correct, while this is a mutable fact the owner flips from the profile page.
+   Passing it at creation is still the honest way to make a private persona: it
+   is then private from its first instant rather than public for as long as it
+   takes to toggle."
+  ([conn account-id id persona-name] (add-persona conn account-id id persona-name nil))
+  ([conn account-id id persona-name {:keys [private?]}]
+   (if (get-persona-by-id conn id)
+     false
+     (do
+       (jdbc/execute! (:conn conn)
+                      (sql/format {:insert-into :personas
+                                   :values [{:id (kw->str id)
+                                             :account_id account-id
+                                             :name (or persona-name (kw->str id))
+                                             :sort_order (next-sort-order conn account-id)
+                                             :private (if private? 1 0)}]}))
+       true))))
 
 (defn update-persona
-  "Change a persona's display name. Nil when there is no such persona. The email
-   is not reachable from here any more — it belongs to the account."
-  [conn id {:keys [name]}]
-  (let [current (get-persona-by-id conn id)]
+  "Change a persona's display name, or whether it is private. Nil when there is
+   no such persona. The email is not reachable from here any more — it belongs to
+   the account.
+
+   **A key absent from `updates` is left alone, and absent is not the same as
+   false.** `:private? false` is a request to publish; no `:private?` at all says
+   nothing about it. `contains?` is what tells those apart — `(or private? ...)`
+   could not, and would silently publish a private persona on every plain rename.
+
+   An `updates` naming nothing at all is a no-op answering success, not a
+   statement: honeysql renders an empty `:set` as `UPDATE personas SET WHERE ...`,
+   which is a syntax error rather than the nothing it looks like."
+  [conn id updates]
+  (let [current (get-persona-by-id conn id)
+        changes (cond-> {}
+                  (:name updates) (assoc :name (:name updates))
+                  (contains? updates :private?)
+                  (assoc :private (if (:private? updates) 1 0)))]
     (if-not current
       nil
       (do
-        (jdbc/execute! (:conn conn)
-                       (sql/format {:update :personas
-                                    :set {:name (or name (:name current))}
-                                    :where [:= :id (kw->str id)]}))
+        (when (seq changes)
+          (jdbc/execute! (:conn conn)
+                         (sql/format {:update :personas
+                                      :set changes
+                                      :where [:= :id (kw->str id)]})))
         {:success true}))))
 
 (defn delete-persona
@@ -199,22 +231,36 @@
       true)))
 
 (defn list-personas
-  "Every persona, as an anonymous reader sees them: id and display name. No
-   email, and no hint of which personas share an account."
+  "**Every** persona: id, display name, and since 006 whether it is private. No
+   email, and no hint of which personas share an account.
+
+   Private ones are in here, and the filtering is the handler's job rather than
+   this function's — deliberately. Two of the three callers need the whole set to
+   be correct: `generate-persona-id` draws an id that must be free across all
+   accounts, and an id a private persona already holds is *not* free (handing it
+   out would leak that persona's existence to whoever asked next), while
+   `server/db-empty?` decides whether to seed and an app holding one private
+   persona is not empty. Only `list-personas-handler` wants a filtered list, and
+   what it filters to depends on who is asking, which is not a question this
+   namespace can answer."
   [conn]
   (let [results (jdbc/execute! (:conn conn)
-                               (sql/format {:select [:id :name]
+                               (sql/format {:select [:id :name :private]
                                             :from [:personas]})
                                {:builder-fn rs/as-unqualified-lower-maps})]
     (map (fn [r]
            {:id (str->kw (:id r))
-            :name (:name r)})
+            :name (:name r)
+            :private? (= 1 (:private r))})
          results)))
 
 (defn list-personas-for-account
+  "An account's own personas, in the order it holds them, private ones included
+   and flagged. Every caller of this has already proved it is that account (or
+   admin), which is why it is also the set the read guard treats as readable."
   [conn account-id]
   (let [results (jdbc/execute! (:conn conn)
-                               (sql/format {:select [:id :name :sort_order]
+                               (sql/format {:select [:id :name :sort_order :private]
                                             :from [:personas]
                                             :where [:= :account_id account-id]
                                             :order-by [[:sort_order :asc]]})
@@ -222,7 +268,8 @@
     (mapv (fn [r]
             {:id (str->kw (:id r))
              :name (:name r)
-             :sort-order (:sort_order r)})
+             :sort-order (:sort_order r)
+             :private? (= 1 (:private r))})
           results)))
 
 (defn list-accounts

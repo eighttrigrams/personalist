@@ -51,7 +51,13 @@
   Nearly every GET under /api is public by design — personalist serves what a
   visitor of personalist.org sees. Writes are guarded by wrap-auth; the three
   GETs that answer about an account rather than about the site — /api/me,
-  /api/accounts, and an identity's /provenance — guard themselves."
+  /api/accounts, and an identity's /provenance — guard themselves.
+
+  The one thing that narrows a read is the persona it is under being **private**
+  (migration 006): wrap-private-personas answers every GET beneath such a persona
+  with the same 404 an unknown id gets, unless the caller is the account holding
+  it, admin, or a machine user granted it. The routes are the same routes; what
+  they are asked about may not exist as far as the asker is concerned."
   [_req]
   {:status 200
    :body (->> describe-namespaces
@@ -71,7 +77,7 @@
 (defroutes api-routes
   (context "/api" []
     (GET "/describe" [] describe-handler)
-    (GET "/personas" [] handlers/list-personas-handler)
+    (GET "/personas" [] (handlers/list-personas-handler (prod-mode?)))
     (POST "/personas" [] (handlers/add-persona-handler (prod-mode?)))
     (PUT "/personas/:name" [_name] handlers/update-persona-handler)
     (DELETE "/personas/:name" [_name] handlers/delete-persona-handler)
@@ -194,7 +200,10 @@
    /api/accounts answer *about an account*, which is the one thing this app's
    anonymity protects, and .../provenance answers which of an account's machine
    users wrote what. Everything else under /api that a GET can reach is what a
-   visitor of personalist.org sees anyway.
+   visitor of personalist.org sees anyway — unless it sits under a **private**
+   persona, which is wrap-private-personas' question and not this one's. That
+   guard runs in dev as well as prod, because it is a feature rather than a
+   credential check; this one still engages only in prod.
 
    **The principal is handed on, under :principal.** This middleware is the only
    place in the app that knows who is writing, and it used to answer its one
@@ -225,6 +234,51 @@
          :body "{\"error\":\"Authentication required\"}"})
       (handler req))))
 
+(defn wrap-private-personas
+  "Guard reads of a **private** persona (migration 006). A GET under
+   /api/personas/:name/... whose persona is private and whose caller is not
+   entitled to it is answered exactly as an id nobody has ever used is: 404,
+   `Persona not found`. Never 403 — the existence of a private persona is part of
+   what is private, and a 403 would confirm it and let a stranger map an account
+   by probing ids.
+
+   **It is middleware and not a line in each handler.** Seven read routes hang
+   under /api/personas/:name today; the eighth would have to remember, and the
+   day it did not, a private persona would be readable through it with nothing
+   looking wrong. handlers/may-read-persona? is the whole rule and this is the
+   only place that asks it.
+
+   **Only GETs.** Writing is wrap-auth's question and its answer does not change
+   here: a private persona is written by exactly the people who could write it
+   before, and refusing them a 403 they have earned would be a different feature.
+
+   **Unlike wrap-auth, this engages in dev too**, and the reason is in
+   handlers/admin-actor?: :dangerously-skip-logins? skips *logins*, and privacy
+   is the feature rather than a credential check. A feature switched off on the
+   owner's own laptop is one he can never look at. GET /api/personas is the one
+   thing that does still bend in that mode — see list-personas-handler, where
+   the list doubles as the login screen.
+
+   **Threaded inside wrap-params**, unlike wrap-auth, because in dev the acting
+   account is named by ?persona= and that has to be parsed before this can read
+   it. It reuses persona-in-uri all the same: compojure has not bound its route
+   params at this depth either, and that helper URL-decodes exactly as compojure
+   will, so a persona whose id is another's percent-encoding cannot slip past.
+
+   It costs one persona lookup on each guarded read, which every one of those
+   handlers then does again. If that ever matters the answer is to hand the row
+   down on the request, not to move the rule."
+  [handler]
+  (fn [req]
+    (if-let [persona-id (and (= :get (:request-method req))
+                             (str/starts-with? (or (:uri req) "") "/api")
+                             (persona-in-uri req))]
+      (let [persona (ds/get-persona-by-id (handlers/ensure-conn) (keyword persona-id))]
+        (if (handlers/may-read-persona? req (prod-mode?) persona)
+          (handler req)
+          {:status 404 :body {:error "Persona not found"}}))
+      (handler req))))
+
 (defn wrap-error-handling [handler]
   (fn [request]
     (try
@@ -237,6 +291,9 @@
 
 (def base-app
   (-> app-routes
+      ;; Inside wrap-params, unlike wrap-auth: in dev the acting account is named
+      ;; by ?persona= and this has to be able to read it.
+      (wrap-private-personas)
       (wrap-params)
       (wrap-json-body {:keywords? true})
       (wrap-auth)

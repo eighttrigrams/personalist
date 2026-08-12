@@ -259,6 +259,113 @@
   {:status 401 :body {:success false :error "Authentication required"}})
 
 ;; ---------------------------------------------------------------------------
+;; Who may read a persona at all
+;;
+;; Since 006 a persona may be **private**, and private means unreadable rather
+;; than merely unlisted: it is absent from the public list *and* its identities,
+;; history, relations and search answer as though the persona did not exist. An
+;; index a persona is missing from while the address still serves anybody would
+;; be a promise this app does not keep.
+;;
+;; Everything below answers one question — may this request read this persona —
+;; and server/wrap-private-personas is the single place that asks it for the
+;; seven read routes under /api/personas/:name. Writing is untouched: wrap-auth
+;; already answers "may you write this persona?" and a private one is written by
+;; exactly the people who could write it yesterday.
+;; ---------------------------------------------------------------------------
+
+(defn- admin-actor?
+  "Whether a request *is admin's*, as opposed to admin-request?'s \"may act as
+   admin here\".
+
+   The two differ in exactly one mode and it matters in exactly one place.
+   admin-request? is blanket-true in dev with :dangerously-skip-logins?, because
+   nothing is guarded there and the admin *reads* would be pretending to a
+   protection the mode does not have. Privacy is not one of those: it is the
+   feature itself rather than a credential check, so a dev branch that made
+   everybody admin would switch it off on the owner's own laptop — the one place
+   he can look at it. That mode still names an actor (?persona=<id>, and
+   ?persona=admin for the admin screen), so there is a coherent answer to \"who
+   is asking\" in both modes, and this is it.
+
+   me-handler computed this inline before it had a name; it now shares this one."
+  [req prod-mode?]
+  (if (allow-skip-logins? prod-mode?)
+    (= "admin" (dev-persona-param req))
+    (true? (:admin (claims req)))))
+
+(defn- machine-may-write-persona?
+  "Whether this request's Bearer token is a machine user's that has been granted
+   `persona`. The same question wrap-auth asks before letting it PUT there, asked
+   again for the two things a grant also entitles it to: being told which lines
+   it may rewrite (riding-provenance), and reading a private persona at all — it
+   would be a strange grant that let an agent write a persona it cannot fetch."
+  [req persona]
+  (boolean (when-let [token (bearer-token req)]
+             (when (machine-token? token)
+               (when-let [m (machine-user-for-token token)]
+                 (ds/machine-may-write? (ensure-conn) (:id m) (:id persona)))))))
+
+(defn may-read-persona?
+  "Whether `req` may be told that `persona` exists — a row as get-persona-by-id
+   answers it. True for every public persona, which is all of them before 006 and
+   nearly all of them after.
+
+   A private one is readable by the **account that holds it**, by **admin** (the
+   same authority by which Settings edits another account's persona), and by a
+   **machine user granted it**. Nobody else, and \"nobody else\" is answered 404
+   rather than 403 — the existence of a private persona is part of what is
+   private, and a 403 would confirm it and let a stranger map an account by
+   probing ids. owned-machine-user draws that same line for machine user names.
+
+   nil `persona` — no such id — is readable, so a URI naming nothing at all falls
+   through to the handler's own 404 and one answer covers both cases."
+  [req prod-mode? persona]
+  (or (not (:private? persona))
+      (admin-actor? req prod-mode?)
+      (boolean (when-let [account (acting-account req prod-mode?)]
+                 (= account (:account-id persona))))
+      (machine-may-write-persona? req persona)))
+
+(defn- readable-persona-ids
+  "The ids of the **private** personas this request may see listed: its own
+   account's, everything when admin, a machine user's grants. Public personas are
+   not in here — list-personas-handler lets those through on their own.
+
+   A set rather than may-read-persona? per row, because that would be one
+   database round trip per persona on a list that is read on every page load. It
+   is also why ds/list-personas does not carry :account-id: which personas share
+   an account is the one thing this app's anonymity protects, so the answer is
+   assembled from the caller's own side rather than by handing every row's owner
+   to a filter."
+  [req prod-mode?]
+  (cond
+    (admin-actor? req prod-mode?) :all
+
+    (machine-token? (bearer-token req))
+    (if-let [m (machine-user-for-token (bearer-token req))]
+      (set (ds/granted-personas (ensure-conn) (:id m)))
+      #{})
+
+    :else
+    (if-let [account (acting-account req prod-mode?)]
+      (set (map :id (ds/list-personas-for-account (ensure-conn) account)))
+      #{})))
+
+(defn- persona->body
+  "A persona as it goes over the wire: id, display name, whatever ordering the
+   caller was already being told, and `private`.
+
+   The key is spelled without the `?` this codebase uses internally, because
+   serialize-response turns a keyword into its name and `\"private?\"` is not a
+   JSON key anybody wants to read. me-handler already projects
+   :can-create-personas? to :can-create for the same reason; this is that, in one
+   place, for the three reads that hand personas out."
+  [p]
+  (cond-> {:id (:id p) :name (:name p) :private (boolean (:private? p))}
+    (contains? p :sort-order) (assoc :sort-order (:sort-order p))))
+
+;; ---------------------------------------------------------------------------
 ;; The gate on every machine-user management route
 ;;
 ;; wrap-auth waves any valid token through a URI that names no persona. That is
@@ -305,20 +412,41 @@
   {:status 404 :body {:success false :error "Machine user not found"}})
 
 (defn list-personas-handler
-  "GET /api/personas — every persona as {:id :name}. This is the whole of what
-   an anonymous reader learns: that these personas exist, never who holds them
-   or which of them share a login. It used to hand out an :email per persona,
-   which is exactly what the accounts split exists to stop. Public and
-   unauthenticated, like nearly every read here. In dev with
-   :dangerously-skip-logins? an extra :admin row is prepended so the persona
-   switcher can offer it."
-  [_req]
-  (let [personas (ds/list-personas (ensure-conn))
-        personas (if (dangerously-skip-logins?)
-                   (cons {:id :admin :name "Admin"} personas)
-                   personas)]
-    {:status 200
-     :body (serialize-response personas)}))
+  "GET /api/personas — the personas the caller may read, as {:id :name :private}.
+   This is the whole of what an anonymous reader learns: that these personas
+   exist, never who holds them or which of them share a login. It used to hand
+   out an :email per persona, which is exactly what the accounts split exists to
+   stop.
+
+   Since 006 it is no longer the same list for everybody. Public personas are in
+   it for anyone; a **private** one only for the account that holds it, for admin,
+   or for a machine user granted it. `private` rides along so the UI can badge
+   the caller's own — it is only ever true on a row the caller was entitled to
+   see, so the flag itself tells a stranger nothing.
+
+   **In dev with :dangerously-skip-logins? every persona is listed, private ones
+   included.** In that mode this list *is* the login screen — the auth modal
+   offers it and clicking a row is how you become somebody — so filtering it
+   would take away a way in rather than protect a secret, and an account whose
+   only persona is private could not be logged into at all. This handler already
+   bends in that mode for exactly that reason: the extra :admin row below is
+   prepended so the switcher can offer it. The rows still carry `private`, so
+   even there the UI says which is which, and server/ensure-app-options refuses
+   to start prod with the flag set."
+  [prod-mode?]
+  (fn [req]
+    (let [all (ds/list-personas (ensure-conn))
+          mine (when-not (dangerously-skip-logins?)
+                 (readable-persona-ids req prod-mode?))
+          visible (if (or (dangerously-skip-logins?) (= :all mine))
+                    all
+                    (filter #(or (not (:private? %)) (contains? mine (:id %))) all))
+          personas (mapv persona->body visible)
+          personas (if (dangerously-skip-logins?)
+                     (into [(persona->body {:id :admin :name "Admin"})] personas)
+                     personas)]
+      {:status 200
+       :body (serialize-response personas)})))
 
 ;; Ids the auth layer special-cases and so must never become a persona row.
 ;; "admin" logs in against ADMIN_PASSWORD rather than the database, so a row by
@@ -349,7 +477,7 @@
    with a persona list has to prove it is that account's own. It answers three
    different shapes, for the three kinds of caller:
 
-   - a **human**: {:email :personas [{:id :name :sort-order}]
+   - a **human**: {:email :personas [{:id :name :sort-order :private}]
      :machine-users [{:name :can-create :personas [<granted id>...]}]} — the
      account, its personas in the order it holds them, and its machine users
      with their grants. That last list is the checkbox grid of the profile page,
@@ -368,11 +496,8 @@
    that branch exists only in that mode."
   [prod-mode?]
   (fn [req]
-    (let [dev? (allow-skip-logins? prod-mode?)
-          token (bearer-token req)
-          admin? (if dev?
-                   (= "admin" (dev-persona-param req))
-                   (true? (:admin (claims req))))]
+    (let [token (bearer-token req)
+          admin? (admin-actor? req prod-mode?)]
       (cond
         admin?
         {:status 200 :body {:admin true}}
@@ -395,7 +520,8 @@
           {:status 200
            :body (serialize-response
                   {:email (:email account)
-                   :personas (ds/list-personas-for-account (ensure-conn) (:id account))
+                   :personas (mapv persona->body
+                                   (ds/list-personas-for-account (ensure-conn) (:id account)))
                    :machine-users (mapv (fn [m]
                                           {:name (:name m)
                                            :can-create (:can-create-personas? m)
@@ -449,10 +575,17 @@
           :admin-must-name-an-account)))))
 
 (defn add-persona-handler
-  "POST /api/personas — mint a persona. Takes {:name :id? :account_id?}; :id
-   defaults to a generated urbit-style two-word name and is the public address,
-   so it must be free across *all* accounts, not merely one. The new persona
+  "POST /api/personas — mint a persona. Takes {:name :id? :account_id? :private?};
+   :id defaults to a generated urbit-style two-word name and is the address, so
+   it must be free across *all* accounts, not merely one — a private persona
+   spends its id as surely as a public one, and an id answered \"free\" that is
+   not would leak that persona's existence to whoever asked next. The new persona
    lands last in its account's order. Answers 201 {:success true :id ...}.
+
+   **:private defaults to false**, which is what every persona was before 006 and
+   what the create form promises. Passing it true here is how a persona meant to
+   be private is private from its first instant, rather than public for as long
+   as it takes to toggle it afterwards.
 
    Three callers, and since accounts may hold no personas, a fourth way in:
 
@@ -474,7 +607,7 @@
    written first could name a persona that never appeared."
   [prod-mode?]
   (fn [req]
-    (let [{:keys [id name]} (:body req)
+    (let [{:keys [id name private]} (:body req)
           target (creating-account req prod-mode?)]
       (cond
         (= :forbidden target)
@@ -501,7 +634,8 @@
             (contains? reserved-persona-ids id-kw)
             {:status 400 :body {:success false :error "Reserved persona id"}}
 
-            (not (ds/add-persona (ensure-conn) (:account-id target) id-kw name))
+            (not (ds/add-persona (ensure-conn) (:account-id target) id-kw name
+                                 {:private? (boolean private)}))
             {:status 400 :body {:success false :error "Persona already exists"}}
 
             :else
@@ -552,15 +686,32 @@
           {:status 200 :body {:success true}}))))
 
 (defn update-persona-handler
-  "PUT /api/personas/:name — change a persona's display :name, which since the
-   accounts split is the only thing a persona owns that can be edited: the email
-   and the password moved to the account. In prod mode the token's account must
-   hold :name, or be admin's — 401 without a token, 403 with another account's.
-   404 when the persona does not exist."
+  "PUT /api/personas/:name — change a persona's display :name, or whether it is
+   :private. Since the accounts split those are the only things a persona owns
+   that can be edited: the email and the password moved to the account. In prod
+   mode the token's account must hold :name, or be admin's — 401 without a token,
+   403 with another account's. 404 when the persona does not exist.
+
+   **A key absent from the body is left alone**, and absent is not the same as
+   false: `{\"private\": false}` publishes the persona, `{\"name\": \"...\"}`
+   says nothing about it. So the plain rename this route has always served cannot
+   publish a private persona by omission.
+
+   Publishing and hiding are the same route and neither is confirmed by hand,
+   unlike removing a persona. Hiding destroys nothing, and publishing something
+   that was private is undone by pressing it again — what a hand-typed
+   confirmation guards is the step there is no way back from.
+
+   A machine user may reach this on a persona it was granted, as it may every
+   other write there. It cannot reach the personas it was *not* granted, which is
+   what stops one from publishing the rest of its account."
   [req]
   (let [persona-id (str->keyword (get-in req [:params :name]))
-        {:keys [name]} (:body req)
-        result (ds/update-persona (ensure-conn) persona-id (cond-> {} name (assoc :name name)))]
+        {:keys [name private] :as body} (:body req)
+        result (ds/update-persona (ensure-conn) persona-id
+                                  (cond-> {}
+                                    name (assoc :name name)
+                                    (contains? body :private) (assoc :private? (boolean private))))]
     (if (nil? result)
       {:status 404 :body {:success false :error "Persona not found"}}
       {:status 200 :body {:success true}})))
@@ -740,16 +891,24 @@
 
 (defn list-accounts-handler
   "GET /api/accounts — every account with its :email and its :personas
-   [{:id :name :sort-order}]: the admin Settings listing, and the only read in
-   the app that ties emails to personas in bulk. Admin only, and guarded here
-   rather than in wrap-auth for the same reason as /api/me — 401 without a
+   [{:id :name :sort-order :private}]: the admin Settings listing, and the only
+   read in the app that ties emails to personas in bulk. Admin only, and guarded
+   here rather than in wrap-auth for the same reason as /api/me — 401 without a
    token, 403 with an ordinary account's. In dev with :dangerously-skip-logins?
-   it is open, like every other write in that mode."
+   it is open, like every other write in that mode.
+
+   Private personas are listed here like any other. This read is already the one
+   that sees everything, and admin is entitled to a private persona anyway
+   (may-read-persona?); hiding them from the roster would only stop admin finding
+   the persona it is allowed to open."
   [prod-mode?]
   (fn [req]
     (if-not (admin-request? req prod-mode?)
       (refuse-non-admin req)
-      {:status 200 :body (serialize-response (ds/list-accounts (ensure-conn)))})))
+      {:status 200
+       :body (serialize-response
+              (mapv #(update % :personas (partial mapv persona->body))
+                    (ds/list-accounts (ensure-conn))))})))
 
 (defn list-identities-handler
   "GET /api/personas/:name/identities — the persona's identities at their latest
@@ -805,17 +964,6 @@
     (machine-token? (bearer-token req)) :not-for-machines
     (admin-request? req prod-mode?) :admin
     :else (or (human-caller req prod-mode?) :no-account)))
-
-(defn- machine-may-write-persona?
-  "Whether this request's Bearer token is a machine user's that has been granted
-   `persona`. The same question wrap-auth asks before letting it PUT there,
-   asked again here because the grant is also what entitles it to be told which
-   lines it may rewrite."
-  [req persona]
-  (boolean (when-let [token (bearer-token req)]
-             (when (machine-token? token)
-               (when-let [m (machine-user-for-token token)]
-                 (ds/machine-may-write? (ensure-conn) (:id m) (:id persona)))))))
 
 (defn- riding-provenance
   "`{:legend :ranges}` for the single-identity read, or **nil for a caller not to
@@ -1040,42 +1188,56 @@
    `:author`, and nothing about machine users is public — which is why the
    public history read next door carries no author at all.
 
-   401 without a credential; 403 for another account's token, and 403 for a
-   machine token **even on a persona it may write**; 404 when the persona does
-   not exist or the identity has no versions under it — there is nothing to be
-   careful in, and an empty answer would be indistinguishable from a text nobody
-   has edited.
+   404 when the persona does not exist, **asked before anything about the
+   caller** so that a private persona's 404 and an unknown one's are the same
+   answer (see the body); 401 without a credential; 403 for another account's
+   token, and 403 for a machine token **even on a persona it may write**; 404
+   when the identity has no versions under it — there is nothing to be careful
+   in, and an empty answer would be indistinguishable from a text nobody has
+   edited.
 
    \"Their own personas\" needs no new ownership concept: a persona a machine
    user created belongs to the parent account already (666bd50), so
    `personas.account_id = the token's account` is the whole test."
   [prod-mode?]
   (fn [req]
-    (let [caller (provenance-caller req prod-mode?)]
-      (case caller
-        :no-account (unauthenticated)
-        :not-for-machines
-        {:status 403 :body {:success false :error "Provenance is for the account that holds the persona"}}
-
-        (let [persona-name (str->keyword (get-in req [:params :name]))
-              identity-id (str->keyword (get-in req [:params :id]))
-              persona (ds/get-persona-by-id (ensure-conn) persona-name)]
-          (cond
-            (nil? persona)
-            {:status 404 :body {:success false :error "Persona not found"}}
-
-            (not (or (= :admin caller) (= (:id caller) (:account-id persona))))
+    (let [persona-name (str->keyword (get-in req [:params :name]))
+          identity-id (str->keyword (get-in req [:params :id]))
+          persona (ds/get-persona-by-id (ensure-conn) persona-name)]
+      ;; **Does it exist is asked before who are you**, and that order is load
+      ;; bearing since 006. wrap-private-personas answers a private persona this
+      ;; same 404 for a caller not entitled to it; if this route answered an
+      ;; *unknown* persona with 401 instead, then 404 here would mean "private"
+      ;; and nothing else — an unauthenticated prober could enumerate exactly the
+      ;; personas somebody chose to keep to themselves, through the one route
+      ;; built to be careful about accounts. Asking existence first makes the two
+      ;; answers the same answer.
+      ;;
+      ;; It gives away nothing on a public persona: GET /api/personas lists those
+      ;; to anybody, so "there is no such persona" was never a secret about them.
+      ;; Body and status both, and it drops the :success false the rest of this
+      ;; handler's errors carry: the answer has to be the one the other seven
+      ;; reads under a persona give, because wrap-private-personas gives *that*
+      ;; one for a private persona and a shape that differed would be as good a
+      ;; tell as a status that did.
+      (if (nil? persona)
+        {:status 404 :body {:error "Persona not found"}}
+        (let [caller (provenance-caller req prod-mode?)]
+          (case caller
+            :no-account (unauthenticated)
+            :not-for-machines
             {:status 403 :body {:success false :error "Provenance is for the account that holds the persona"}}
 
-            :else
-            (let [history (ds/get-identity-history (ensure-conn) persona identity-id)]
-              (if (empty? history)
-                {:status 404 :body {:success false :error "Identity not found"}}
-                {:status 200
-                 :body (serialize-response
-                        {:legend provenance/legend
-                         :ranges (provenance/ranges history)
-                         :versions (mapv #(select-keys % [:valid-from :author]) history)})}))))))))
+            (if-not (or (= :admin caller) (= (:id caller) (:account-id persona)))
+              {:status 403 :body {:success false :error "Provenance is for the account that holds the persona"}}
+              (let [history (ds/get-identity-history (ensure-conn) persona identity-id)]
+                (if (empty? history)
+                  {:status 404 :body {:success false :error "Identity not found"}}
+                  {:status 200
+                   :body (serialize-response
+                          {:legend provenance/legend
+                           :ranges (provenance/ranges history)
+                           :versions (mapv #(select-keys % [:valid-from :author]) history)})})))))))))
 
 (defn list-relations-handler
   "GET /api/personas/:name/identities/:id/relations — the identity's outgoing

@@ -133,10 +133,11 @@
       (let [acc (ds/add-account conn "d@et.n" nil)]
         (ds/add-persona conn acc :one "One")
         (ds/add-persona conn acc :two "Two")
-        (let [res (handlers/list-personas-handler {})]
+        (let [res ((handlers/list-personas-handler true) {})]
           (is (= 200 (:status res)))
-          (testing "id and display name, and not one field more"
-            (is (= [{:id "one" :name "One"} {:id "two" :name "Two"}]
+          (testing "id, display name, whether it is private, and not one field more"
+            (is (= [{:id "one" :name "One" :private false}
+                    {:id "two" :name "Two" :private false}]
                    (sort-by :id (seen res)))))
           (testing "nothing anywhere in the response says these two share a login"
             (is (not (re-find #"@" (pr-str (:body res)))))))))))
@@ -154,8 +155,8 @@
           (let [res ((handlers/me-handler true) (as (create-token mine)))]
             (is (= 200 (:status res)))
             (is (= {:email "d@et.n"
-                    :personas [{:id "first-face" :name "First" :sort-order 0}
-                               {:id "second-face" :name "Second" :sort-order 1}]
+                    :personas [{:id "first-face" :name "First" :private false :sort-order 0}
+                               {:id "second-face" :name "Second" :private false :sort-order 1}]
                     ;; an account with no machine users still says so, rather
                     ;; than omitting the key and making the client guess
                     :machine-users []}
@@ -204,8 +205,8 @@
                      (as (create-token mine) :body {:id "second-face" :name "Second"}))]
             (is (= 201 (:status res)))
             (is (= "second-face" (:id (seen res))))
-            (is (= [{:id :first-face :name "First" :sort-order 0}
-                    {:id :second-face :name "Second" :sort-order 1}]
+            (is (= [{:id :first-face :name "First" :sort-order 0 :private? false}
+                    {:id :second-face :name "Second" :sort-order 1 :private? false}]
                    (ds/list-personas-for-account conn mine)))))
 
         (testing "without an :id one is generated"
@@ -325,7 +326,7 @@
           (ds/add-persona conn (:id alice) :alice "Alice"))
         (let [res ((handlers/list-accounts-handler true) (as (create-admin-token)))]
           (is (= 200 (:status res)))
-          (is (= [{:email "alice@et.n" :personas [{:id "alice" :name "Alice" :sort-order 0}]}
+          (is (= [{:email "alice@et.n" :personas [{:id "alice" :name "Alice" :private false :sort-order 0}]}
                   {:email "bob@et.n" :personas []}]
                  (mapv #(dissoc % :id) (seen res))))))
 
@@ -799,7 +800,7 @@
             (is (= 201 (:status res)))
             (is (= "alice" (:id (seen res))))
             (is (= fresh (:account-id (ds/get-persona-by-id conn :alice))))
-            (is (= [{:id :alice :name "Alice" :sort-order 0}]
+            (is (= [{:id :alice :name "Alice" :sort-order 0 :private? false}]
                    (ds/list-personas-for-account conn fresh)))))
 
         (testing "a second one lands after it in that account's order"

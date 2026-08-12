@@ -64,24 +64,49 @@
          3     (count (ds/list-personas conn))))
       (testing "- what an anonymous reader gets carries no email at all"
         (sets-are=
-         [{:id :dan :name "dan"} {:id :dan2 :name "Second Face"} {:id :eve :name "eve"}]
+         [{:id :dan :name "dan" :private? false}
+          {:id :dan2 :name "Second Face" :private? false}
+          {:id :eve :name "eve" :private? false}]
          (ds/list-personas conn)))
       (testing "- an account's own personas, in the order it holds them"
         (are=
-         [{:id :dan :name "dan" :sort-order 0} {:id :dan2 :name "Second Face" :sort-order 1}]
+         [{:id :dan :name "dan" :sort-order 0 :private? false}
+          {:id :dan2 :name "Second Face" :sort-order 1 :private? false}]
          (ds/list-personas-for-account conn mine)
-         [{:id :eve :name "eve" :sort-order 0}]
+         [{:id :eve :name "eve" :sort-order 0 :private? false}]
          (ds/list-personas-for-account conn theirs)))
       (testing "- a persona knows which account holds it; that is the ownership check"
         (are=
-         {:id :dan :name "dan" :account-id mine :sort-order 0} (ds/get-persona-by-id conn :dan)
-         {:id :eve :name "eve" :account-id theirs :sort-order 0} (ds/get-persona-by-id conn :eve)
+         {:id :dan :name "dan" :account-id mine :sort-order 0 :private? false} (ds/get-persona-by-id conn :dan)
+         {:id :eve :name "eve" :account-id theirs :sort-order 0 :private? false} (ds/get-persona-by-id conn :eve)
          nil (ds/get-persona-by-id conn :nobody)))
-      (testing "- the display name is the persona's own, and the only thing editable"
+      (testing "- the display name is the persona's own, and one of the two things editable"
         (ds/update-persona conn :dan {:name "Renamed"})
         (are=
          "Renamed" (:name (ds/get-persona-by-id conn :dan))
-         nil       (ds/update-persona conn :nobody {:name "x"}))))))
+         nil       (ds/update-persona conn :nobody {:name "x"})))
+      (testing "- the other is whether it is private, and absent is not false"
+        (ds/update-persona conn :dan {:private? true})
+        (are= true (:private? (ds/get-persona-by-id conn :dan)))
+        (testing "- a rename says nothing about it, so it cannot publish by omission"
+          (ds/update-persona conn :dan {:name "Renamed again"})
+          (are=
+           true          (:private? (ds/get-persona-by-id conn :dan))
+           "Renamed again" (:name (ds/get-persona-by-id conn :dan))))
+        (testing "- and an update naming nothing at all is a no-op, not a syntax error:
+                  honeysql renders an empty :set as `UPDATE personas SET WHERE ...`"
+          (are= {:success true} (ds/update-persona conn :dan {}))
+          (are= true (:private? (ds/get-persona-by-id conn :dan))))
+        (testing "- false publishes it again"
+          (ds/update-persona conn :dan {:private? false})
+          (are= false (:private? (ds/get-persona-by-id conn :dan)))))
+      (testing "- a persona can be minted private, so it is never public for an instant"
+        (are=
+         true  (ds/add-persona conn mine :hidden "Hidden" {:private? true})
+         true  (:private? (ds/get-persona-by-id conn :hidden))
+         false (:private? (ds/get-persona-by-id conn :dan2)))
+        (testing "- and its id is spent like any other address"
+          (are= false (ds/add-persona conn theirs :hidden "Mine now")))))))
 
 (deftest listing-accounts-for-the-admin
   (testing-with-conn "the Settings listing: accounts, their emails, their personas"
@@ -91,9 +116,9 @@
       (ds/add-persona conn a :two "Two")
       (ds/add-persona conn b :three "Three")
       (are=
-       [{:id a :email "a@et.n" :personas [{:id :one :name "One" :sort-order 0}
-                                          {:id :two :name "Two" :sort-order 1}]}
-        {:id b :email "b@et.n" :personas [{:id :three :name "Three" :sort-order 0}]}]
+       [{:id a :email "a@et.n" :personas [{:id :one :name "One" :sort-order 0 :private? false}
+                                          {:id :two :name "Two" :sort-order 1 :private? false}]}
+        {:id b :email "b@et.n" :personas [{:id :three :name "Three" :sort-order 0 :private? false}]}]
        (ds/list-accounts conn)))))
 
 (deftest deleting-a-persona-takes-its-identities-with-it
@@ -116,7 +141,7 @@
       (testing "- the persona row is gone"
         (are=
          nil          (ds/get-persona-by-id conn :doomed)
-         [{:id :spared :name "spared"}] (ds/list-personas conn)))
+         [{:id :spared :name "spared" :private? false}] (ds/list-personas conn)))
       (testing "- and every version of every identity under it"
         (are=
          []  (ds/get-identity-history conn doomed gone)
@@ -655,11 +680,11 @@
       (ds/add-machine-user conn mine "a-machine" {})
       (testing "- the admin account listing is humans only"
         (are=
-         [{:id mine :email "d@et.n" :personas [{:id :face-a :name "A" :sort-order 0}]}]
+         [{:id mine :email "d@et.n" :personas [{:id :face-a :name "A" :sort-order 0 :private? false}]}]
          (ds/list-accounts conn)))
       (testing "- and a machine user has no persona of its own to leak"
         (are=
-         [{:id :face-a :name "A"}] (ds/list-personas conn)
+         [{:id :face-a :name "A" :private? false}] (ds/list-personas conn)
          [] (ds/list-personas-for-account conn (:id (ds/get-machine-user conn "a-machine"))))))))
 
 (deftest deleting-a-persona-revokes-every-grant-on-it
