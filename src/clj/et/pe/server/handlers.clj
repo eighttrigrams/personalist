@@ -937,23 +937,33 @@
 
 (defn update-identity-handler
   "PUT /api/personas/:name/identities/:id — append a new version of an identity.
-   Takes {:name :text :valid_from? :relation_adds? :relation_removes?}, where
-   :name and :text are the new version's values in full rather than a patch.
-   :relation_adds are target identity ids, :relation_removes relation ids of the
-   form \"source/target\"; relations neither added nor removed carry forward.
-   Answers {:success true :valid-from <ISO-8601>}. There is no delete: an :id
-   with no versions yet gets its first one here instead of a 404. In prod mode
-   the token must be :name's own or admin's — 401 without a token, 403 with
-   another persona's. 404 when the persona does not exist.
+   Takes {:name :text :valid_from? :relation_adds? :relation_removes?
+   :relation_order?}, where :name and :text are the new version's values in full
+   rather than a patch. :relation_adds are target identity ids,
+   :relation_removes relation ids of the form \"source/target\"; relations
+   neither added nor removed carry forward. Answers {:success true :valid-from
+   <ISO-8601>}. There is no delete: an :id with no versions yet gets its first
+   one here instead of a 404. In prod mode the token must be :name's own or
+   admin's — 401 without a token, 403 with another persona's. 404 when the
+   persona does not exist.
+
+   :relation_order is a list of target identity ids and says how to **rank** the
+   resulting relations — the persona's view of which ones matter more. The
+   targets it names come first, in that order; anything it does not name keeps
+   its relative place after them, so a caller may rank two relations without
+   having to enumerate the rest. It is applied after :relation_adds, so one call
+   can add a relation and say where it goes. Omitting it says nothing about the
+   order, which is not the same as asking for the default one: the order the
+   previous version was saved with carries forward untouched.
 
    **A relation-only change is authored like any other version.** Relations live
-   on the version row (002), so adding or removing one writes a version, and it
-   is stamped with whoever committed *that call* — not with whoever wrote the
-   text it carries forward unchanged."
+   on the version row (002), so adding, removing or reordering one writes a
+   version, and it is stamped with whoever committed *that call* — not with
+   whoever wrote the text it carries forward unchanged."
   [req]
   (let [persona-name (str->keyword (get-in req [:params :name]))
         identity-id (str->keyword (get-in req [:params :id]))
-        {:keys [name text valid_from relation_adds relation_removes]} (:body req)
+        {:keys [name text valid_from relation_adds relation_removes relation_order]} (:body req)
         persona (ds/get-persona-by-id (ensure-conn) persona-name)
         ;; One timestamp for the version and every relation change it commits, so
         ;; relations share the version's timeline.
@@ -963,7 +973,8 @@
         (ds/save-identity-version (ensure-conn) persona identity-id name text (author-of req)
                                   {:valid-from t
                                    :relation-adds (or relation_adds [])
-                                   :relation-removes (or relation_removes [])})
+                                   :relation-removes (or relation_removes [])
+                                   :relation-order (or relation_order [])})
         {:status 200 :body {:success true :valid-from (str t)}})
       {:status 404 :body {:error "Persona not found"}})))
 

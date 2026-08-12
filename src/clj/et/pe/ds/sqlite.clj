@@ -661,6 +661,11 @@
 ;; an ordered list of {:target <identity-id> :description <string|nil>} maps.
 ;; Time-travel is then just "read that version's blob" — no event replay, no
 ;; separate table.
+;;
+;; **The order of that list is meant.** It is the persona's ranking of which
+;; relations matter more, `list-relations` hands the blob out in it, and because
+;; it lives on the version row it time-travels with everything else: an older
+;; version keeps the order it was saved with.
 ;; ---------------------------------------------------------------------------
 
 (defn- parse-relations [json-str]
@@ -693,6 +698,21 @@
   [rel-id]
   (subs rel-id (inc (.indexOf rel-id "/"))))
 
+(defn- order-relations
+  "Rank a relation set by a requested order of target ids: the ones `order`
+   names come first, in that order, and anything it does not name keeps its
+   relative place after them (the sort is stable).
+
+   An empty `order` is left alone rather than treated as \"order by nothing\".
+   Saying nothing about the order is not the same as asking for the default one —
+   every plain edit says nothing, and each of them would otherwise be a chance to
+   silently undo a ranking."
+  [rels order]
+  (if (empty? order)
+    rels
+    (let [rank (into {} (map-indexed (fn [i t] [(kw->str t) i]) order))]
+      (vec (sort-by #(get rank (:target %) Integer/MAX_VALUE) rels)))))
+
 (defn save-identity-version
   "Persist a new identity version, carrying its relation set forward from the
    current latest version and applying the requested changes. Because relations
@@ -700,10 +720,14 @@
 
    `relation-adds`    - seq of target ids (or {:target .. :description ..} maps).
    `relation-removes` - seq of relation ids in the form \"source/target\".
+   `relation-order`   - seq of target ids: the ranking to store the set in. See
+                        order-relations for what a partial one means. Applied
+                        after the adds, so one call can add a relation and say
+                        where it goes.
    `author`           - who is writing this version: \"human\", or a machine
                         user's own name. Positional, and required, for the
                         reason given above the write section."
-  [conn {persona-id :id :as _persona} id nm text author & [{:keys [valid-from relation-adds relation-removes]}]]
+  [conn {persona-id :id :as _persona} id nm text author & [{:keys [valid-from relation-adds relation-removes relation-order]}]]
   (let [t (or valid-from (Instant/ofEpochMilli (System/currentTimeMillis)))
         current (relation-blob-at conn persona-id id nil)
         remove-targets (set (map relation-target relation-removes))
@@ -713,7 +737,7 @@
                         :let [tgt (kw->str (if (map? a) (:target a) a))]
                         :when (not (contains? existing tgt))]
                     {:target tgt :description (when (map? a) (:description a))})
-        new-rels (into kept additions)]
+        new-rels (order-relations (into kept additions) relation-order)]
     (jdbc/execute! (:conn conn)
                    (sql/format {:insert-into :identities
                                 :values [{:composite_id (make-composite-id persona-id id)

@@ -982,6 +982,43 @@
             (is (= ["human" "daniel-machine" "human"] (authors-of conn :face source)))
             (is (= [] (ds/list-relations conn (ds/get-persona-by-id conn :face) source)))))))))
 
+(deftest a-relation-ranking-goes-over-the-wire-and-back
+  (with-app
+    (fn [conn]
+      (let [acc (ds/add-account conn "d@et.n" nil)]
+        (ds/add-persona conn acc :face "Face")
+        (let [human (create-token acc)
+              face (ds/get-persona-by-id conn :face)
+              source (wrote-identity human :face {:name "Source" :text "a text"})
+              a (wrote-identity human :face {:name "A" :text "a"})
+              b (wrote-identity human :face {:name "B" :text "b"})
+              c (wrote-identity human :face {:name "C" :text "c"})
+              targets #(mapv :target (ds/list-relations conn face source))
+              put (fn [body] (handlers/update-identity-handler
+                              (acting human :params {:name "face" :id (name source)}
+                                      :body (merge {:name "Source" :text "a text"} body))))]
+
+          (testing "the order relations arrive in is the order they are kept in"
+            (put {:relation_adds [(name a) (name b) (name c)]})
+            (is (= [a b c] (targets))))
+
+          ;; What the edit view sends when a row has been dragged: the whole
+          ;; ranking as it stands on screen, so that what the user let go of is
+          ;; what comes back on the next read.
+          (testing "and :relation_order re-ranks them"
+            (put {:relation_order [(name c) (name a) (name b)]})
+            (is (= [c a b] (targets))))
+
+          (testing "while a save that says nothing about the order leaves it alone"
+            (put {})
+            (is (= [c a b] (targets))))
+
+          (testing "an added relation can be ranked by the very call that adds it"
+            (let [d (wrote-identity human :face {:name "D" :text "d"})]
+              (put {:relation_adds [(name d)]
+                    :relation_order [(name d) (name c) (name a) (name b)]})
+              (is (= [d c a b] (targets))))))))))
+
 (deftest the-public-history-still-says-nothing-about-machine-users
   (with-app
     (fn [conn]

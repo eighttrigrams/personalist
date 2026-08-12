@@ -436,6 +436,105 @@
       (testing "- while the earlier version still shows the relation"
         (is (= expected (ds/list-relations conn dan source-id {:at t2})))))))
 
+(deftest relations-keep-the-order-they-were-added-in
+  (testing-with-conn "with nothing said about the order, relations stay as they came"
+    (let [dan (persona! :dan "d@et.n")
+          t1 (Instant/parse "2020-01-01T00:00:00Z")
+          source-id (ds/add-identity conn dan "source" "v1" "human" {:valid-from t1})
+          a (ds/add-identity conn dan "a" "a" "human" {:valid-from t1})
+          b (ds/add-identity conn dan "b" "b" "human" {:valid-from t1})
+          c (ds/add-identity conn dan "c" "c" "human" {:valid-from t1})]
+      (ds/save-identity-version conn dan source-id "source" "v2" "human"
+                                {:valid-from (Instant/parse "2020-02-01T00:00:00Z")
+                                 :relation-adds [b c a]})
+      (testing "- the adds' own order is the stored one"
+        (is (= [b c a] (mapv :target (ds/list-relations conn dan source-id)))))
+      (testing "- and a plain edit says nothing about it, so it carries forward"
+        (ds/update-identity conn dan source-id "source" "v3" "human"
+                            {:valid-from (Instant/parse "2020-03-01T00:00:00Z")})
+        (is (= [b c a] (mapv :target (ds/list-relations conn dan source-id))))))))
+
+(deftest relation-order-can-be-changed
+  (testing-with-conn "a version may rank its relations, and the ranking time-travels with it"
+    (let [dan (persona! :dan "d@et.n")
+          t1 (Instant/parse "2020-01-01T00:00:00Z")
+          t2 (Instant/parse "2020-02-01T00:00:00Z")
+          t3 (Instant/parse "2020-03-01T00:00:00Z")
+          source-id (ds/add-identity conn dan "source" "v1" "human" {:valid-from t1})
+          a (ds/add-identity conn dan "a" "a" "human" {:valid-from t1})
+          b (ds/add-identity conn dan "b" "b" "human" {:valid-from t1})
+          c (ds/add-identity conn dan "c" "c" "human" {:valid-from t1})]
+      (ds/save-identity-version conn dan source-id "source" "v2" "human"
+                                {:valid-from t2 :relation-adds [a b c]})
+      (ds/save-identity-version conn dan source-id "source" "v3" "human"
+                                {:valid-from t3 :relation-order [c a b]})
+      (testing "- the new version is in the requested order"
+        (is (= [c a b] (mapv :target (ds/list-relations conn dan source-id)))))
+      (testing "- the version before it keeps the order it was saved with"
+        (is (= [a b c] (mapv :target (ds/list-relations conn dan source-id {:at t2})))))
+      (testing "- and the ranking carries forward over a plain edit"
+        (ds/update-identity conn dan source-id "source" "v4" "human"
+                            {:valid-from (Instant/parse "2020-04-01T00:00:00Z")})
+        (is (= [c a b] (mapv :target (ds/list-relations conn dan source-id))))))))
+
+(deftest relation-order-is-applied-after-the-adds-and-removes
+  (testing-with-conn "one version may add, remove and rank in a single call"
+    (let [dan (persona! :dan "d@et.n")
+          t1 (Instant/parse "2020-01-01T00:00:00Z")
+          t2 (Instant/parse "2020-02-01T00:00:00Z")
+          t3 (Instant/parse "2020-03-01T00:00:00Z")
+          source-id (ds/add-identity conn dan "source" "v1" "human" {:valid-from t1})
+          a (ds/add-identity conn dan "a" "a" "human" {:valid-from t1})
+          b (ds/add-identity conn dan "b" "b" "human" {:valid-from t1})
+          c (ds/add-identity conn dan "c" "c" "human" {:valid-from t1})]
+      (ds/save-identity-version conn dan source-id "source" "v2" "human"
+                                {:valid-from t2 :relation-adds [a b]})
+      ;; c arrives, b goes, and the newcomer is ranked first — all in one version,
+      ;; which is what the edit view's Save does with a screenful of staged changes
+      (ds/save-identity-version conn dan source-id "source" "v3" "human"
+                                {:valid-from t3
+                                 :relation-adds [c]
+                                 :relation-removes [(str (name source-id) "/" (name b))]
+                                 :relation-order [c a]})
+      (is (= [c a] (mapv :target (ds/list-relations conn dan source-id)))))))
+
+(deftest a-partial-relation-order-leaves-the-rest-where-it-was
+  (testing-with-conn "the ranking names what it ranks; everything else keeps its place after it"
+    (let [dan (persona! :dan "d@et.n")
+          t1 (Instant/parse "2020-01-01T00:00:00Z")
+          t2 (Instant/parse "2020-02-01T00:00:00Z")
+          t3 (Instant/parse "2020-03-01T00:00:00Z")
+          source-id (ds/add-identity conn dan "source" "v1" "human" {:valid-from t1})
+          a (ds/add-identity conn dan "a" "a" "human" {:valid-from t1})
+          b (ds/add-identity conn dan "b" "b" "human" {:valid-from t1})
+          c (ds/add-identity conn dan "c" "c" "human" {:valid-from t1})
+          d (ds/add-identity conn dan "d" "d" "human" {:valid-from t1})]
+      (ds/save-identity-version conn dan source-id "source" "v2" "human"
+                                {:valid-from t2 :relation-adds [a b c d]})
+      ;; only the last two are spoken for; a and b are not demoted below anything
+      ;; they were above, they simply follow the ones that were named
+      (ds/save-identity-version conn dan source-id "source" "v3" "human"
+                                {:valid-from t3 :relation-order [d c]})
+      (is (= [d c a b] (mapv :target (ds/list-relations conn dan source-id)))))))
+
+(deftest a-relation-order-naming-nothing-known-is-harmless
+  (testing-with-conn "an order that names a target that is not there leaves the set alone"
+    (let [dan (persona! :dan "d@et.n")
+          t1 (Instant/parse "2020-01-01T00:00:00Z")
+          t2 (Instant/parse "2020-02-01T00:00:00Z")
+          source-id (ds/add-identity conn dan "source" "v1" "human" {:valid-from t1})
+          a (ds/add-identity conn dan "a" "a" "human" {:valid-from t1})
+          b (ds/add-identity conn dan "b" "b" "human" {:valid-from t1})
+          gone (ds/add-identity conn dan "gone" "gone" "human" {:valid-from t1})]
+      (ds/save-identity-version conn dan source-id "source" "v2" "human"
+                                {:valid-from t2 :relation-adds [a b]})
+      ;; the client may still be holding a relation the set no longer has — a
+      ;; removal staged beside the drag, say. Naming it must not disturb the rest.
+      (ds/save-identity-version conn dan source-id "source" "v3" "human"
+                                {:valid-from (Instant/parse "2020-03-01T00:00:00Z")
+                                 :relation-order [gone a b]})
+      (is (= [a b] (mapv :target (ds/list-relations conn dan source-id)))))))
+
 (deftest search-identities-time-travel
   (testing-with-conn "search identities with cutoff date returns versions at that time"
     (let [dan (persona! :dan "d@et.n")
