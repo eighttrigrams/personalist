@@ -43,9 +43,15 @@ Clicking the banner should:
 - If viewing a persona (not logged in): navigate to that persona's splash page
 - If neither: navigate to `/`
 
-### "Logged in: X" (when authenticated)
+### "Persona: X" (when authenticated, with an active persona)
 
 Clicking should navigate to the logged-in user's splash page.
+
+It used to read "Logged in: X" here. Logging in is a property of the account, and
+an account may hold several personas — none of which *is* the login — so the
+header names the active persona and says it the same way to both audiences. Where
+the account holds no active persona there is no persona to name, and it reads
+"Logged in: \<email\>" instead; clicking that opens the Personas tab.
 
 ### "Persona: X" (when viewing a persona without being logged in)
 

@@ -9,6 +9,22 @@
             [et.pe.ui.profile :refer [profile-tab]]
             [et.pe.ui.settings :refer [settings-tab]]))
 
+(defn- persona-label
+  "What the header calls a persona, and it now says it the same way to everybody.
+
+  It used to read `Persona: <name>` for a visitor and `Logged in: <persona>` for a
+  signed-in reader — one thing named two ways, and the signed-in half was wrong as
+  well as different. Logging in is a property of the **account**: an account may
+  hold several personas and none of them *is* the login, so a persona's name after
+  `Logged in:` describes the wrong thing. What a login is called is an email, and
+  that is what the header says in the one case where there is no persona to name.
+
+  The id is the fallback because that is what a persona is addressed by — the
+  visitor's half had no fallback, so a nameless persona rendered `Persona: ` there
+  and cannot now."
+  [persona]
+  (str "Persona: " (or (:name persona) (:id persona))))
+
 (defn header []
   (let [{:keys [current-user auth-user current-tab account]} @app-state
         ;; Logged in is a property of the *account*, not of having a persona:
@@ -60,18 +76,9 @@
                            :border "1px solid #555"
                            :border-radius "4px"}}
           "Users"])
-       (when (and logged-in? (not is-admin?))
-         [:<>
-          ;; One login may hold several personas now; this is where you see them
-          ;; all, switch between them, and add or remove one.
-          [:button {:on-click #(swap! app-state assoc :current-tab :profile)
-                    :style {:padding "0.5rem 1rem"
-                            :cursor "pointer"
-                            :background (if (= current-tab :profile) "#555" "#333")
-                            :color "white"
-                            :border "1px solid #555"
-                            :border-radius "4px"}}
-           "Personas"]])
+       ;; Personas is not here but on the right, beside the persona it switches.
+       ;; What is left on this side acts *within* the persona you are looking at —
+       ;; add an identity, search it — and Personas is how you leave it for another.
        (when (and logged-in? (not is-admin?) active-persona?)
          [:<>
           [:button {:on-click #(swap! app-state assoc :show-add-identity-modal true)
@@ -116,7 +123,7 @@
                                        :fixed-time nil)
                                 (fetch-recent-identities (:id current-user))
                                 (.pushState js/history nil "" (str "/" (:id current-user))))}
-          (str "Persona: " (:name current-user))]
+          (persona-label current-user)]
          [:span {:on-click #(do (swap! app-state assoc :current-user nil :identities [] :selected-identity nil
                                        :fixed-mode? false :fixed-time nil)
                                 (.pushState js/history nil "" "/"))
@@ -134,6 +141,18 @@
           "\u00D7"]])
       (when logged-in?
         [:<>
+         ;; One login may hold several personas now; this is where you see them
+         ;; all, switch between them, and add or remove one. It stands immediately
+         ;; left of the persona name, because that name is what it is about.
+         (when-not is-admin?
+           [:button {:on-click #(swap! app-state assoc :current-tab :profile)
+                     :style {:padding "0.5rem 1rem"
+                             :cursor "pointer"
+                             :background (if (= current-tab :profile) "#555" "#333")
+                             :color "white"
+                             :border "1px solid #555"
+                             :border-radius "4px"}}
+            "Personas"])
          [:span {:style {:cursor "pointer"}
                  :on-click #(if active-persona?
                               (do (swap! app-state assoc
@@ -146,8 +165,12 @@
                                   (.pushState js/history nil "" (str "/" (:id auth-user))))
                               ;; no active persona means no splash page to go to
                               (swap! app-state assoc :current-tab :profile))}
+          ;; The email only where there is no persona to name: an account may hold
+          ;; none, and then this is the only thing in the header that says whose
+          ;; session it is. With one active it names the persona, exactly as a
+          ;; visitor's header does.
           (if active-persona?
-            (str "Logged in: " (or (:name auth-user) (:id auth-user)))
+            (persona-label auth-user)
             (str "Logged in: " (or (:email account) "")))]
          [:button {:on-click logout-user
                    :style {:padding "0.5rem 1rem" :cursor "pointer"}}
