@@ -608,6 +608,31 @@
        (not= (mapv :id (effective-relations state))
              (mapv :id (base-relations state)))))
 
+(defn already-related?
+  "Whether the identity being edited already relates to `identity-id` — counting
+   what is on the board *and* what has been added without saving yet, because both
+   are relations as far as the next Save is concerned.
+
+   A relation staged for *removal* is not on the board and so is not counted: its
+   target may be offered again, and accepting it merely cancels the removal (see
+   add-relation)."
+  [state identity-id]
+  (contains? (into #{} (map #(name (:target %))) (effective-relations state))
+             (name identity-id)))
+
+(defn offerable-as-relation?
+  "Whether `identity-id` may be offered as something to relate *to*: neither the
+   identity being edited — an identity does not relate to itself — nor one it is
+   related to already.
+
+   The whole rule lives here rather than half in the search and half in the list
+   that renders it, so that a suggestion cannot come back by a route that only
+   remembered one half of it."
+  [state identity-id]
+  (and (not= (some-> (:identity (:selected-identity state)) name)
+             (name identity-id))
+       (not (already-related? state identity-id))))
+
 (defn- index-of [coll x]
   (first (keep-indexed (fn [i v] (when (= v x) i)) coll)))
 

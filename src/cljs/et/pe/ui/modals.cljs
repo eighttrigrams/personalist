@@ -3,6 +3,7 @@
             [et.pe.ui.state :refer [app-state select-persona try-login
                                     attempt-login
                                     search-identities select-identity
+                                    already-related? offerable-as-relation?
                                     add-relation add-identity]]))
 
 (defn login-modal []
@@ -241,7 +242,21 @@
          "Cancel"]]])))
 
 (defn add-relation-modal []
-  (let [{:keys [show-add-relation-modal relation-search-query relation-search-results selected-identity]} @app-state]
+  (let [{:keys [show-add-relation-modal relation-search-query relation-search-results
+                selected-identity] :as state} @app-state
+        ;; What is left to offer. Filtered *before* the list is cut down to five,
+        ;; so the five slots go to identities that can actually be picked rather
+        ;; than being spent on ones already related.
+        candidates (into [] (comp (filter #(offerable-as-relation? state (:identity %)))
+                                  (take 5))
+                         relation-search-results)
+        ;; ...and when the query matched only relations that already exist, say so:
+        ;; an empty list under a query that plainly matches something reads as a
+        ;; broken search. Not said for a query that only matched the identity
+        ;; itself, which is not a relation anybody was told about.
+        all-related? (and (empty? candidates)
+                          (boolean (some #(already-related? state (:identity %))
+                                         relation-search-results)))]
     (when show-add-relation-modal
       [:div {:style {:position "fixed"
                      :top 0
@@ -273,17 +288,21 @@
                               (let [q (-> e .-target .-value)]
                                 (swap! app-state assoc :relation-search-query q)
                                 (when (>= (count q) 1)
-                                  (search-identities q #(swap! app-state assoc :relation-search-results (take 5 %))))))
+                                  ;; kept whole; the cut to five happens after the
+                                  ;; already-related ones have been taken out
+                                  (search-identities q #(swap! app-state assoc :relation-search-results %)))))
                  :style {:width "100%"
                          :padding "0.75rem"
                          :font-size "1rem"
                          :border "1px solid #ccc"
                          :border-radius "4px"
                          :margin-bottom "1rem"}}]
-        (when (seq relation-search-results)
+        (when all-related?
+          [:p {:style {:color "#666" :font-style "italic" :margin "0 0 0.5rem 0"}}
+           "Already related to everything this matches."])
+        (when (seq candidates)
           [:ul {:style {:list-style "none" :padding 0 :margin 0}}
-           (for [result relation-search-results
-                 :when (not= (:identity result) (:identity selected-identity))]
+           (for [result candidates]
              ^{:key (:identity result)}
              [:li {:on-click #(add-relation (:identity result) (:name result))
                    :style {:padding "0.75rem"
