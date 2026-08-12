@@ -7,7 +7,8 @@
    left to check a new one against."
   (:require [reagent.core :as r]
             [et.pe.ui.state :refer [app-state valid-email? fetch-accounts
-                                    create-account update-persona]]))
+                                    create-account update-persona]]
+            [et.pe.ui.persona :refer [private-badge]]))
 
 (defn- account-form
   "An account is an email and a password, and this form shows exactly those. It
@@ -60,7 +61,13 @@
 (defn- persona-row
   "One persona of an account. Only the display name is editable here: the email
    and the password belong to the account above it, and a persona's id is its
-   public address and never changes."
+   address and never changes.
+
+   Whether it is private is shown but not editable: admin is entitled to *read* a
+   private persona, by the same authority that lets it edit another account's
+   display name, and hiding them from this roster would only stop it finding the
+   one it is allowed to open. Publishing somebody else's persona is a different
+   act, and it belongs to the account that chose to hide it."
   [_p]
   (let [editing? (r/atom false)
         edit-display-name (r/atom nil)
@@ -98,6 +105,7 @@
           [:span {:style {:color "#888" :font-size "0.85rem" :font-family "monospace" :min-width "140px"}}
            (:id p)]
           [:span {:style {:flex 1}} (or (:name p) (:id p))]
+          (when (:private p) private-badge)
           [:button {:on-click #(do (reset! edit-display-name (or (:name p) (:id p)))
                                    (reset! editing? true))
                     :style {:padding "0.25rem 0.5rem" :cursor "pointer"}}

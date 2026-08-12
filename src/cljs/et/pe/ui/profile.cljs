@@ -9,11 +9,14 @@
             [et.pe.ui.state :refer [app-state generate-id create-persona
                                     delete-persona switch-persona show-notification
                                     create-machine-user rotate-machine-token
-                                    update-machine-user delete-machine-user]]))
+                                    update-machine-user delete-machine-user
+                                    update-persona fetch-me fetch-personas]]
+            [et.pe.ui.persona :refer [private-badge]]))
 
 (defn- create-form []
   (let [generated-id (r/atom nil)
         display-name (r/atom "")
+        private? (r/atom false)
         error (r/atom nil)
         regenerate! (fn [] (generate-id #(reset! generated-id %)))
         submit! (fn []
@@ -22,9 +25,10 @@
                     (not (seq @generated-id)) (reset! error "ID not generated yet")
                     (not (seq @display-name)) (reset! error "Display name is required")
                     :else
-                    (create-persona @generated-id @display-name
+                    (create-persona @generated-id @display-name @private?
                                     (fn [_]
                                       (reset! display-name "")
+                                      (reset! private? false)
                                       (regenerate!)
                                       (show-notification "Persona created" :success))
                                     #(reset! error %))))]
@@ -48,6 +52,17 @@
                                 (reset! error nil))
                 :on-key-down #(when (= (.-key %) "Enter") (submit!))
                 :style {:padding "0.5rem"}}]
+       ;; Chosen here rather than toggled after the fact, so a persona meant to
+       ;; be private is never a public address for as long as it takes to press
+       ;; a second button.
+       [:label {:style {:display "flex" :align-items "flex-start" :gap "0.4rem"
+                        :font-size "0.9rem" :cursor "pointer" :margin-top "0.25rem"}}
+        [:input {:type "checkbox"
+                 :checked @private?
+                 :on-change #(swap! private? not)
+                 :style {:margin-top "0.2rem"}}]
+        [:span "Private — only you can read it. The address answers everyone
+                else as though there were no such persona."]]
        (when @error
          [:p {:style {:color "red" :margin 0 :font-size "0.85rem"}} @error])
        [:button {:on-click submit!
@@ -112,26 +127,44 @@
                              :color "white" :border "none" :border-radius "4px"}}
             "Remove permanently"]]]]))))
 
-(defn- persona-row [persona active? on-remove]
-  [:li {:style {:padding "0.75rem" :background (if active? "#e8f5e9" "#f5f5f5")
-                :border (if active? "1px solid #a5d6a7" "1px solid transparent")
-                :margin-bottom "0.5rem" :border-radius "4px"
-                :display "flex" :align-items "center" :gap "0.75rem"}}
-   [:span {:style {:color "#888" :font-size "0.85rem" :font-family "monospace" :min-width "140px"}}
-    (:id persona)]
-   [:strong {:style {:flex 1}} (or (:name persona) (:id persona))]
-   (if active?
-     [:span {:style {:color "#2e7d32" :font-size "0.85rem"}} "active"]
-     [:button {:on-click #(switch-persona persona)
-               :style {:padding "0.25rem 0.5rem" :cursor "pointer"}}
-      "Enter"])
-   ;; Every persona offers Remove, the last one included: an account may hold
-   ;; none. The hand-typed confirmation is the guard, and it is enough.
-   [:button {:on-click #(on-remove persona)
-             :style {:padding "0.25rem 0.5rem" :cursor "pointer"
-                     :background "#fff" :color "#c62828"
-                     :border "1px solid #ef9a9a" :border-radius "4px"}}
-    "Remove"]])
+(defn- persona-row
+  "One persona of the account: its address, its display name, whether it is
+   private, and the three things that can be done to it.
+
+   **Private is a plain toggle and not a confirmed step**, unlike Remove. Hiding
+   destroys nothing, and publishing something that was private is undone by
+   pressing it again — what the hand-typed confirmation next to it guards is the
+   step there is no way back from."
+  [persona active? on-remove on-toggle-private]
+  (let [private? (boolean (:private persona))]
+    [:li {:style {:padding "0.75rem" :background (if active? "#e8f5e9" "#f5f5f5")
+                  :border (if active? "1px solid #a5d6a7" "1px solid transparent")
+                  :margin-bottom "0.5rem" :border-radius "4px"
+                  :display "flex" :align-items "center" :gap "0.75rem"}}
+     [:span {:style {:color "#888" :font-size "0.85rem" :font-family "monospace" :min-width "140px"}}
+      (:id persona)]
+     [:strong {:style {:flex 1}} (or (:name persona) (:id persona))]
+     (when private? private-badge)
+     [:button {:on-click #(on-toggle-private persona)
+               :title (if private?
+                        "Make this a public address again"
+                        "Only you will be able to read it")
+               :style {:padding "0.25rem 0.5rem" :cursor "pointer"
+                       :background "#fff" :color "#5c4b8a"
+                       :border "1px solid #d5cbee" :border-radius "4px"}}
+      (if private? "Publish" "Make private")]
+     (if active?
+       [:span {:style {:color "#2e7d32" :font-size "0.85rem"}} "active"]
+       [:button {:on-click #(switch-persona persona)
+                 :style {:padding "0.25rem 0.5rem" :cursor "pointer"}}
+        "Enter"])
+     ;; Every persona offers Remove, the last one included: an account may hold
+     ;; none. The hand-typed confirmation is the guard, and it is enough.
+     [:button {:on-click #(on-remove persona)
+               :style {:padding "0.25rem 0.5rem" :cursor "pointer"
+                       :background "#fff" :color "#c62828"
+                       :border "1px solid #ef9a9a" :border-radius "4px"}}
+      "Remove"]]))
 
 
 ;; ---------------------------------------------------------------------------
@@ -334,7 +367,24 @@
           [machine-user-form #(reset! token %)]]]))))
 
 (defn profile-tab []
-  (let [removing (r/atom nil)]
+  (let [removing (r/atom nil)
+        toggle-error (r/atom nil)
+        ;; The row is drawn from :account, so the answer has to come back from
+        ;; the server before the badge changes — /api/me is where the flag lives.
+        ;; The public list is refreshed too: in dev it is the login screen and
+        ;; carries the badge as well.
+        toggle-private! (fn [p]
+                          (reset! toggle-error nil)
+                          (update-persona (:id p) {:private (not (boolean (:private p)))}
+                                          (fn []
+                                            (fetch-me nil nil)
+                                            (fetch-personas)
+                                            (show-notification
+                                             (if (:private p)
+                                               (str (or (:name p) (:id p)) " is public again")
+                                               (str (or (:name p) (:id p)) " is private now"))
+                                             :success))
+                                          #(reset! toggle-error %)))]
     (fn []
       (let [{:keys [account auth-user]} @app-state
             personas (:personas account)]
@@ -345,6 +395,13 @@
           (if (seq personas)
             "Nobody else can tell that these personas belong together."
             "An account is an email and a password; personas are what you make with it.")]
+         (when (some :private personas)
+           [:p {:style {:color "#5c4b8a" :font-size "0.9rem" :margin-top "-0.5rem"}}
+            "A private persona is not listed anywhere and its address answers
+             everyone but you as though there were no such persona. Your machine
+             users still write the ones you granted them."])
+         (when @toggle-error
+           [:p {:style {:color "red" :font-size "0.9rem"}} @toggle-error])
          (when @removing
            [remove-dialog @removing #(reset! removing nil)])
          [:div {:style {:margin-bottom "2rem"}}
@@ -354,7 +411,8 @@
                ^{:key (:id p)}
                [persona-row p
                 (= (:id p) (:id auth-user))
-                #(reset! removing %)])]
+                #(reset! removing %)
+                toggle-private!])]
             ;; Where the list would be. This is where a new account lands, so it
             ;; reads as a starting point rather than as something having gone
             ;; wrong — the Add form below is the next thing on the page.

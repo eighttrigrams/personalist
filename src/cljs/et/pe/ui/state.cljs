@@ -102,17 +102,38 @@
     {"Authorization" (str "Bearer " token)}
     {}))
 
+(defn- acting-persona
+  "The persona id whose account this client acts as: the *logged-in* one, never
+   the one being explored. Exploring somebody is not becoming them."
+  []
+  (or (:id (:auth-user @app-state)) (load-auth-persona) ""))
+
 (defn- acting-as
   "Every call that acts *as an account* goes through here. In prod the Bearer
    token names it. In dev with :dangerously-skip-logins? nothing mints a token
    at all, so the server takes the acting account off ?persona=<id> instead —
-   and this is the one place the client knows about that."
+   and this is the one place the client knows about that.
+
+   **Every persona-scoped read goes through this now, not only the three calls
+   that ask about an account.** A persona may be private since 006, and a read
+   that named nobody would be answered 'no such persona' — including the owner's
+   own browsing of his own persona. A public read carries the credential and is
+   answered exactly as it was before; there is nothing here for the server to act
+   on until the persona is private."
   [url]
   (if (:auth-token @app-state)
     url
     (str url (if (str/includes? url "?") "&" "?")
-         "persona=" (js/encodeURIComponent
-                     (or (:id (:auth-user @app-state)) (load-auth-persona) "")))))
+         "persona=" (js/encodeURIComponent (acting-persona)))))
+
+(defn- acting-params
+  "As `acting-as`, but folded into ajax's :params instead of the URL — for the
+   reads that already pass params, where two things building the same query
+   string would both have to be right about `?` and `&`."
+  [params]
+  (if (:auth-token @app-state)
+    params
+    (assoc params :persona (acting-persona))))
 
 (defn fetch-me
   "Load the account behind the current credentials into :account: its email and
@@ -132,15 +153,20 @@
                       (when on-failure (on-failure err)))}))
 
 (defn fetch-personas []
-  (GET (str api-base "/api/personas")
+  (GET (acting-as (str api-base "/api/personas"))
     {:handler (fn [res]
                 (swap! app-state assoc :personas res))
+     :headers (auth-headers)
      :response-format :json
      :keywords? true
      :error-handler #(js/console.error "Error fetching personas" %)}))
 
-(defn update-persona [persona-id updates on-success on-error]
-  (PUT (str api-base "/api/personas/" persona-id)
+(defn update-persona
+  "Change one of the account's personas: its display `:name`, whether it is
+   `:private`, or both. A key left out of `updates` is left alone by the server,
+   so a rename cannot publish a private persona by omission."
+  [persona-id updates on-success on-error]
+  (PUT (acting-as (str api-base "/api/personas/" persona-id))
     {:params updates
      :format :json
      :response-format :json
@@ -163,31 +189,42 @@
      :error-handler #(js/console.error "Error checking password required" %)}))
 
 (defn fetch-identities [persona-name]
-  (GET (str api-base "/api/personas/" persona-name "/identities")
+  (GET (acting-as (str api-base "/api/personas/" persona-name "/identities"))
     {:handler (fn [res]
                 (swap! app-state assoc :identities res))
+     :headers (auth-headers)
      :response-format :json
      :keywords? true
      :error-handler #(js/console.error "Error fetching identities" %)}))
 
 (defn fetch-recent-identities [persona-name]
-  (GET (str api-base "/api/personas/" persona-name "/identities/recent")
+  (GET (acting-as (str api-base "/api/personas/" persona-name "/identities/recent"))
     {:handler (fn [res]
                 (swap! app-state assoc
                        :recent-identities (:items res)
                        :recent-identities-offset 0
                        :recent-identities-has-more (:has-more res)))
+     :headers (auth-headers)
      :response-format :json
      :keywords? true
-     :error-handler #(js/console.error "Error fetching recent identities" %)}))
+     ;; A 404 here is the server saying this persona is not there *for you* — it
+     ;; is private and you are not its account. load-from-url found it in the
+     ;; persona list, which in dev lists every one because that list is the login
+     ;; screen; this is where the splash page learns better, rather than showing
+     ;; a name with nothing under it.
+     :error-handler (fn [err]
+                      (if (= 404 (:status err))
+                        (swap! app-state assoc :not-found-persona persona-name :current-user nil)
+                        (js/console.error "Error fetching recent identities" err)))}))
 
 (defn fetch-more-recent-identities [persona-name offset]
-  (GET (str api-base "/api/personas/" persona-name "/identities/recent?offset=" offset)
+  (GET (acting-as (str api-base "/api/personas/" persona-name "/identities/recent?offset=" offset))
     {:handler (fn [res]
                 (swap! app-state assoc
                        :recent-identities (:items res)
                        :recent-identities-offset offset
                        :recent-identities-has-more (:has-more res)))
+     :headers (auth-headers)
      :response-format :json
      :keywords? true
      :error-handler #(js/console.error "Error fetching more recent identities" %)}))
@@ -216,8 +253,9 @@
   ([identity-id] (fetch-identity-history identity-id nil))
   ([identity-id url-time]
    (let [{:keys [current-user]} @app-state]
-     (GET (str api-base "/api/personas/" (:id current-user) "/identities/" identity-id "/history")
-       {:handler (fn [res]
+     (GET (acting-as (str api-base "/api/personas/" (:id current-user) "/identities/" identity-id "/history"))
+       {:headers (auth-headers)
+        :handler (fn [res]
                    (swap! app-state assoc :identity-history res)
                    (when (seq res)
                      (let [slider-idx (find-slider-index-for-time res url-time)
@@ -237,7 +275,8 @@
 (defn fetch-identity-at [identity-id time-str]
   (let [{:keys [current-user]} @app-state]
     (GET (str api-base "/api/personas/" (:id current-user) "/identities/" identity-id "/at")
-      {:params {:time time-str}
+      {:params (acting-params {:time time-str})
+       :headers (auth-headers)
        :handler (fn [res]
                   (swap! app-state assoc :editing-name (:name res) :editing-text (:text res)))
        :response-format :json
@@ -249,8 +288,9 @@
   ([identity-id time-str]
    (let [{:keys [current-user]} @app-state
          url (str api-base "/api/personas/" (:id current-user) "/identities/" identity-id "/relations")]
-     (GET (if time-str (str url "?time=" (js/encodeURIComponent time-str)) url)
-       {:handler (fn [res]
+     (GET (acting-as (if time-str (str url "?time=" (js/encodeURIComponent time-str)) url))
+       {:headers (auth-headers)
+        :handler (fn [res]
                    (swap! app-state assoc :relations res))
         :response-format :json
         :keywords? true
@@ -416,8 +456,9 @@
 (defn load-from-url [on-complete]
   (let [{:keys [persona-id identity-id editing? fixed? time]} (parse-url)]
     (swap! app-state assoc :url-edit-mode editing? :not-found-persona nil :not-found-identity nil)
-    (GET (str api-base "/api/personas")
-      {:handler (fn [personas]
+    (GET (acting-as (str api-base "/api/personas"))
+      {:headers (auth-headers)
+       :handler (fn [personas]
                   (swap! app-state assoc :personas personas)
                   ;; fixed mode is an exploring-user feature; a logged-in user ignores it
                   (let [fixed? (and fixed? (nil? (:auth-user @app-state)))]
@@ -434,8 +475,9 @@
                                :selected-identity nil)
                         (fetch-recent-identities persona-id)
                         (when identity-id
-                          (GET (str api-base "/api/personas/" persona-id "/identities/" (name identity-id))
-                            {:handler (fn [identity]
+                          (GET (acting-as (str api-base "/api/personas/" persona-id "/identities/" (name identity-id)))
+                            {:headers (auth-headers)
+                             :handler (fn [identity]
                                         (swap! app-state assoc
                                                :selected-identity identity
                                                :editing-name (:name identity)
@@ -710,7 +752,8 @@
          params (cond-> {:q query}
                   valid-at (assoc :valid_at valid-at))]
      (GET (str api-base "/api/personas/" (:id current-user) "/identities/search")
-       {:params params
+       {:params (acting-params params)
+        :headers (auth-headers)
         :handler callback
         :response-format :json
         :keywords? true
@@ -875,10 +918,13 @@
 (defn create-persona
   "Mint another persona under the logged-in account. The server takes the
    account off the token, so there is nothing here that could name someone
-   else's."
-  [id display-name on-success on-error]
+   else's.
+
+   `private?` is passed at creation rather than toggled afterwards so a persona
+   meant to be private never spends an instant as a public address."
+  [id display-name private? on-success on-error]
   (POST (acting-as (str api-base "/api/personas"))
-    {:params {:id id :name display-name}
+    {:params {:id id :name display-name :private (boolean private?)}
      :format :json
      :response-format :json
      :keywords? true
