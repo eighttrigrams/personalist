@@ -48,6 +48,149 @@
                         ranges)]
     (mapv #(get by-line (inc %)) (range line-count))))
 
+;; ---------------------------------------------------------------------------
+;; Aligning a draft against the text the ranges are about
+;;
+;; The provenance tab used to draw the **last saved** text and only that, whatever
+;; was in the editor — so a line just typed into it was not on the tab at all,
+;; while the tab went on calling itself *the text as it stands now*. The owner
+;; reported it against cookbook and asked whether the same held here:
+;;
+;; > i think you need to compare how provenance looks before and after a change.
+;; > the interesting case is when i insert human edit into agentic surroundings
+;;
+;; It did, in its own way: cookbook showed the draft and went blank below the
+;; caret, this showed a different document. Both answers left out the one thing he
+;; was looking at.
+;;
+;; What follows is `et.cb.ui.provenance`'s, function for function and rule for
+;; rule, for the reason the ns docstring above gives about the colour scale: one
+;; mechanism means one thing across the suite, and a reader who has learnt how a
+;; Recipe previews should not have to learn this again. Cookbook's copy carries the
+;; long argument; this one carries the summary and the pointer.
+;; ---------------------------------------------------------------------------
+
+(def ^:private alignment-budget
+  "The largest DP table to build once the common head and tail are off, in cells.
+  Beyond it the middle is left unaligned rather than aligned slowly — 200 changed
+  lines against 200 is a rewrite, and *we do not know* is the honest reading of
+  one. Ordinary typing never approaches it: the trim leaves a middle the size of
+  what was touched."
+  40000)
+
+(defn- prefix-count
+  "How many lines `a` and `b` share from the top."
+  [a b]
+  (let [n (min (count a) (count b))]
+    (loop [i 0]
+      (if (and (< i n) (= (nth a i) (nth b i))) (recur (inc i)) i))))
+
+(defn- suffix-count
+  "How many lines `a` and `b` share from the bottom, without running back into the
+  `already` lines the head claimed — so head and tail cannot overlap and the middle
+  is never a negative slice."
+  [a b already]
+  (let [na (count a) nb (count b)
+        n (- (min na nb) already)]
+    (loop [i 0]
+      (if (and (< i n) (= (nth a (- na i 1)) (nth b (- nb i 1))))
+        (recur (inc i))
+        i))))
+
+(defn- lcs-alignment
+  "For each index of `b`, the index of `a` a longest common subsequence matches it
+  to, or nil. Plain O(n·m) dynamic programming over an `Int32Array`, filled from
+  the bottom right so the walk back out reads forwards.
+
+  A line can be identical and still come back nil when the chosen subsequence did
+  not include it — two lines swapped round is the plain case. `draft-cautions`
+  says why that lands on the safe side."
+  [a b]
+  (let [na (count a) nb (count b)
+        w (inc nb)
+        dp (js/Int32Array. (* (inc na) w))]
+    (loop [i (dec na)]
+      (when (>= i 0)
+        (loop [j (dec nb)]
+          (when (>= j 0)
+            (aset dp (+ (* i w) j)
+                  (if (= (nth a i) (nth b j))
+                    (inc (aget dp (+ (* (inc i) w) (inc j))))
+                    (max (aget dp (+ (* (inc i) w) j))
+                         (aget dp (+ (* i w) (inc j))))))
+            (recur (dec j))))
+        (recur (dec i))))
+    (let [out (js/Array. nb)]
+      (loop [i 0 j 0]
+        (when (< j nb)
+          (cond
+            (>= i na)
+            (do (aset out j nil) (recur i (inc j)))
+
+            (= (nth a i) (nth b j))
+            (do (aset out j i) (recur (inc i) (inc j)))
+
+            (>= (aget dp (+ (* (inc i) w) j)) (aget dp (+ (* i w) (inc j))))
+            (recur (inc i) j)
+
+            :else
+            (do (aset out j nil) (recur i (inc j))))))
+      (vec out))))
+
+(defn- aligned-to-stored
+  "For each line of `draft`, which line of `stored` it **is** — an index into
+  `stored`, or nil for a line being typed now, or `:unknown` where the alignment
+  was not computed.
+
+  The third is not a nil and the two must not be collapsed: *you typed this* and
+  *we did not work it out* have opposite consequences one function along, and a
+  budget overrun that read as the first would claim a pasted-in body was all his."
+  [stored draft]
+  (let [ns (count stored) nd (count draft)
+        p (prefix-count stored draft)
+        s (suffix-count stored draft p)
+        a (subvec stored p (- ns s))
+        b (subvec draft p (- nd s))
+        mid (if (> (* (count a) (count b)) alignment-budget)
+              (vec (repeat (count b) :unknown))
+              (mapv #(when (number? %) (+ p %)) (lcs-alignment a b)))]
+    (-> (vec (range 0 p))
+        (into mid)
+        (into (map #(+ (- ns s) %)) (range s)))))
+
+(defn draft-cautions
+  "One number per line for the text **in the editor**, aligned against the ranges
+  the server sent for the saved one.
+
+  > A draft line the diff matches to a saved line keeps that line's caution,
+  > wherever it has moved to. A line the diff matches to nothing is one being typed
+  > now, so it is the person's.
+
+  The second sentence is a claim, and what backs it is where this is called from:
+  the text field of an identity the account holds, whose Save writes a version
+  `handlers/author-of` stamps `human`. A line in the draft and in no saved line
+  reached the text through that field, so it is theirs by the rule the server will
+  apply the moment they press Save.
+
+  **Where it is imprecise it is imprecise towards the person's end**, which is the
+  safe way round and the same direction `et.pe.provenance/ours` already chooses:
+  an unrecognised marker falls to *them*, so the mistake is being needlessly
+  careful. Blue where red belonged costs an agent a line it could have rewritten;
+  red where blue belonged costs the person a sentence.
+
+  It survives nothing: the next read of the guarded provenance route brings ranges
+  computed by `us-vs-them` over the text that actually landed."
+  [saved-text ranges draft-text]
+  (let [saved (vec (split-lines saved-text))
+        saved-cautions (line-cautions ranges (count saved))
+        draft (vec (split-lines draft-text))]
+    (mapv (fn [m]
+            (cond
+              (= :unknown m) nil
+              (nil? m) 1.0
+              :else (nth saved-cautions m nil)))
+          (aligned-to-stored saved draft))))
+
 (def ^:private human-end
   "The hand-written end of the scale. Cookbook's `--provenance-human`, kept to the
   same value on purpose: one spectrum means one thing across the suite, and a

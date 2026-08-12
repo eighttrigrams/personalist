@@ -163,28 +163,53 @@
    identity is handed, so the two readers are told the same thing in the same
    vocabulary."
   []
-  (let [{:keys [provenance identity-history slider-value]} @app-state
+  (let [{:keys [provenance identity-history slider-value editing-text]} @app-state
         {:keys [legend ranges versions]} provenance
         ;; the newest version's text, which is what the ranges are about
-        text (:text (last identity-history))
-        lines (provenance/split-lines text)
-        cautions (provenance/line-cautions ranges (count lines))
+        saved (:text (last identity-history))
         ;; ...which is not the version the picker is on while the slider is back
         ;; in the history. Said out loud rather than left to be noticed: this tab
         ;; answers about the latest text, and switching back to Edit or View while
         ;; time-travelling shows a different one.
         time-travelling? (and (seq identity-history)
-                              (< slider-value (dec (count identity-history))))]
+                              (< slider-value (dec (count identity-history))))
+        ;; **The draft, not the saved text — except while time-travelling.**
+        ;; This tab sits beside Edit over one field, so what it is a reading *of*
+        ;; is whatever is in that field. It used to draw the saved text
+        ;; regardless, which meant a line just typed was not on the tab at all
+        ;; while the tab called itself "as it stands now".
+        ;;
+        ;; The exception is not a hedge. While the slider is back in the history
+        ;; the editor holds an *older version's* text (fetch-identity-at loads it
+        ;; there), and the ranges are about the newest — so aligning the two would
+        ;; hand every line that is only in the old version to draft-cautions'
+        ;; second rule and colour it as something the person is typing right now.
+        ;; That is the one confident lie this view must not tell, so the older
+        ;; text is not offered as a draft at all and the note below says which
+        ;; version is on screen.
+        draft? (and (not time-travelling?)
+                    (string? editing-text)
+                    (not= editing-text saved))
+        text (if time-travelling? saved (or editing-text saved))
+        lines (provenance/split-lines text)
+        cautions (if draft?
+                   (provenance/draft-cautions saved ranges text)
+                   (provenance/line-cautions ranges (count lines)))]
     (when provenance
       [:div {:style text-field-style}
        [:div {:style {:font-size "0.8rem" :color "#666" :margin-bottom "0.75rem"}}
         legend]
        [:div {:style {:font-size "0.75rem" :color "#999" :margin-bottom "0.75rem"}}
-        (str "The text as it stands now, in "
+        (str (if draft?
+               "The text as you have it now, unsaved, over "
+               "The text as it stands now, in ")
              (count versions)
              (if (= 1 (count versions)) " version, written by " " versions, written by ")
              (->> versions (map :author) distinct sort (str/join ", "))
              "."
+             (when draft?
+               " Lines you have not saved yet are shown as yours; saving is what
+                settles it.")
              (when time-travelling?
                (str " The picker above is on version " (inc slider-value) " of "
                     (count identity-history) "; this is the latest.")))]

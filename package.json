@@ -25,7 +25,7 @@
     "@codemirror/commands": "6.10.3",
     "@codemirror/state": "6.6.0",
     "@codemirror/view": "6.43.1",
-    "@eighttrigrams/kw-codemirror": "file:vendor/eighttrigrams-kw-codemirror-0.0.1.tgz",
+    "@eighttrigrams/kw-codemirror": "file:vendor/eighttrigrams-kw-codemirror-0.0.2.tgz",
     "marked": "^17.0.1",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
