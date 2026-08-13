@@ -29,7 +29,13 @@
         eighttrigrams/us-vs-them          {:local/root "../us-vs-them"}
         }
  :aliases {:run {:exec-fn et.pe.server/-main}
-           :test {:extra-paths ["test/clj"]
+           ;; Tests are quiet at :info. Each one builds its own in-memory database,
+           ;; and each of those logs its connection plus its six migrations — some
+           ;; hundreds of lines per run, which is what `make deploy` shows you
+           ;; instead of the result. Telemere reads this property itself, so no
+           ;; namespace has to know that it is being run by a test.
+           :test {:jvm-opts ["-Dtaoensso.telemere.rt-min-level=:warn"]
+                  :extra-paths ["test/clj"]
                   :extra-deps  {io.github.cognitect-labs/test-runner {:git/tag "v0.5.1"
                                                                       :git/sha "dfb30dd"}}
                   :main-opts   ["-m" "cognitect.test-runner"]
